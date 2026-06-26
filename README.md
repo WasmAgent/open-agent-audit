@@ -2,6 +2,8 @@
 
 > Open evidence format and Cloudflare-native audit toolkit for enterprise AI agents.
 
+![WasmAgent product matrix](https://raw.githubusercontent.com/WasmAgent/wasmagent/main/assets/product-matrix.webp)
+
 **Agent logs are not audit evidence.** OpenAgentAudit turns tool calls, policy
 decisions, human approvals, benchmark results, and runtime traces into
 defensible technical evidence reports.
