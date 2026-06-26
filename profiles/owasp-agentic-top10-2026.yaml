@@ -1,0 +1,129 @@
+id: owasp-agentic-top10-2026
+name: OWASP Top 10 for Agentic Applications 2026
+version: 0.1
+source_url: https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/
+disclaimer: >
+  Technical evidence support only. This mapping is interpretive and
+  non-binding. It does not constitute legal advice or a determination of
+  conformance with OWASP guidance.
+
+requirements:
+  - id: AAI01
+    label: Memory Poisoning and Persistent Context Manipulation
+    evidence:
+      - observation_provenance
+      - context_window_records
+      - memory_write_records
+    tests:
+      - observation_source_signed
+      - memory_write_has_evidence_id
+    limitation: >
+      Detects only what is present in the trace; out-of-band memory channels
+      are not visible.
+
+  - id: AAI02
+    label: Tool Misuse and Unsafe Tool Invocation
+    evidence:
+      - tool_call
+      - capability_manifest
+      - policy_decision
+    tests:
+      - tool_within_declared_capability
+      - high_risk_action_has_approval
+    limitation: >
+      Conformance assumes the capability manifest is honestly declared.
+
+  - id: AAI03
+    label: Privilege Escalation and Excessive Agency
+    evidence:
+      - capability_manifest
+      - tool_call
+      - policy_decision
+    tests:
+      - least_privilege_check
+      - escalation_attempts_blocked
+    limitation: >
+      Excessive agency may emerge from chained tool calls not visible to a
+      single rule.
+
+  - id: AAI04
+    label: Insecure Inter-Agent Delegation
+    evidence:
+      - delegation_context
+      - capability_lease
+    tests:
+      - delegation_context_signed
+      - capability_lease_scope_bounded
+    limitation: Multi-agent topologies must publish delegation context.
+
+  - id: AAI05
+    label: Unbounded External Communication
+    evidence:
+      - tool_call
+      - network_egress
+      - policy_decision
+    tests:
+      - network_tool_requires_capability
+      - external_destination_allowlisted
+    limitation: >
+      Network egress without instrumented tools cannot be detected.
+
+  - id: AAI06
+    label: Data Exfiltration Through Agent Outputs
+    evidence:
+      - model_output
+      - final_answer
+      - data_taint
+    tests:
+      - sensitive_data_taint_check
+      - exfiltration_pattern_check
+    limitation: >
+      Detection relies on taint tags being present and accurate.
+
+  - id: AAI07
+    label: Goal Drift and Unintended Autonomy
+    evidence:
+      - task
+      - tool_call
+      - action_entropy
+    tests:
+      - action_entropy_drift
+      - off_task_action_detection
+    limitation: >
+      Goal drift is heuristic; high-creativity tasks may flag false positives.
+
+  - id: AAI08
+    label: Indirect Prompt Injection via Tool Returns
+    evidence:
+      - observation_provenance
+      - injection_filter_decisions
+    tests:
+      - tool_return_passed_through_filter
+      - injection_filter_present
+    limitation: >
+      Filters are first-line; sophisticated adversarial payloads may evade
+      keyword-bag detection.
+
+  - id: AAI09
+    label: Insufficient Human Oversight for High-Risk Actions
+    evidence:
+      - policy_decision
+      - human_approval
+    tests:
+      - high_risk_action_has_approval
+      - approval_reviewer_identity_present
+    limitation: >
+      Human approval records do not verify the reviewer's domain expertise.
+
+  - id: AAI10
+    label: Insufficient Auditability and Forensic Readiness
+    evidence:
+      - evidence_chain
+      - signatures
+      - bundle_completeness
+    tests:
+      - hash_chain_unbroken
+      - signatures_verify
+      - bundle_manifest_complete
+    limitation: >
+      Auditability is a property of the trace, not of the system as a whole.

@@ -1,0 +1,33 @@
+{
+  "name": "@openagentaudit/schema",
+  "version": "0.1.0",
+  "description": "OpenAgentAudit canonical evidence schema and TypeScript types",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": ["dist", "schemas"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "echo 'no tests yet — package skeleton' && exit 0",
+    "clean": "rm -rf dist .turbo"
+  },
+  "wasmagent": {
+    "stability": "alpha"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/WasmAgent/open-agent-audit.git",
+    "directory": "packages/schema"
+  }
+}

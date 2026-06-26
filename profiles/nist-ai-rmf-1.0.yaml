@@ -1,0 +1,79 @@
+id: nist-ai-rmf-1.0
+name: NIST AI Risk Management Framework 1.0 (Govern / Map / Measure / Manage)
+version: 0.1
+source_url: https://www.nist.gov/itl/ai-risk-management-framework
+disclaimer: >
+  Technical evidence support only. NIST AI RMF 1.0 is a voluntary framework;
+  alignment is descriptive, not certifiable. This mapping is interpretive.
+
+requirements:
+  - id: GOVERN-1.1
+    label: Legal and regulatory requirements involving AI are understood and managed
+    evidence:
+      - policy_manifest
+      - regulatory_profile_attached
+    tests:
+      - profile_present
+      - disclaimer_present_in_report
+    limitation: >
+      Technical artifacts do not establish that an organization has performed
+      the necessary legal review.
+
+  - id: MAP-2.2
+    label: Information about the AI system's knowledge limits is documented
+    evidence:
+      - system_card
+      - model_id
+      - tool_inventory
+    tests:
+      - system_card_present
+      - tool_inventory_present
+    limitation: System cards may not capture all emergent behavior.
+
+  - id: MEASURE-2.7
+    label: AI system security and resilience are evaluated
+    evidence:
+      - policy_decision
+      - blocked_actions
+      - signature_chain
+    tests:
+      - blocked_action_rate_within_threshold
+      - hash_chain_unbroken
+    limitation: >
+      Evidence reflects observed runs only; adversarial coverage depends on
+      the test set.
+
+  - id: MEASURE-2.9
+    label: AI system performance is measured against benchmarks with documented validity
+    evidence:
+      - benchmark_results
+      - paired_statistics
+      - protocol_consistency
+    tests:
+      - paired_mcnemar_present
+      - wilson_ci_present
+      - protocol_consistency_check
+    limitation: >
+      Statistical validity depends on dataset quality and sampling protocol.
+
+  - id: MANAGE-2.3
+    label: Procedures are followed to respond to and recover from AI risks
+    evidence:
+      - policy_decision
+      - error
+      - human_approval
+    tests:
+      - error_recovery_path_recorded
+      - escalation_path_recorded
+    limitation: >
+      Trace records what happened, not what should have happened.
+
+  - id: MANAGE-4.1
+    label: Post-deployment AI system monitoring is implemented
+    evidence:
+      - drift_summary
+      - alerts
+    tests:
+      - drift_threshold_check
+      - baseline_present
+    limitation: Drift detection is statistical; semantic drift is harder.

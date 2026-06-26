@@ -1,0 +1,26 @@
+name: Verify Spec
+
+on:
+  pull_request:
+    paths:
+      - 'spec/**'
+      - 'schemas/**'
+      - 'profiles/**'
+      - 'docs/**'
+      - 'rfcs/**'
+      - 'scripts/**'
+
+permissions:
+  contents: read
+
+jobs:
+  spec-only:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: node scripts/verify-disclaimers.mjs
+      - run: node scripts/verify-evidence-ids.mjs
+      - run: node scripts/verify-spec-consistency.mjs

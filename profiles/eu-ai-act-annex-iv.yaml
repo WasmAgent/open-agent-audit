@@ -1,0 +1,113 @@
+id: eu-ai-act-annex-iv
+name: EU AI Act Annex IV Technical Documentation Evidence Profile
+version: 0.1
+source_url: https://artificialintelligenceact.eu/annex/4/
+disclaimer: >
+  Technical evidence support only. This mapping is interpretive and does not
+  constitute legal advice or a determination of conformance with the EU AI
+  Act. Regulatory timetables and interpretations evolve; users are
+  responsible for their own legal posture.
+
+requirements:
+  - id: annex-iv-system-description
+    label: General description of the AI system
+    evidence:
+      - system_card
+      - model_id
+      - tool_inventory
+      - deployment_context
+    tests:
+      - system_card_present
+      - tool_inventory_present
+      - deployment_context_present
+    limitation: >
+      A system card supports the requirement but does not by itself satisfy
+      legal sufficiency.
+
+  - id: annex-iv-design-specifications
+    label: Detailed description of the elements of the AI system and of the process for its development
+    evidence:
+      - capability_manifest
+      - policy_manifest
+      - architecture_summary
+    tests:
+      - capability_manifest_present
+      - policy_manifest_present
+    limitation: >
+      Runtime evidence reflects deployed configuration, not development
+      provenance.
+
+  - id: annex-iv-risk-management
+    label: Description of the risk management system
+    evidence:
+      - policy_manifest
+      - denied_actions
+      - human_approval_records
+      - drift_alerts
+    tests:
+      - least_privilege_check
+      - high_risk_action_has_approval
+      - drift_threshold_check
+    limitation: >
+      Runtime trace evidence does not replace organizational risk management
+      documentation.
+
+  - id: annex-iv-data-governance
+    label: Information about training, validation and testing data sets
+    evidence:
+      - contamination_report
+      - dataset_provenance
+    tests:
+      - contamination_check_present
+      - dataset_provenance_present
+    limitation: >
+      Data governance documentation must be produced by the data owner.
+
+  - id: annex-iv-testing-validation
+    label: Testing and validation procedures
+    evidence:
+      - benchmark_results
+      - paired_statistics
+      - failure_cases
+    tests:
+      - benchmark_protocol_consistency
+      - paired_mcnemar_present
+      - wilson_ci_present
+    limitation: >
+      Statistical support depends on dataset quality and sampling protocol.
+
+  - id: annex-iv-monitoring
+    label: Post-market monitoring system
+    evidence:
+      - drift_summary
+      - alerts
+      - audit_trail
+    tests:
+      - drift_summary_present
+      - alert_threshold_documented
+    limitation: >
+      Monitoring tooling is necessary but not sufficient.
+
+  - id: annex-iv-human-oversight
+    label: Human oversight measures
+    evidence:
+      - human_approval
+      - escalation_path
+      - reviewer_identity
+    tests:
+      - high_risk_action_has_approval
+      - approval_reviewer_identity_present
+    limitation: >
+      Approval records do not establish reviewer competence.
+
+  - id: annex-iv-accuracy-robustness
+    label: Accuracy, robustness, and cybersecurity measures
+    evidence:
+      - benchmark_results
+      - blocked_actions
+      - signature_chain
+    tests:
+      - hash_chain_unbroken
+      - signatures_verify
+    limitation: >
+      Cybersecurity posture extends beyond agent runtime evidence.

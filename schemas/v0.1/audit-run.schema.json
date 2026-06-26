@@ -1,0 +1,51 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.openagentaudit.org/v0.1/audit-run.schema.json",
+  "title": "OpenAgentAudit AuditRun",
+  "description": "A self-contained audit run.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "run_id",
+    "agent_id",
+    "model_id",
+    "created_at",
+    "task",
+    "event_count"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": "open-agent-audit/v0.1" },
+    "run_id": { "type": "string", "minLength": 1 },
+    "session_id": { "type": "string" },
+    "tenant_id": { "type": "string" },
+    "project_id": { "type": "string" },
+    "agent_id": { "type": "string" },
+    "model_id": { "type": "string" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "completed_at": { "type": "string", "format": "date-time" },
+    "task": {
+      "type": "object",
+      "required": ["id", "description", "risk_level"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "description": { "type": "string" },
+        "risk_level": {
+          "type": "string",
+          "enum": ["low", "medium", "high", "critical"]
+        }
+      }
+    },
+    "capability_manifest_ref": { "type": "string" },
+    "event_count": { "type": "integer", "minimum": 0 },
+    "input_format": { "type": "string" },
+    "source_adapter": { "type": "string" },
+    "profiles": {
+      "type": "array",
+      "items": { "type": "string" },
+      "uniqueItems": true
+    },
+    "engine_version": { "type": "string" }
+  }
+}

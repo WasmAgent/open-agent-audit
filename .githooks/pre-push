@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# OpenAgentAudit pre-push hook.
+# Mirrors CI checks so they fail locally, not on a GitHub runner.
+# Install with: bash .githooks/install.sh
+
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+
+echo "→ pre-push: verify-disclaimers"
+node scripts/verify-disclaimers.mjs
+
+echo "→ pre-push: verify-evidence-ids"
+node scripts/verify-evidence-ids.mjs
+
+echo "→ pre-push: verify-spec-consistency"
+node scripts/verify-spec-consistency.mjs
+
+echo "→ pre-push: check-no-sensitive-info"
+node scripts/check-no-sensitive-info.mjs
+
+echo "→ pre-push: check-no-control-bytes"
+node scripts/check-no-control-bytes.mjs
+
+echo "✓ pre-push checks passed"

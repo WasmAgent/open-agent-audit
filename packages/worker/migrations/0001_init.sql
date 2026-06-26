@@ -1,0 +1,6 @@
+-- packages/worker/migrations/0001_init.sql
+-- Mirror of examples/cloudflare/d1-schema.sql. Kept here for wrangler
+-- migrations.
+--
+-- The authoritative schema lives at examples/cloudflare/d1-schema.sql;
+-- changes must update both files.

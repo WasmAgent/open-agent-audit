@@ -1,0 +1,65 @@
+id: iso-iec-42001
+name: ISO/IEC 42001:2023 AI Management Systems
+version: 0.1
+source_url: https://www.iso.org/standard/42001
+disclaimer: >
+  Technical evidence support only. ISO/IEC 42001 is a management-system
+  standard; conformity assessment is performed by accredited third parties.
+  This mapping provides evidence that may support specific Annex A controls
+  but is not a substitute for an audit by a certified body.
+
+requirements:
+  - id: A.6.1.4
+    label: AI system impact assessment
+    evidence:
+      - task
+      - risk_level
+      - capability_manifest
+      - blocked_actions
+    tests:
+      - risk_level_present
+      - capability_manifest_present
+    limitation: >
+      Technical evidence supports impact assessment but does not constitute it.
+
+  - id: A.7.4
+    label: Data quality for AI systems
+    evidence:
+      - contamination_report
+      - dataset_provenance
+    tests:
+      - contamination_check_present
+      - dataset_provenance_present
+    limitation: >
+      Data quality assessment requires organizational context beyond trace.
+
+  - id: A.8.2
+    label: Performance evaluation of AI systems
+    evidence:
+      - benchmark_results
+      - paired_statistics
+    tests:
+      - paired_mcnemar_present
+      - protocol_consistency_check
+    limitation: Coverage limited to instrumented benchmarks.
+
+  - id: A.9.2
+    label: Communication of AI system information
+    evidence:
+      - audit_report
+      - disclaimer
+    tests:
+      - report_present
+      - disclaimer_in_report
+    limitation: Communication effectiveness is organizational, not technical.
+
+  - id: A.10.2
+    label: Monitoring and reporting of AI system operation
+    evidence:
+      - drift_summary
+      - findings
+      - run_log
+    tests:
+      - drift_summary_present
+      - findings_indexed
+    limitation: Tooling supports monitoring; does not perform it.

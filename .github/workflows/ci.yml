@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify (no install required)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Verify disclaimers
+        run: node scripts/verify-disclaimers.mjs
+      - name: Verify evidence-ids
+        run: node scripts/verify-evidence-ids.mjs
+      - name: Verify spec consistency
+        run: node scripts/verify-spec-consistency.mjs
+      - name: Check no sensitive info
+        run: node scripts/check-no-sensitive-info.mjs
+      - name: Check no control bytes
+        run: node scripts/check-no-control-bytes.mjs
+
+  schema:
+    name: JSON schemas parse
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: All schemas are valid JSON
+        run: |
+          set -e
+          for f in schemas/v0.1/*.schema.json; do
+            echo "checking $f"
+            node -e "JSON.parse(require('node:fs').readFileSync('$f','utf8'))"
+          done
+      - name: schemas/index.json parses
+        run: node -e "JSON.parse(require('node:fs').readFileSync('schemas/index.json','utf8'))"
+
+  jsonl-examples:
+    name: JSONL examples parse line-by-line
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Parse every line of every jsonl
+        run: |
+          node <<'EOF'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const dir = 'examples/traces';
+          let bad = 0;
+          for (const name of fs.readdirSync(dir)) {
+            if (!name.endsWith('.jsonl')) continue;
+            const text = fs.readFileSync(path.join(dir, name), 'utf8');
+            const lines = text.split('\n').filter(Boolean);
+            for (let i = 0; i < lines.length; i++) {
+              try { JSON.parse(lines[i]); }
+              catch (e) {
+                console.error(`${dir}/${name}:${i+1} not valid JSON: ${e.message}`);
+                bad++;
+              }
+            }
+          }
+          if (bad) process.exit(1);
+          console.log('all jsonl examples parse');
+          EOF

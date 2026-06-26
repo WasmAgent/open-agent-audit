@@ -1,0 +1,16 @@
+{
+  "schemas": {
+    "open-agent-audit/v0.1": {
+      "status": "draft",
+      "date": "2026-06-26",
+      "files": [
+        "v0.1/canonical-event.schema.json",
+        "v0.1/audit-run.schema.json",
+        "v0.1/finding.schema.json",
+        "v0.1/evidence-bundle.schema.json",
+        "v0.1/risk-score.schema.json"
+      ]
+    }
+  },
+  "current": "open-agent-audit/v0.1"
+}

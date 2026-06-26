@@ -1,0 +1,55 @@
+# dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# build outputs
+dist/
+build/
+.turbo/
+*.tsbuildinfo
+
+# bun
+.bun/
+bun.lockb
+
+# wrangler / cloudflare
+.wrangler/
+wrangler.toml
+*.local.jsonc
+
+# environment
+.env
+.env.*
+!.env.example
+.dev.vars
+
+# secrets
+secrets/
+keys/
+*.pem
+*.key
+*.p12
+*.pfx
+
+# editor / OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# caches
+.cache/
+tmp/
+.parcel-cache/
+.next/
+
+# coverage / test artifacts
+coverage/
+.nyc_output/
+
+# generated reports must never enter the public repo
+reports/generated/
+!reports/generated/.gitkeep

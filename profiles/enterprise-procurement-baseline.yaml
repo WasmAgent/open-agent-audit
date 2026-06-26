@@ -1,0 +1,89 @@
+id: enterprise-procurement-baseline
+name: Enterprise Procurement and Security Review Baseline
+version: 0.1
+disclaimer: >
+  This profile reflects common enterprise procurement and security review
+  questions. It does not constitute a determination of vendor security
+  posture or contractual fitness.
+
+requirements:
+  - id: PROC-001
+    label: Inventory of tools the agent can invoke
+    evidence:
+      - tool_inventory
+    tests:
+      - tool_inventory_present
+    limitation: >
+      Inventory reflects observed runs; latent capabilities may not appear.
+
+  - id: PROC-002
+    label: Inventory of external systems the agent connects to
+    evidence:
+      - tool_call.network_egress
+      - external_destination
+    tests:
+      - external_destination_inventoried
+    limitation: Out-of-band channels are invisible to the tool inventory.
+
+  - id: PROC-003
+    label: Evidence of least-privilege configuration
+    evidence:
+      - capability_manifest
+      - blocked_actions
+    tests:
+      - least_privilege_check
+    limitation: >
+      Least-privilege is policy-relative; rules must be reviewed for
+      adequacy.
+
+  - id: PROC-004
+    label: Evidence of human oversight for high-risk actions
+    evidence:
+      - human_approval
+    tests:
+      - high_risk_action_has_approval
+    limitation: >
+      Approval records do not establish that the reviewer was qualified.
+
+  - id: PROC-005
+    label: Evidence chain integrity
+    evidence:
+      - hash_chain
+      - signatures
+    tests:
+      - hash_chain_unbroken
+      - signatures_verify
+    limitation: Chain integrity is technical; it does not imply truthfulness.
+
+  - id: PROC-006
+    label: Failure recovery evidence
+    evidence:
+      - error
+      - retry
+      - escalation_path
+    tests:
+      - error_recovery_path_recorded
+    limitation: >
+      Tooling records observed recovery, not policy adequacy.
+
+  - id: PROC-007
+    label: Statistical validity of vendor performance claims
+    evidence:
+      - benchmark_results
+      - paired_statistics
+    tests:
+      - paired_mcnemar_present
+      - protocol_consistency_check
+    limitation: >
+      Reviews may need to commission independent benchmarks for high-stakes
+      decisions.
+
+  - id: PROC-008
+    label: Data handling and retention disclosure
+    evidence:
+      - data_handling_disclosure
+      - retention_policy
+    tests:
+      - data_handling_disclosure_present
+    limitation: >
+      Disclosure does not establish enforcement.

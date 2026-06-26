@@ -1,0 +1,9 @@
+# Default code owners.
+# Updated when the team grows beyond the initial maintainer.
+*       @telleroutlook
+
+# Spec changes require spec-owner review (currently the same maintainer).
+/spec/        @telleroutlook
+/schemas/     @telleroutlook
+/profiles/    @telleroutlook
+/rfcs/        @telleroutlook

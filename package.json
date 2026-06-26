@@ -1,0 +1,41 @@
+{
+  "name": "open-agent-audit",
+  "version": "0.1.0",
+  "description": "Open evidence format and Cloudflare-native audit toolkit for enterprise AI agents",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "homepage": "https://github.com/WasmAgent/open-agent-audit",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/WasmAgent/open-agent-audit.git"
+  },
+  "bugs": {
+    "url": "https://github.com/WasmAgent/open-agent-audit/issues"
+  },
+  "workspaces": [
+    "packages/*",
+    "packages/dashboard"
+  ],
+  "scripts": {
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "verify:disclaimers": "node scripts/verify-disclaimers.mjs",
+    "verify:evidence-ids": "node scripts/verify-evidence-ids.mjs",
+    "verify:spec-consistency": "node scripts/verify-spec-consistency.mjs",
+    "verify:sensitive-info": "node scripts/check-no-sensitive-info.mjs",
+    "verify:no-control-bytes": "node scripts/check-no-control-bytes.mjs",
+    "verify:all": "npm-run-all -p verify:disclaimers verify:evidence-ids verify:spec-consistency verify:sensitive-info verify:no-control-bytes",
+    "check:all": "npm run lint && npm run verify:all && npm run typecheck && npm run build && npm run test"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.0",
+    "@changesets/cli": "^2.27.0",
+    "npm-run-all": "^4.1.5",
+    "turbo": "^2.0.0",
+    "typescript": "^5.5.0"
+  }
+}

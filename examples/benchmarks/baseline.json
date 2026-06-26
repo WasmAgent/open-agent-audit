@@ -1,0 +1,13 @@
+{
+  "schema_version": "synthetic-benchmark/v0.1",
+  "benchmark_id": "synthetic-ifeval-style",
+  "model_id": "baseline-v1",
+  "generation": {
+    "max_new_tokens": 300,
+    "temperature": 0.0,
+    "seed": 42
+  },
+  "samples_total": 100,
+  "samples_pass": 50,
+  "claim": null
+}

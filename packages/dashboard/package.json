@@ -1,0 +1,14 @@
+{
+  "name": "@openagentaudit/dashboard",
+  "version": "0.1.0",
+  "description": "OpenAgentAudit dashboard (Cloudflare Pages)",
+  "license": "Apache-2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "echo 'dashboard skeleton — Phase 6'",
+    "typecheck": "echo 'dashboard skeleton — Phase 6'",
+    "test": "echo 'no tests yet' && exit 0"
+  },
+  "wasmagent": { "stability": "alpha" }
+}

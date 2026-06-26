@@ -1,0 +1,63 @@
+{
+  // OpenAgentAudit — Cloudflare Worker reference configuration
+  //
+  // This file uses placeholder IDs only. Real values live in the private
+  // ops repo (`agentaudit-ops/deployments/cloudflare/`) and are never
+  // committed to the public repository.
+  //
+  // To deploy:
+  //   1. Copy to `wrangler.jsonc` (gitignored).
+  //   2. Replace each `REPLACE_ME_*` placeholder with values from
+  //      your Cloudflare dashboard.
+  //   3. Use `wrangler secret put <KEY>` for secrets; never inline them.
+
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "open-agent-audit-api",
+  "main": "packages/worker/src/index.ts",
+  "compatibility_date": "2026-06-26",
+  "compatibility_flags": ["nodejs_compat"],
+
+  "limits": {
+    "cpu_ms": 30000
+  },
+
+  "r2_buckets": [
+    { "binding": "RAW_TRACES", "bucket_name": "oaa-raw-traces" },
+    { "binding": "ARTIFACTS",  "bucket_name": "oaa-artifacts"  },
+    { "binding": "REPORTS",    "bucket_name": "oaa-reports"    }
+  ],
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "oaa-meta",
+      "database_id": "REPLACE_ME_D1_ID"
+    }
+  ],
+
+  "queues": {
+    "producers": [
+      { "binding": "AUDIT_JOBS",  "queue": "oaa-audit-jobs"  },
+      { "binding": "CHUNK_JOBS",  "queue": "oaa-chunk-jobs"  },
+      { "binding": "REPORT_JOBS", "queue": "oaa-report-jobs" }
+    ],
+    "consumers": [
+      { "queue": "oaa-audit-jobs",  "max_batch_size": 10, "max_batch_timeout": 30 },
+      { "queue": "oaa-chunk-jobs",  "max_batch_size": 10, "max_batch_timeout": 30 },
+      { "queue": "oaa-report-jobs", "max_batch_size":  5, "max_batch_timeout": 30 }
+    ]
+  },
+
+  "durable_objects": {
+    "bindings": [
+      { "name": "AUDIT_RUN_COORDINATOR", "class_name": "AuditRunCoordinator" },
+      { "name": "TENANT_LIMITER",        "class_name": "TenantLimiter"        }
+    ]
+  },
+
+  "vars": {
+    "OAA_ENV": "production",
+    "MAX_UPLOAD_MB": "100",
+    "DEFAULT_PROFILES": "owasp-agentic-top10-2026,nist-ai-rmf-1.0"
+  }
+}

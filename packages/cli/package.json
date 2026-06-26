@@ -1,0 +1,25 @@
+{
+  "name": "@openagentaudit/cli",
+  "version": "0.1.0",
+  "description": "OpenAgentAudit local CLI (Bun-first)",
+  "license": "Apache-2.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/main.js",
+  "bin": {
+    "openagentaudit": "./dist/main.js"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "echo 'no tests yet' && exit 0",
+    "clean": "rm -rf dist .turbo"
+  },
+  "wasmagent": { "stability": "alpha" },
+  "dependencies": {
+    "@openagentaudit/core": "0.1.0",
+    "@openagentaudit/adapters": "0.1.0",
+    "@openagentaudit/schema": "0.1.0"
+  }
+}

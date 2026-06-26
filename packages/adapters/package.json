@@ -1,0 +1,21 @@
+{
+  "name": "@openagentaudit/adapters",
+  "version": "0.1.0",
+  "description": "Source-format adapters: AEP, ComplianceEvalRecord, bscode, OTel, Langfuse, LangSmith",
+  "license": "Apache-2.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "echo 'no tests yet' && exit 0",
+    "clean": "rm -rf dist .turbo"
+  },
+  "wasmagent": { "stability": "alpha" },
+  "dependencies": {
+    "@openagentaudit/schema": "0.1.0"
+  }
+}
