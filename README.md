@@ -111,10 +111,6 @@ posture. See [`docs/regulatory-disclaimer.md`](./docs/regulatory-disclaimer.md).
 
 OpenAgentAudit is part of the [WasmAgent](https://github.com/WasmAgent) ecosystem.
 
-The Evidence Admission Score (EAS) formula was inspired by the `AgentTrustScore`
-multi-dimensional scoring model in
-[trace-pipeline](https://github.com/WasmAgent/trace-pipeline).
-
 Runtime dependencies: [Zod](https://github.com/colinhacks/zod) (MIT),
 [React](https://github.com/facebook/react) (MIT),
 [Tailwind CSS](https://github.com/tailwindlabs/tailwindcss) (MIT).

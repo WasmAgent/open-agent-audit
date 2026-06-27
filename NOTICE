@@ -7,20 +7,6 @@ You may obtain a copy of the License at:
     http://www.apache.org/licenses/LICENSE-2.0
 
 ================================================================================
-THIRD-PARTY ATTRIBUTIONS
-================================================================================
-
---------------------------------------------------------------------------------
-trace-pipeline (evomerge)
-  License:    Apache-2.0
-  Repository: https://github.com/WasmAgent/trace-pipeline
-  Author:     telleroutlook
-  Note:       The AgentTrustScore multi-dimensional scoring model (7 dimensions,
-              geometric mean formula, grade thresholds) informed the design of
-              the OpenAgentAudit Evidence Admission Score (EAS) formula.
-              No evomerge source code is imported or bundled.
-
-================================================================================
 RUNTIME DEPENDENCIES (bundled / distributed)
 ================================================================================
 
