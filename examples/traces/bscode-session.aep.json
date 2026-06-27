@@ -1,0 +1,97 @@
+{
+  "schema_version": "aep/v0.2",
+  "run_id": "run-fixture-bscode-coding-001",
+  "trace_id": "trace-bscode-coding-001",
+  "parent_trace_id": null,
+  "repo_commit": "17cf674ddbcab2f96543ef79f2497728aab249b1",
+  "runtime_version": "bscode-worker@0.2.0",
+  "model_provider": "anthropic",
+  "model_id": "claude-sonnet-4-6",
+  "policy_bundle_digest": "5f4dcc3b5aa765d61d8327deb882cf99b0d0e1f23456789abcdef0123456789a",
+  "tool_manifest_digest": "8b1a9953c4611296a827abf8c47804d7e54b3cf2c54e9c0c5a8d9b3e1f0e2d3c",
+  "input_refs": [
+    {
+      "uri": "input://task/01",
+      "digest": "sha256-task-prompt-hash-placeholder-0000000000000000000000000000000000",
+      "taint_labels": ["user-supplied"]
+    }
+  ],
+  "output_refs": [
+    {
+      "uri": "output://session-final/01",
+      "digest": "sha256-session-final-hash-placeholder-000000000000000000000000000000",
+      "redaction_profile": "bscode/pii-redact/v1"
+    }
+  ],
+  "capability_decisions": [
+    {
+      "capability": "fs:read",
+      "subject": "agent",
+      "resource": "/workspace/README.md",
+      "decision": "allow",
+      "reason_code": "read-within-workspace"
+    },
+    {
+      "capability": "fs:write",
+      "subject": "agent",
+      "resource": "/workspace/src/new-file.ts",
+      "decision": "allow",
+      "reason_code": "write-within-workspace"
+    }
+  ],
+  "actions": [
+    {
+      "action_id": "action-0",
+      "tool_name": "read_file",
+      "state_changing": false,
+      "evidence_refs": [],
+      "timestamp_ms": 1717200000000
+    },
+    {
+      "action_id": "action-1",
+      "tool_name": "write_file",
+      "state_changing": true,
+      "evidence_refs": ["sha256-write-evidence-0000000000000000000000000000000000000000000000"],
+      "timestamp_ms": 1717200000500,
+      "pre_state_digest": "sha256-pre-state-placeholder-0000000000000000000000000000000000000000",
+      "post_state_digest": "sha256-post-state-placeholder-000000000000000000000000000000000000"
+    },
+    {
+      "action_id": "action-2",
+      "tool_name": "bash",
+      "state_changing": false,
+      "evidence_refs": [],
+      "timestamp_ms": 1717200001000
+    }
+  ],
+  "verifier_results": [
+    {
+      "verifier_id": "build-passes-v1",
+      "passed": true,
+      "score": 1,
+      "claim_ids": ["claim-build-green"]
+    },
+    {
+      "verifier_id": "objective-passed-v1",
+      "passed": false,
+      "score": 0,
+      "claim_ids": ["claim-objective"]
+    }
+  ],
+  "budget_ledger": {
+    "token_budget": {
+      "limit": 16000,
+      "spent": 3450
+    },
+    "tool_budget": {
+      "limit": 20,
+      "spent": 3
+    }
+  },
+  "created_at_ms": 1717200001234,
+  "signature": {
+    "alg": "ed25519",
+    "key_id": "oaa-fixture-key-v1",
+    "sig": "NG7YDpQPnqbRYKx4A6nPNSLtBuyEfn1rj5T2R05zavTia8o6iXUmL/oPKpuLcISheJ7tzTq/dF6SBCn6nOBJAQ=="
+  }
+}

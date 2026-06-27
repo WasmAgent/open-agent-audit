@@ -1,0 +1,71 @@
+{
+  "schema_version": "aep/v0.2",
+  "run_id": "run-fixture-wasmagent-js-001",
+  "trace_id": "trace-fixture-001",
+  "parent_trace_id": null,
+  "repo_commit": "e34751a7f30338bcb07de95085adf120db9b51ff",
+  "runtime_version": "@wasmagent/aep@1.3.4",
+  "model_provider": "anthropic",
+  "model_id": "claude-sonnet-4-6",
+  "policy_bundle_digest": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+  "tool_manifest_digest": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+  "input_refs": [
+    {
+      "uri": "input://prompt/01",
+      "digest": "sha256-1d0aa0c2f7b0e9c0c9e4d1f3b2a3c4d5e6f7081929384a5b6c7d8e9f0a1b2c3d4",
+      "taint_labels": ["user-supplied"]
+    }
+  ],
+  "output_refs": [
+    {
+      "uri": "output://final-answer/01",
+      "digest": "sha256-7d3a2e9b1c4d5f6e8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2",
+      "redaction_profile": "default-pii"
+    }
+  ],
+  "capability_decisions": [
+    {
+      "capability": "fs:read",
+      "subject": "agent",
+      "resource": "/workspace/src/index.ts",
+      "decision": "allow",
+      "reason_code": "policy-default"
+    }
+  ],
+  "actions": [
+    {
+      "action_id": "action-0",
+      "tool_name": "read_file",
+      "state_changing": false,
+      "evidence_refs": ["sha256-abcdef0123456789"],
+      "capability_decision": {
+        "capability": "fs:read",
+        "subject": "agent",
+        "resource": "/workspace/src/index.ts",
+        "decision": "allow",
+        "reason_code": "policy-default"
+      },
+      "timestamp_ms": 1717200000000
+    }
+  ],
+  "verifier_results": [
+    {
+      "verifier_id": "deterministic-v1",
+      "passed": true,
+      "score": 1,
+      "claim_ids": ["claim-final-answer-shape"]
+    }
+  ],
+  "budget_ledger": {
+    "token_budget": {
+      "limit": 8000,
+      "spent": 1240
+    }
+  },
+  "created_at_ms": 1717200000010,
+  "signature": {
+    "alg": "ed25519",
+    "key_id": "oaa-fixture-key-v1",
+    "sig": "LLWPdNFPohSMaK+1EDmHXs70ieBaqE60TJ+YPyc+IGOqWCmtIMD2H7FiVPkZS4MA7flue5bqN/rueyc4ToQjDg=="
+  }
+}
