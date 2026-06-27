@@ -401,9 +401,9 @@ export default function App() {
 
           {/* Site name + tagline */}
           <div className="flex items-baseline gap-2.5 min-w-0">
-            <span className="text-lg font-bold text-slate-900 shrink-0">
+            <h1 className="text-lg font-bold text-slate-900 shrink-0">
               {config.site_name}
-            </span>
+            </h1>
             <span className="hidden sm:block text-sm text-slate-500 truncate">
               {config.site_tagline}
             </span>
@@ -497,9 +497,9 @@ export default function App() {
               <ShieldIcon className="w-10 h-10 text-indigo-500" />
             </div>
             <div>
-              <h3 className="text-xl font-bold text-slate-800 mb-2">
+              <h2 className="text-xl font-bold text-slate-800 mb-2">
                 AI Agent Audit Dashboard
-              </h3>
+              </h2>
               <p className="text-slate-500 text-sm max-w-sm mx-auto">
                 Upload a JSONL audit trace to inspect events, generate compliance
                 reports, and export findings.
@@ -794,17 +794,30 @@ export default function App() {
             <span className="font-medium text-slate-500">{config.site_name}</span>
             {' '}— Technical evidence only. Not legal advice.
           </span>
-          <span className="flex items-center gap-1">
+          <span className="flex items-center gap-2">
             Powered by{' '}
             <a
               href="https://github.com/WasmAgent/open-agent-audit"
               target="_blank"
               rel="noreferrer"
+              aria-label="OpenAgentAudit on GitHub (opens in new tab)"
               className="font-medium text-indigo-500 hover:text-indigo-700 transition-colors"
             >
               {config.powered_by}
             </a>
-            {' '}(open source)
+            {' '}·{' '}
+            <a
+              href="https://github.com/WasmAgent/open-agent-audit"
+              target="_blank"
+              rel="noreferrer"
+              aria-label="View source on GitHub"
+              className="inline-flex items-center gap-1 text-slate-400 hover:text-slate-600 transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.477 2 12c0 4.418 2.865 8.166 6.839 9.489.5.092.682-.217.682-.482 0-.237-.009-.868-.013-1.703-2.782.605-3.369-1.342-3.369-1.342-.454-1.154-1.11-1.462-1.11-1.462-.908-.62.069-.607.069-.607 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.03-2.683-.103-.253-.447-1.27.098-2.647 0 0 .84-.268 2.75 1.026A9.578 9.578 0 0112 6.836a9.59 9.59 0 012.504.337c1.909-1.294 2.747-1.026 2.747-1.026.547 1.377.203 2.394.1 2.647.641.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.578.688.48C19.138 20.163 22 16.418 22 12c0-5.523-4.477-10-10-10z"/>
+              </svg>
+              GitHub
+            </a>
           </span>
         </div>
       </footer>
