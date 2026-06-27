@@ -30,8 +30,19 @@ secrets are never committed here.
 **Step 2 — Prepare wrangler config**:
 ```bash
 cp examples/cloudflare/wrangler.example.jsonc wrangler.jsonc
-# Edit wrangler.jsonc: replace REPLACE_ME_D1_ID with your D1 database ID
+# Edit wrangler.jsonc:
+#   1. Replace REPLACE_ME_D1_ID with your D1 database ID
+#   2. Update ISSUER_NAME, ISSUER_EMAIL, PUBLIC_URL to your organisation details
+#   3. Update the "routes" block to your custom domain (or remove it for workers.dev)
 ```
+
+**Branding variables** (in `wrangler.jsonc` → `vars`):
+
+| Variable | Purpose | Example |
+|---|---|---|
+| `ISSUER_NAME` | Organisation name shown in reports and 404 pages | `"Acme Corp (acme.com)"` |
+| `ISSUER_EMAIL` | Contact email in reports and 404 pages | `"audit@acme.com"` |
+| `PUBLIC_URL` | Base URL of your deployment (used for QR code links) | `"https://acme.com"` |
 
 **Step 3 — Apply D1 schema**:
 ```bash

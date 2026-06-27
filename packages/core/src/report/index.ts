@@ -1098,7 +1098,7 @@ function buildMarkdown(
   lines.push('|---|---|');
   lines.push(`| Report generated | ${generatedAt} |`);
   lines.push(`| Minimum retention until | ${retentionUntil} |`);
-  lines.push(`| Issuing platform | Trustavo (trustavo.com) |`);
+  lines.push(`| Issuing platform | ${resolved.issuer} |`);
   lines.push(`| Applicable regulation | EU AI Act (Regulation (EU) 2024/1689), Art. 26(6) |`);
   lines.push('');
 
@@ -1410,8 +1410,8 @@ function buildHtml(
     }
     @page {
       margin: 2cm;
-      @top-center { content: "OpenAgentAudit Report — Trustavo (trustavo.com)"; font-size: 9pt; color: #666; }
-      @bottom-center { content: "EU AI Act Art. 26(6) Compliant — issuer@trustavo.com"; font-size: 8pt; color: #9ca3af; }
+      @top-center { content: "OpenAgentAudit Report — ${resolved.issuer}"; font-size: 9pt; color: #666; }
+      @bottom-center { content: "EU AI Act Art. 26(6) Compliant — ${resolved.issuer_email}"; font-size: 8pt; color: #9ca3af; }
       @bottom-right { content: counter(page) " / " counter(pages); font-size: 9pt; }
     }
   `.trim();
@@ -1477,7 +1477,7 @@ function buildHtml(
   parts.push('<tbody>');
   parts.push(`<tr><td>Report generated</td><td>${escapeHtml(generatedAt)}</td></tr>`);
   parts.push(`<tr><td>Minimum retention until</td><td>${escapeHtml(retentionUntil)}</td></tr>`);
-  parts.push(`<tr><td>Issuing platform</td><td>Trustavo (trustavo.com)</td></tr>`);
+  parts.push(`<tr><td>Issuing platform</td><td>${escapeHtml(resolved.issuer)}</td></tr>`);
   parts.push(`<tr><td>Applicable regulation</td><td>EU AI Act (Regulation (EU) 2024/1689), Art. 26(6)</td></tr>`);
   parts.push('</tbody>');
   parts.push('</table>');

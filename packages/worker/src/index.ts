@@ -64,6 +64,12 @@ export interface WorkerEnv {
   MAX_UPLOAD_MB: string;
   DEFAULT_PROFILES: string;
   ASSETS: Fetcher;
+  /** Display name of the deploying organisation, e.g. "Trustavo (trustavo.com)" */
+  ISSUER_NAME: string;
+  /** Contact email shown in reports and 404 pages, e.g. "issuer@trustavo.com" */
+  ISSUER_EMAIL: string;
+  /** Public base URL of this deployment, e.g. "https://trustavo.com" */
+  PUBLIC_URL: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -216,9 +222,9 @@ async function handlePostRun(request: Request, env: WorkerEnv): Promise<Response
   ]);
 
   const meta: ReportMeta = {
-    issuer: 'Trustavo (trustavo.com)',
-    issuer_email: 'issuer@trustavo.com',
-    report_url: `https://trustavo.com/r/${run_id}`,
+    issuer: env.ISSUER_NAME,
+    issuer_email: env.ISSUER_EMAIL,
+    report_url: `${env.PUBLIC_URL}/r/${run_id}`,
   };
   if (sourceFile !== undefined) {
     meta.source_files = [sourceFile];
@@ -248,14 +254,15 @@ async function handlePostRun(request: Request, env: WorkerEnv): Promise<Response
 }
 
 async function handlePublicReportLink(runId: string, env: WorkerEnv): Promise<Response> {
-  // QR code URLs contain the run_id directly: trustavo.com/r/{run_id}
-  // Serve the HTML report straight from R2 — no D1 lookup needed.
+  const issuerEmail = env.ISSUER_EMAIL;
+  const issuerName = env.ISSUER_NAME;
+  const publicUrl = env.PUBLIC_URL;
   const key = `runs/${runId}/report.html`;
   const object = await env.REPORTS.get(key);
 
   if (object === null) {
     return new Response(
-      `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Report Not Found — Trustavo</title>` +
+      `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Report Not Found — ${issuerName}</title>` +
       `<style>body{font-family:sans-serif;max-width:520px;margin:80px auto;text-align:center;color:#374151;padding:0 20px}` +
       `h1{color:#4f46e5;font-size:1.6rem;margin-bottom:8px}p{color:#6b7280;margin:8px 0}` +
       `a{color:#4f46e5;text-decoration:none}a:hover{text-decoration:underline}` +
@@ -263,8 +270,8 @@ async function handlePublicReportLink(runId: string, env: WorkerEnv): Promise<Re
       `<h1>OpenAgentAudit</h1>` +
       `<p>Report <code>${runId.slice(0, 8)}…</code> was not found.</p>` +
       `<p>It may have expired or the ID may be incorrect.</p>` +
-      `<p>Contact: <a href="mailto:issuer@trustavo.com">issuer@trustavo.com</a></p>` +
-      `<p style="margin-top:24px"><a href="/">← Go to Trustavo</a></p>` +
+      `<p>Contact: <a href="mailto:${issuerEmail}">${issuerEmail}</a></p>` +
+      `<p style="margin-top:24px"><a href="${publicUrl}/">← Go to ${issuerName}</a></p>` +
       `</body></html>`,
       { status: 404, headers: { 'content-type': 'text/html; charset=utf-8' } },
     );

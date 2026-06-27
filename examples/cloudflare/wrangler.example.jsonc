@@ -69,6 +69,9 @@
   "vars": {
     "OAA_ENV": "production",
     "MAX_UPLOAD_MB": "100",
-    "DEFAULT_PROFILES": "owasp-agentic-top10-2026,nist-ai-rmf-1.0"
+    "DEFAULT_PROFILES": "owasp-agentic-top10-2026,nist-ai-rmf-1.0",
+    "ISSUER_NAME": "Your Organisation Name",
+    "ISSUER_EMAIL": "audit@your-domain.com",
+    "PUBLIC_URL": "https://your-domain.com"
   }
 }
