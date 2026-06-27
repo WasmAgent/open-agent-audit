@@ -53,3 +53,4 @@ coverage/
 # generated reports must never enter the public repo
 reports/generated/
 !reports/generated/.gitkeep
+wrangler.jsonc
