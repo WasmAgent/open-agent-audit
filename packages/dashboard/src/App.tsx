@@ -104,9 +104,13 @@ function SummaryCard({ label, value }: { label: string; value: string | number }
 export default function App() {
   const [events, setEvents] = useState<RawEvent[]>([])
   const [fileName, setFileName] = useState<string | null>(null)
+  const [fileText, setFileText] = useState<string>('')
   const [parseError, setParseError] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
   const [page, setPage] = useState(0)
+  const [reportGenerating, setReportGenerating] = useState(false)
+  const [reportRunId, setReportRunId] = useState<string | null>(null)
+  const [reportError, setReportError] = useState<string | null>(null)
 
   const handleFile = useCallback((file: File) => {
     if (!file.name.endsWith('.jsonl') && !file.name.endsWith('.json')) {
@@ -118,9 +122,12 @@ export default function App() {
     const reader = new FileReader()
     reader.onload = (e) => {
       const text = e.target?.result as string
+      setFileText(text)
       const parsed = parseJsonl(text)
       setEvents(parsed)
       setPage(0)
+      setReportRunId(null)
+      setReportError(null)
       if (parsed.length === 0) {
         setParseError('No valid JSON lines found in the file.')
       }
@@ -148,9 +155,30 @@ export default function App() {
 
   const onDragLeave = () => setDragging(false)
 
+  const generateReport = async () => {
+    if (!fileText) return
+    setReportGenerating(true)
+    setReportError(null)
+    try {
+      const form = new FormData()
+      form.append('trace', fileText)
+      const res = await fetch('/api/v1/runs', { method: 'POST', body: form })
+      if (!res.ok) {
+        const text = await res.text()
+        setReportError(`Server error ${res.status}: ${text}`)
+        return
+      }
+      const data = await res.json() as { run_id?: string }
+      if (data.run_id) setReportRunId(data.run_id)
+    } catch (err) {
+      setReportError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setReportGenerating(false)
+    }
+  }
+
   const firstEvent = events[0]
   const typeCounts = countByType(events)
-
   const totalPages = Math.ceil(events.length / PAGE_SIZE)
   const pageEvents = events.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
 
@@ -232,7 +260,90 @@ export default function App() {
         {/* Summary Section */}
         {events.length > 0 && (
           <section>
-            <h2 className="text-lg font-semibold text-gray-800 mb-3">Summary</h2>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-lg font-semibold text-gray-800">Summary</h2>
+              {/* Action bar */}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={generateReport}
+                  disabled={reportGenerating}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors shadow-sm"
+                >
+                  {reportGenerating ? (
+                    <>
+                      <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                      </svg>
+                      Generating…
+                    </>
+                  ) : (
+                    <>
+                      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                      </svg>
+                      Generate Full Report
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Report status */}
+            {reportError && (
+              <div className="mb-3 p-3 rounded-md bg-red-50 border border-red-200 text-sm text-red-700">
+                {reportError}
+              </div>
+            )}
+            {reportRunId && (
+              <div className="mb-3 p-4 rounded-md bg-green-50 border border-green-200 flex items-start gap-3">
+                <svg className="h-5 w-5 text-green-600 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                </svg>
+                <div>
+                  <p className="text-sm font-medium text-green-800">Audit report queued successfully</p>
+                  <p className="text-xs text-green-700 mt-1">Run ID: <code className="bg-green-100 px-1 rounded">{reportRunId}</code></p>
+                  <div className="flex gap-3 mt-2">
+                    <a
+                      href={`/api/v1/runs/${reportRunId}/report?format=html`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-xs font-medium text-indigo-700 hover:text-indigo-900"
+                    >
+                      <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+                      </svg>
+                      View HTML Report (print / save PDF)
+                    </a>
+                    <a
+                      href={`/api/v1/runs/${reportRunId}/report?format=md`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-xs font-medium text-gray-600 hover:text-gray-800"
+                    >
+                      Markdown
+                    </a>
+                    <a
+                      href={`/api/v1/runs/${reportRunId}/report?format=json`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-xs font-medium text-gray-600 hover:text-gray-800"
+                    >
+                      JSON
+                    </a>
+                    <a
+                      href={`/api/v1/runs/${reportRunId}/report?format=csv`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-xs font-medium text-gray-600 hover:text-gray-800"
+                    >
+                      CSV
+                    </a>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
               <SummaryCard label="Total Events" value={events.length} />
               <SummaryCard label="Run ID" value={firstEvent?.run_id ?? '—'} />
