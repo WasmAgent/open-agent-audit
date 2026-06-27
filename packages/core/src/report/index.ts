@@ -1,6 +1,7 @@
 /** @openagentaudit/core/report — full implementation. */
 import type { CanonicalEvent, Finding, RiskScore } from '@openagentaudit/schema';
 import type { InventoryReport } from '../inventory/index.js';
+import type { BenchmarkAuditResult } from '../benchmark-audit/index.js';
 
 export interface ReportBundle {
   markdown: string;
@@ -247,6 +248,8 @@ function resolveMeta(
 function buildComplianceMappings(
   events: CanonicalEvent[],
   findings: Finding[],
+  meta?: ReportMeta,
+  benchmarkResult?: BenchmarkAuditResult,
 ): ComplianceMapping[] {
 
   // -------------------------------------------------------------------------
@@ -660,14 +663,26 @@ function buildComplianceMappings(
     }
   }
 
-  // annex-iv-design-specifications
-  euReqs.push({
-    id: 'annex-iv-design-specifications',
-    label: 'Detailed description of the elements of the AI system and of the process for its development',
-    status: 'partial',
-    evidence_event_ids: [],
-    limitation: 'Capability manifest not always present; runtime evidence reflects deployed configuration, not development provenance.',
-  });
+  // annex-iv-design-specifications (Annex IV Item 2)
+  {
+    const id = 'annex-iv-design-specifications';
+    const label = 'Detailed description of the elements of the AI system and of the process for its development';
+    const hasDesignContext = meta?.intended_use !== undefined && meta.intended_use.trim() !== '' &&
+      meta?.deployment_context !== undefined && meta.deployment_context.trim() !== '';
+    if (hasDesignContext) {
+      euReqs.push({
+        id, label, status: 'supported',
+        evidence_event_ids: toolCallEvents.slice(0, 5).map((e) => e.event_id),
+        limitation: 'ReportMeta fields (intended_use, deployment_context) combined with runtime tool inventory satisfy Annex IV Item 2 at deployment level. Development-phase documentation (training methodology, architecture rationale) remains organisational.',
+      });
+    } else {
+      euReqs.push({
+        id, label, status: 'partial',
+        evidence_event_ids: [],
+        limitation: 'Capability manifest not always present; runtime evidence reflects deployed configuration, not development provenance. Populate ReportMeta.intended_use and deployment_context to upgrade to supported.',
+      });
+    }
+  }
 
   // annex-iv-risk-management
   {
@@ -713,14 +728,34 @@ function buildComplianceMappings(
     }
   }
 
-  // annex-iv-testing-validation
-  euReqs.push({
-    id: 'annex-iv-testing-validation',
-    label: 'Testing and validation procedures',
-    status: 'not_evaluated',
-    evidence_event_ids: [],
-    limitation: 'Requires benchmark engine output not present in this trace.',
-  });
+  // annex-iv-testing-validation (Annex IV Item 7)
+  {
+    const id = 'annex-iv-testing-validation';
+    const label = 'Testing and validation procedures (Annex IV Item 7)';
+    if (benchmarkResult !== undefined) {
+      const verdict = benchmarkResult.statistics.verdict;
+      const benchFindingIds = benchmarkResult.findings.flatMap((f) => f.evidence_ids);
+      if (verdict === 'supports_claim' && benchmarkResult.findings.length === 0) {
+        euReqs.push({
+          id, label, status: 'supported',
+          evidence_event_ids: benchFindingIds,
+          limitation: 'Benchmark statistics support the stated claim with no regressions. Annex IV Item 7 also requires documented test protocols; statistical results alone do not satisfy legal sufficiency.',
+        });
+      } else {
+        euReqs.push({
+          id, label, status: 'partial',
+          evidence_event_ids: benchFindingIds.slice(0, 5),
+          limitation: 'Benchmark audit was run; verdict: ' + verdict + '. Full Annex IV Item 7 compliance requires documented test protocols, dataset provenance, and acceptance criteria — not just statistical results.',
+        });
+      }
+    } else {
+      euReqs.push({
+        id, label, status: 'not_evaluated',
+        evidence_event_ids: [],
+        limitation: 'Requires benchmark engine output. Pass a BenchmarkAuditResult to renderReport to enable this mapping.',
+      });
+    }
+  }
 
   // annex-iv-lifecycle-changes (Annex IV Item 6)
   {
@@ -804,12 +839,17 @@ function buildComplianceMappings(
     // A trace with identified agent + model + tool inventory provides partial system identity,
     // but the purpose declaration must come from the deployer/provider.
     const hasSystemIdentity = events.some((e) => e.agent_id !== '' && e.model_id !== '' && e.model_id !== 'unknown');
-    if (hasSystemIdentity && toolCallEvents.length > 0) {
+    const hasIntendedUse = meta?.intended_use !== undefined && meta.intended_use.trim() !== '';
+    if (hasIntendedUse && hasSystemIdentity) {
+      euReqs.push({
+        id, label, status: 'supported',
+        evidence_event_ids: [...new Set([...toolCallEvents.slice(0, 3).map((e) => e.event_id)])],
+        limitation: 'ReportMeta.intended_use and system identity in trace together satisfy Annex IV 1(b) and Art. 13 intent declaration. Legal sufficiency requires a provider-signed declaration.',
+      });
+    } else if (hasSystemIdentity && toolCallEvents.length > 0) {
       euReqs.push({
         id, label, status: 'partial',
-        evidence_event_ids: [...new Set([
-          ...toolCallEvents.slice(0, 3).map((e) => e.event_id),
-        ])],
+        evidence_event_ids: [...new Set([...toolCallEvents.slice(0, 3).map((e) => e.event_id)])],
         limitation,
       });
     } else {
@@ -954,14 +994,28 @@ function buildComplianceMappings(
     }
   }
 
-  // MEASURE-2.9 — not_evaluated (requires benchmark engine)
-  nistReqs.push({
-    id: 'MEASURE-2.9',
-    label: 'AI system performance is measured against benchmarks with documented validity',
-    status: 'not_evaluated',
-    evidence_event_ids: [],
-    limitation: 'Statistical validity depends on dataset quality and sampling protocol.',
-  });
+  // MEASURE-2.9
+  {
+    const id = 'MEASURE-2.9';
+    const label = 'AI system performance is measured against benchmarks with documented validity';
+    if (benchmarkResult !== undefined) {
+      const { candidate_rate, baseline_rate, absolute_delta, verdict, wilson_ci } = benchmarkResult.statistics;
+      const ciStr = wilson_ci !== undefined
+        ? ` (95% CI: [${(wilson_ci[0]*100).toFixed(1)}%, ${(wilson_ci[1]*100).toFixed(1)}%])`
+        : '';
+      nistReqs.push({
+        id, label, status: verdict !== 'inconclusive' ? 'supported' : 'partial',
+        evidence_event_ids: benchmarkResult.findings.flatMap((f) => f.evidence_ids).slice(0, 5),
+        limitation: `Candidate pass rate ${(candidate_rate*100).toFixed(1)}%${ciStr} vs baseline ${(baseline_rate*100).toFixed(1)}%. Delta: ${(absolute_delta*100).toFixed(1)}pp. Verdict: ${verdict}. Dataset provenance and sampling methodology require separate documentation.`,
+      });
+    } else {
+      nistReqs.push({
+        id, label, status: 'not_evaluated',
+        evidence_event_ids: [],
+        limitation: 'Requires benchmark engine output. Pass a BenchmarkAuditResult to renderReport to enable this mapping.',
+      });
+    }
+  }
 
   // MANAGE-2.3 — response and recovery procedures
   // Deny-policy alone is NOT evidence of response/recovery; it is policy enforcement.
@@ -1045,6 +1099,75 @@ function buildComplianceMappings(
       nistReqs.push({
         id, label, status: 'partial',
         evidence_event_ids: events.slice(0, 3).map((e) => e.event_id),
+        limitation,
+      });
+    } else {
+      nistReqs.push({ id, label, status: 'not_evaluated', evidence_event_ids: [], limitation });
+    }
+  }
+
+  // MAP-4.1 — risk findings are communicated
+  {
+    const id = 'MAP-4.1';
+    const label = 'AI risk and benefit findings are communicated to relevant AI actors';
+    const limitation = 'Policy-audit findings in this report evidence risk communication within the audit workflow; they do not confirm that findings were acted on by relevant stakeholders.';
+    if (findings.length > 0) {
+      nistReqs.push({
+        id, label, status: 'partial',
+        evidence_event_ids: [...new Set(findings.flatMap((f) => f.evidence_ids).slice(0, 5))],
+        limitation,
+      });
+    } else {
+      nistReqs.push({ id, label, status: 'not_evaluated', evidence_event_ids: [], limitation });
+    }
+  }
+
+  // MEASURE-2.2 — AI system metrics are tracked
+  {
+    const id = 'MEASURE-2.2';
+    const label = 'Evaluations of AI systems are conducted regularly';
+    const limitation: string = 'The EAS score and per-component breakdown constitute a quantitative evaluation of audit-trail quality per run. Cross-run trend analysis requires ongoing monitoring.';
+    // EAS is always computed before renderReport calls buildComplianceMappings.
+    // If there are any events, EAS was evaluated — use tool + policy events as evidence proxy.
+    const evalEvIds = [...new Set([
+      ...toolCallEvents.slice(0, 3).map((e) => e.event_id),
+      ...policyDecisionEvents.slice(0, 3).map((e) => e.event_id),
+    ])];
+    if (events.length > 0) {
+      nistReqs.push({
+        id, label, status: 'partial',
+        evidence_event_ids: evalEvIds,
+        limitation,
+      });
+    } else {
+      nistReqs.push({ id, label, status: 'not_evaluated', evidence_event_ids: [], limitation });
+    }
+  }
+
+  // MANAGE-3.2 — residual risk is tracked
+  {
+    const id = 'MANAGE-3.2';
+    const label = 'Risk treatment and residual risk are monitored and documented';
+    const limitation = 'Deny policy decisions paired with verifier observations provide evidence of runtime risk controls; organisational residual-risk documentation is required separately.';
+    const verifierObs = observationEvents.filter(
+      (e) => e.observation?.source !== undefined && e.observation.source.startsWith('verifier:'),
+    );
+    if (denyPolicyEvents.length > 0 && verifierObs.length > 0) {
+      nistReqs.push({
+        id, label, status: 'partial',
+        evidence_event_ids: [...new Set([
+          ...denyPolicyEvents.map((e) => e.event_id),
+          ...verifierObs.map((e) => e.event_id),
+        ])],
+        limitation,
+      });
+    } else if (denyPolicyEvents.length > 0 || verifierObs.length > 0) {
+      nistReqs.push({
+        id, label, status: 'partial',
+        evidence_event_ids: [...new Set([
+          ...denyPolicyEvents.map((e) => e.event_id),
+          ...verifierObs.map((e) => e.event_id),
+        ])],
         limitation,
       });
     } else {
@@ -1280,9 +1403,19 @@ function buildComplianceMappings(
     {
       id: 'A.8.2',
       label: 'Performance evaluation of AI systems',
-      status: 'not_evaluated',
-      evidence_event_ids: [],
-      limitation: 'Coverage limited to instrumented benchmarks. Requires benchmark engine output.',
+      ...(benchmarkResult !== undefined
+        ? {
+            status: (benchmarkResult.statistics.verdict !== 'inconclusive' ? 'supported' : 'partial') as 'supported' | 'partial',
+            evidence_event_ids: benchmarkResult.findings.flatMap((f) => f.evidence_ids).slice(0, 5),
+            limitation: 'Benchmark audit result available: verdict ' + benchmarkResult.statistics.verdict +
+              ', delta ' + (benchmarkResult.statistics.absolute_delta * 100).toFixed(1) + 'pp. ' +
+              'A.8.2 also requires acceptance criteria and methodology documentation.',
+          }
+        : {
+            status: 'not_evaluated' as const,
+            evidence_event_ids: [],
+            limitation: 'Requires benchmark engine output. Pass a BenchmarkAuditResult to renderReport to enable this mapping.',
+          }),
     },
     {
       id: 'A.8.3',
@@ -2349,10 +2482,11 @@ export async function renderReport(
   score: RiskScore,
   inventoryReport?: InventoryReport,
   meta?: ReportMeta,
+  benchmarkResult?: BenchmarkAuditResult,
 ): Promise<ReportBundle> {
   const generatedAt = new Date().toISOString();
   const resolved = resolveMeta(events, score, generatedAt, meta);
-  const complianceMappings = buildComplianceMappings(events, findings);
+  const complianceMappings = buildComplianceMappings(events, findings, meta, benchmarkResult);
 
   const markdown = buildMarkdown(events, findings, score, inventoryReport, generatedAt, resolved, complianceMappings);
   const html = buildHtml(events, findings, score, inventoryReport, generatedAt, resolved, complianceMappings);
