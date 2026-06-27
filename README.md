@@ -69,26 +69,21 @@ No external VPS, Cloud Run, or Kubernetes is required.
 
 ## Status
 
-**Phase 0 — Spec drafting.** This repository currently contains the
-specification, JSON schemas, regulatory profiles, and reference architecture.
-TypeScript implementation packages are placeholders until OpenAgentAudit's
-*own* canonical model reaches release-candidate status (see
-`docs/schema-versioning.md`). The freeze gate applies only to OAA's
-internal model — upstream projects (`wasmagent-js`, `bscode`,
-`trace-pipeline`, AEP) continue to iterate freely; OAA adapts via
-versioned adapters.
+**Phase 2 — Active implementation.** The specification, schemas, and
+regulatory profiles are complete. TypeScript implementation packages are
+being built against the current `open-agent-audit/v0.1` schema.
 
 | Component | Status |
 |---|---|
-| `spec/versions/v0.1/SPEC.md` | drafting |
-| `schemas/v0.1/*.schema.json` | drafting |
-| `profiles/*.yaml` | drafting |
-| `packages/schema` | skeleton |
-| `packages/core` | skeleton, blocked on schema freeze |
-| `packages/adapters` | skeleton, blocked on schema freeze |
-| `packages/cli` | skeleton |
+| `spec/versions/v0.1/SPEC.md` | draft |
+| `schemas/v0.1/*.schema.json` | draft |
+| `profiles/*.yaml` | draft |
+| `packages/schema` | implemented — Zod runtime validation |
+| `packages/core` | implementing |
+| `packages/adapters` | implementing — AEP v0.2, bscode |
+| `packages/cli` | implementing |
 | `packages/worker` | skeleton |
-| `packages/dashboard` | skeleton |
+| `packages/dashboard` | planned — React + Tailwind + CF Static Assets |
 
 ## Documents you should read first
 
@@ -97,7 +92,7 @@ versioned adapters.
 3. [`docs/architecture.md`](./docs/architecture.md) — system architecture.
 4. [`docs/cloudflare-native.md`](./docs/cloudflare-native.md) — deployment model.
 5. [`docs/relationship-to-wasmagent.md`](./docs/relationship-to-wasmagent.md) — how this fits with `wasmagent-js`, `bscode`, `trace-pipeline`.
-6. [`docs/schema-versioning.md`](./docs/schema-versioning.md) — versioning policy and Phase 2 freeze gate.
+6. [`docs/schema-versioning.md`](./docs/schema-versioning.md) — versioning policy.
 7. [`docs/regulatory-disclaimer.md`](./docs/regulatory-disclaimer.md) — what we do and do not claim.
 
 ## Disclaimer

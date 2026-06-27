@@ -18,5 +18,8 @@
     "@openagentaudit/core": "0.1.0",
     "@openagentaudit/adapters": "0.1.0",
     "@openagentaudit/schema": "0.1.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250620.0"
   }
 }

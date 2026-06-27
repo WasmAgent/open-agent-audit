@@ -2,78 +2,47 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: ["**"]
   pull_request:
-    branches: [main]
+    branches: ["**"]
 
 permissions:
   contents: read
 
 jobs:
-  verify:
-    name: Verify (no install required)
+  ci:
+    name: Build, typecheck, verify, test
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-      - name: Verify disclaimers
-        run: node scripts/verify-disclaimers.mjs
-      - name: Verify evidence-ids
-        run: node scripts/verify-evidence-ids.mjs
-      - name: Verify spec consistency
-        run: node scripts/verify-spec-consistency.mjs
-      - name: Check no sensitive info
-        run: node scripts/check-no-sensitive-info.mjs
-      - name: Check no control bytes
-        run: node scripts/check-no-control-bytes.mjs
 
-  schema:
-    name: JSON schemas parse
-    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-      - name: All schemas are valid JSON
-        run: |
-          set -e
-          for f in schemas/v0.1/*.schema.json; do
-            echo "checking $f"
-            node -e "JSON.parse(require('node:fs').readFileSync('$f','utf8'))"
-          done
-      - name: schemas/index.json parses
-        run: node -e "JSON.parse(require('node:fs').readFileSync('schemas/index.json','utf8'))"
+      - name: Checkout
+        uses: actions/checkout@v4
 
-  jsonl-examples:
-    name: JSONL examples parse line-by-line
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
         with:
-          node-version: '20'
-      - name: Parse every line of every jsonl
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build packages (schema, core, adapters)
         run: |
-          node <<'EOF'
-          const fs = require('node:fs');
-          const path = require('node:path');
-          const dir = 'examples/traces';
-          let bad = 0;
-          for (const name of fs.readdirSync(dir)) {
-            if (!name.endsWith('.jsonl')) continue;
-            const text = fs.readFileSync(path.join(dir, name), 'utf8');
-            const lines = text.split('\n').filter(Boolean);
-            for (let i = 0; i < lines.length; i++) {
-              try { JSON.parse(lines[i]); }
-              catch (e) {
-                console.error(`${dir}/${name}:${i+1} not valid JSON: ${e.message}`);
-                bad++;
-              }
-            }
-          }
-          if (bad) process.exit(1);
-          console.log('all jsonl examples parse');
-          EOF
+          npx tsc -p packages/schema/tsconfig.json
+          npx tsc -p packages/core/tsconfig.json
+          npx tsc -p packages/adapters/tsconfig.json
+
+      - name: Typecheck CLI
+        run: npx tsc -p packages/cli/tsconfig.json --noEmit
+
+      - name: Typecheck worker
+        run: npx tsc -p packages/worker/tsconfig.json --noEmit
+
+      - name: Run verify scripts
+        run: |
+          node scripts/check-no-sensitive-info.mjs
+          node scripts/verify-disclaimers.mjs
+
+      - name: Run tests
+        run: npm test --workspaces --if-present

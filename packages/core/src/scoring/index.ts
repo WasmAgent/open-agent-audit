@@ -1,13 +1,184 @@
-/** @openagentaudit/core/scoring — skeleton. */
+/** @openagentaudit/core/scoring — Evidence Admission Score (EAS) implementation. */
 import type { CanonicalEvent, RiskScore } from '@openagentaudit/schema';
 
-export async function computeRiskScore(_events: CanonicalEvent[]): Promise<RiskScore> {
+type Grade = 'A' | 'B' | 'C' | 'D' | 'F';
+
+function toGrade(score: number): Grade {
+  if (score >= 90) return 'A';
+  if (score >= 75) return 'B';
+  if (score >= 60) return 'C';
+  if (score >= 40) return 'D';
+  return 'F';
+}
+
+function computeTraceCompleteness(events: CanonicalEvent[]): number {
+  if (events.length === 0) return 100;
+
+  let score = 100;
+
+  for (const ev of events) {
+    if (!ev.evidence?.evidence_id) {
+      score -= 5;
+    }
+    if (!ev.timestamp || Number.isNaN(Date.parse(ev.timestamp))) {
+      score -= 10;
+    }
+  }
+
+  // Detect unpaired tool_call events: a tool_call with no subsequent observation
+  // referencing the same tool name in the same run_id.
+  const toolCallNames = new Set<string>();
+  const observationSources = new Set<string>();
+
+  for (const ev of events) {
+    if (ev.type === 'tool_call' && ev.tool?.name) {
+      toolCallNames.add(ev.tool.name);
+    }
+    if (ev.type === 'observation' && ev.observation?.source) {
+      observationSources.add(ev.observation.source);
+    }
+  }
+
+  for (const toolName of toolCallNames) {
+    const hasObservation = [...observationSources].some(
+      (src) => src === toolName || src.endsWith(`:${toolName}`),
+    );
+    if (!hasObservation) {
+      score -= 2;
+    }
+  }
+
+  return Math.max(0, score);
+}
+
+function computeProvenanceIntegrity(events: CanonicalEvent[]): number {
+  const eventsWithEvidence = events.filter(
+    (ev) => ev.evidence?.hash !== undefined || ev.evidence?.prev_hash !== undefined,
+  );
+
+  if (eventsWithEvidence.length === 0) {
+    return 20;
+  }
+
+  // Check hash chain: prev_hash[i] === hash[i-1] for all i > 0
+  let chainBroken = false;
+  for (let i = 1; i < eventsWithEvidence.length; i++) {
+    const prev = eventsWithEvidence[i - 1];
+    const curr = eventsWithEvidence[i];
+    if (curr?.evidence?.prev_hash !== undefined && prev?.evidence?.hash !== undefined) {
+      if (curr.evidence.prev_hash !== prev.evidence.hash) {
+        chainBroken = true;
+        break;
+      }
+    }
+  }
+
+  if (chainBroken) {
+    return 0;
+  }
+
+  // Check signatures
+  const hasSignatureAlgorithmWithoutSignature = eventsWithEvidence.some(
+    (ev) =>
+      ev.evidence?.signature_algorithm !== undefined && ev.evidence?.signature === undefined,
+  );
+
+  if (hasSignatureAlgorithmWithoutSignature) {
+    return 0;
+  }
+
+  const allHaveSignature = eventsWithEvidence.every(
+    (ev) => ev.evidence?.signature !== undefined,
+  );
+
+  return allHaveSignature ? 100 : 60;
+}
+
+function computeObjectiveVerification(events: CanonicalEvent[]): number {
+  const toolCallCount = events.filter((ev) => ev.type === 'tool_call').length;
+
+  if (toolCallCount === 0) {
+    return 80;
+  }
+
+  const verifierCount = events.filter(
+    (ev) =>
+      ev.type === 'observation' &&
+      ev.observation?.source !== undefined &&
+      ev.observation.source.startsWith('verifier:'),
+  ).length;
+
+  if (verifierCount >= toolCallCount * 0.8) return 100;
+  if (verifierCount >= toolCallCount * 0.5) return 70;
+  if (verifierCount > 0) return 40;
+  return 0;
+}
+
+function computePolicyCoverage(events: CanonicalEvent[]): number {
+  const toolCallCount = events.filter((ev) => ev.type === 'tool_call').length;
+  const policyCount = events.filter((ev) => ev.type === 'policy_decision').length;
+
+  if (policyCount === 0 && toolCallCount === 0) return 50;
+  if (policyCount === 0 && toolCallCount > 0) return 0;
+
+  return Math.min(100, Math.round((policyCount / Math.max(toolCallCount, 1)) * 100));
+}
+
+function computeHumanOversightEvidence(events: CanonicalEvent[]): number {
+  const humanCount = events.filter((ev) => ev.type === 'human_approval').length;
+  const requiredCount = events.filter(
+    (ev) =>
+      ev.type === 'tool_call' &&
+      ev.tool?.risk_tags !== undefined &&
+      ev.tool.risk_tags.some((tag) => tag === 'human_required' || tag === 'high_risk'),
+  ).length;
+
+  if (requiredCount === 0) return 80;
+  if (humanCount >= requiredCount) return 100;
+  return Math.round((humanCount / requiredCount) * 100);
+}
+
+function computeContaminationRiskInverted(): number {
+  return 100;
+}
+
+export async function computeRiskScore(
+  events: CanonicalEvent[],
+  runId?: string,
+): Promise<RiskScore> {
+  const trace_completeness = computeTraceCompleteness(events);
+  const provenance_integrity = computeProvenanceIntegrity(events);
+  const objective_verification = computeObjectiveVerification(events);
+  const policy_coverage = computePolicyCoverage(events);
+  const human_oversight_evidence = computeHumanOversightEvidence(events);
+  const contamination_risk_inverted = computeContaminationRiskInverted();
+
+  const eas =
+    0.2 * trace_completeness +
+    0.2 * provenance_integrity +
+    0.2 * objective_verification +
+    0.15 * policy_coverage +
+    0.15 * human_oversight_evidence +
+    0.1 * contamination_risk_inverted;
+
+  const easRounded = Math.round(eas);
+
   return {
     schema_version: 'open-agent-audit/v0.1',
-    run_id: 'placeholder',
-    generated_at: '1970-01-01T00:00:00Z',
-    evidence_admission_score: { score: 0, grade: 'F' },
-    agent_risk_score: { score: 0 },
-    components: {},
+    run_id: events[0]?.run_id ?? runId ?? 'unknown',
+    generated_at: new Date().toISOString(),
+    evidence_admission_score: {
+      score: easRounded,
+      grade: toGrade(easRounded),
+    },
+    agent_risk_score: { score: easRounded },
+    components: {
+      trace_completeness,
+      provenance_integrity,
+      objective_verification,
+      policy_coverage,
+      human_oversight_evidence,
+      contamination_risk_inverted,
+    },
   };
 }

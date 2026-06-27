@@ -17,7 +17,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "echo 'no tests yet — Phase 2 blocked on schema freeze gate' && exit 0",
+    "test": "echo 'no tests yet' && exit 0",
     "clean": "rm -rf dist .turbo"
   },
   "wasmagent": {

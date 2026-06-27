@@ -1,0 +1,60 @@
+name: Deploy
+
+# Triggered only on pushes to main.
+#
+# Prerequisites before first deploy:
+#   1. Copy examples/cloudflare/wrangler.example.jsonc to wrangler.jsonc
+#      (wrangler.jsonc is gitignored — never commit it).
+#   2. Replace every REPLACE_ME_* placeholder with real Cloudflare resource
+#      IDs from your Cloudflare dashboard.
+#   3. Add the following repository secrets in GitHub:
+#        CLOUDFLARE_API_TOKEN  — a Cloudflare API token with Workers deploy rights
+#        CLOUDFLARE_ACCOUNT_ID — your Cloudflare account ID
+#   4. Set up a GitHub "production" environment with required reviewers so
+#      every deploy to main requires manual approval.
+
+on:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to Cloudflare Workers
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build packages (schema, core, adapters)
+        run: |
+          npx tsc -p packages/schema/tsconfig.json
+          npx tsc -p packages/core/tsconfig.json
+          npx tsc -p packages/adapters/tsconfig.json
+
+      - name: Build dashboard
+        run: |
+          cd packages/dashboard
+          npm install
+          npm run build
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          wranglerVersion: "3"
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy --config examples/cloudflare/wrangler.example.jsonc

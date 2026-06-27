@@ -7,7 +7,7 @@ describes the production architecture.
 
 | Component | Cloudflare product | Role |
 |---|---|---|
-| Dashboard | Pages | Static UI for projects, runs, findings, downloads |
+| Dashboard | Workers Static Assets | React + Tailwind SPA served via Worker static asset binding |
 | Public API | Workers | Ingest, query, auth, lightweight checks |
 | Audit engines | Workers + Queues | Chunked job execution |
 | Run coordination | Durable Objects (`AuditRunCoordinator`) | Per-run state, progress, idempotency, finalization |
@@ -82,6 +82,28 @@ Containers. They are not part of the default path.
 - Call out to external VPS / Cloud Run / Kubernetes.
 - Run native binaries outside of Containers.
 - Use Node-only crypto (Web Crypto only).
+
+## Dashboard
+
+The dashboard is a React + TypeScript + Tailwind CSS SPA deployed via
+Cloudflare Workers **Static Assets** (not Cloudflare Pages).
+
+Wrangler configuration:
+
+\`\`\`jsonc
+{
+  "name": "open-agent-audit-dashboard",
+  "main": "packages/worker/src/index.ts",
+  "assets": {
+    "directory": "./packages/dashboard/dist/",
+    "not_found_handling": "single-page-application"
+  }
+}
+\`\`\`
+
+The Worker handles `/api/*` routes and falls through to the static asset
+handler for all other requests. The SPA handles client-side routing.
+No Cloudflare Pages project is required.
 
 ## Configuration
 

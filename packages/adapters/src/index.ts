@@ -1,11 +1,8 @@
 /**
  * @openagentaudit/adapters — Source-format adapters.
  *
- * Each adapter is a versioned contract that maps a source format into
+ * Each adapter is a versioned pure function that maps a source format into
  * OpenAgentAudit canonical events. See docs/adapter-contract.md.
- *
- * Status: skeleton. Adapter implementation begins after the schema
- * freeze gate clears; see docs/schema-versioning.md.
  */
 
 import type { AuditRun, CanonicalEvent } from '@openagentaudit/schema';

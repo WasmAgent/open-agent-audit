@@ -14,7 +14,8 @@ Initial draft. Defines:
 - Adapter contract for AEP v0.2, ComplianceEvalRecord, bscode, OTel,
   Langfuse, LangSmith.
 
-The schema is in draft until the freeze gate documented in
-[`docs/schema-versioning.md`](../docs/schema-versioning.md) is satisfied.
-The gate covers OAA's own model only; upstream projects (`wasmagent-js`,
-`bscode`, `trace-pipeline`, AEP) are not constrained by this freeze.
+The schema is in `draft` state. Implementation proceeds against the current
+draft per the approach described in
+[`docs/schema-versioning.md`](../docs/schema-versioning.md).
+Upstream projects (`wasmagent-js`, `bscode`, `trace-pipeline`, AEP) are
+not constrained by OAA's own versioning.

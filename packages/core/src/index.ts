@@ -9,21 +9,19 @@
  *   - native dependencies
  *
  * See CONSTRAINTS.md §4.
- *
- * Status: alpha skeleton. Implementation is blocked on the Phase 2
- * freeze gate; see docs/schema-versioning.md.
  */
 
 export const ENGINE_VERSION = '0.1.0-alpha.0' as const;
 
-// Engines are implemented per `docs/architecture.md` Layer 3.
-// They are stubbed here so the workspace builds.
-
 export { validate } from './validate/index.js';
+export type { ValidationResult } from './validate/index.js';
 export { inventory } from './inventory/index.js';
+export type { InventoryReport, ToolSummary, HighRiskAction, HumanApprovalRecord, CapabilitySummary } from './inventory/index.js';
 export { policyAudit } from './policy-audit/index.js';
+export type { PolicyAuditContext, CapabilityManifest } from './policy-audit/index.js';
 export { benchmarkAudit } from './benchmark-audit/index.js';
 export { contamination } from './contamination/index.js';
 export { driftGuard } from './drift-guard/index.js';
 export { computeRiskScore } from './scoring/index.js';
 export { renderReport } from './report/index.js';
+export type { ReportBundle } from './report/index.js';

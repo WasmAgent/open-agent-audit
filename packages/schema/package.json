@@ -19,6 +19,9 @@
     "test": "echo 'no tests yet — package skeleton' && exit 0",
     "clean": "rm -rf dist .turbo"
   },
+  "dependencies": {
+    "zod": "^3.23.0"
+  },
   "wasmagent": {
     "stability": "alpha"
   },
