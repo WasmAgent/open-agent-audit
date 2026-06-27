@@ -400,23 +400,28 @@ function buildComplianceMappings(
     const label = 'Privilege Escalation and Excessive Agency';
     const limitation = 'Excessive agency may emerge from chained tool calls not visible to a single rule.';
     const findingEvIds = evidenceFromRules(['OAA-R-CAP-001', 'OAA-R-CAP-002']);
+    const undeclaredCapEvents = toolCallEvents.filter(
+      (e) => e.tool?.capability !== undefined && e.tool.capability !== '',
+    );
     if (toolCallEvents.length === 0) {
       owaspReqs.push({ id, label, status: 'not_applicable', evidence_event_ids: [], limitation });
-    } else if (denyPolicyEvents.length > 0) {
+    } else if (denyPolicyEvents.length > 0 && findingEvIds.length > 0) {
       owaspReqs.push({
         id, label, status: 'supported',
         evidence_event_ids: [...new Set([
           ...denyPolicyEvents.map((e) => e.event_id),
           ...findingEvIds,
+          ...undeclaredCapEvents.map((e) => e.event_id),
         ])],
         limitation,
       });
-    } else if (policyDecisionEvents.length > 0) {
+    } else if (policyDecisionEvents.length > 0 || findingEvIds.length > 0) {
       owaspReqs.push({
         id, label, status: 'partial',
         evidence_event_ids: [...new Set([
           ...policyDecisionEvents.map((e) => e.event_id),
           ...findingEvIds,
+          ...undeclaredCapEvents.map((e) => e.event_id),
         ])],
         limitation,
       });
@@ -496,23 +501,72 @@ function buildComplianceMappings(
     }
   }
 
-  // AAI07 — Goal Drift
-  owaspReqs.push({
-    id: 'AAI07',
-    label: 'Goal Drift and Unintended Autonomy',
-    status: 'not_evaluated',
-    evidence_event_ids: [],
-    limitation: 'Requires drift-guard engine output not present in this trace.',
-  });
+  // AAI07 — Goal Drift — partial when error events or unexpected tool patterns exist
+  {
+    const id = 'AAI07';
+    const label = 'Goal Drift and Unintended Autonomy';
+    const limitation = 'Full drift detection requires the drift-guard engine across multiple runs. Error events and unexpected tool invocations are a weak proxy for unintended autonomy within a single run.';
+    // Heuristic: error events or tool calls with no capability declaration may indicate goal drift
+    const unexpectedToolEvents = toolCallEvents.filter(
+      (e) => !e.tool?.capability || e.tool.capability === '',
+    );
+    const findingEvIds = evidenceFromRules(['OAA-R-CAP-001', 'OAA-R-CAP-002']);
+    if (errorEvents.length > 0 || (unexpectedToolEvents.length > 0 && findingEvIds.length > 0)) {
+      owaspReqs.push({
+        id, label, status: 'partial',
+        evidence_event_ids: [...new Set([
+          ...errorEvents.map((e) => e.event_id),
+          ...findingEvIds,
+        ])],
+        limitation,
+      });
+    } else if (toolCallEvents.length > 0) {
+      owaspReqs.push({
+        id, label, status: 'partial',
+        evidence_event_ids: toolCallEvents.slice(0, 3).map((e) => e.event_id),
+        limitation,
+      });
+    } else {
+      owaspReqs.push({ id, label, status: 'not_evaluated', evidence_event_ids: [], limitation });
+    }
+  }
 
-  // AAI08 — Prompt Injection
-  owaspReqs.push({
-    id: 'AAI08',
-    label: 'Indirect Prompt Injection via Tool Returns',
-    status: 'not_evaluated',
-    evidence_event_ids: [],
-    limitation: 'Requires injection filter evidence not present in this trace.',
-  });
+  // AAI08 — Prompt Injection — partial when observation events from tool returns exist
+  {
+    const id = 'AAI08';
+    const label = 'Indirect Prompt Injection via Tool Returns';
+    const limitation = 'Signed observation events from tool returns provide forensic traceability but do not prove injection filtering was applied. A dedicated injection-filter verifier result would upgrade this to supported.';
+    // Observations whose source looks like a tool return (not verifier: prefix) may carry injected content
+    const toolReturnObs = observationEvents.filter(
+      (e) => e.observation?.source !== undefined && !e.observation.source.startsWith('verifier:'),
+    );
+    const injectionFilterObs = observationEvents.filter(
+      (e) => e.observation?.source !== undefined &&
+        (e.observation.source.includes('inject') || e.observation.source.includes('filter') ||
+         e.observation.source.includes('sanitize') || e.observation.source.includes('guard')),
+    );
+    if (injectionFilterObs.length > 0) {
+      owaspReqs.push({
+        id, label, status: 'supported',
+        evidence_event_ids: injectionFilterObs.map((e) => e.event_id),
+        limitation,
+      });
+    } else if (toolReturnObs.length > 0) {
+      owaspReqs.push({
+        id, label, status: 'partial',
+        evidence_event_ids: toolReturnObs.map((e) => e.event_id),
+        limitation,
+      });
+    } else if (observationEvents.length > 0) {
+      owaspReqs.push({
+        id, label, status: 'partial',
+        evidence_event_ids: observationEvents.map((e) => e.event_id),
+        limitation,
+      });
+    } else {
+      owaspReqs.push({ id, label, status: 'not_evaluated', evidence_event_ids: [], limitation });
+    }
+  }
 
   // AAI09 — Insufficient Human Oversight
   {
@@ -640,14 +694,24 @@ function buildComplianceMappings(
     }
   }
 
-  // annex-iv-data-governance
-  euReqs.push({
-    id: 'annex-iv-data-governance',
-    label: 'Information about training, validation and testing data sets',
-    status: 'not_evaluated',
-    evidence_event_ids: [],
-    limitation: 'Requires contamination engine output not present in this trace.',
-  });
+  // annex-iv-data-governance (Annex IV Item 4, Art. 10)
+  {
+    const id = 'annex-iv-data-governance';
+    const label = 'Training, validation and testing data governance (Annex IV Item 4, Art. 10)';
+    const limitation = 'Art. 10 data governance requires design-time documentation. Runtime trace shows taint labels and input refs which evidence data handling, not data provenance.';
+    const taintedInputEvents = toolCallEvents.filter(
+      (e) => (e.tool?.risk_tags ?? []).some((t) => t.toLowerCase().includes('user-supplied') || t.toLowerCase().includes('pii') || t.toLowerCase().includes('sensitive')),
+    );
+    if (taintedInputEvents.length > 0) {
+      euReqs.push({
+        id, label, status: 'partial',
+        evidence_event_ids: taintedInputEvents.map((e) => e.event_id),
+        limitation,
+      });
+    } else {
+      euReqs.push({ id, label, status: 'not_evaluated', evidence_event_ids: [], limitation });
+    }
+  }
 
   // annex-iv-testing-validation
   euReqs.push({
@@ -658,6 +722,27 @@ function buildComplianceMappings(
     limitation: 'Requires benchmark engine output not present in this trace.',
   });
 
+  // annex-iv-lifecycle-changes (Annex IV Item 6) — version and change traceability
+  {
+    const id = 'annex-iv-lifecycle-changes';
+    const label = 'System lifecycle change log and version traceability (Annex IV Item 6)';
+    const limitation = 'AEP run-provenance fields (repo_commit, runtime_version) evidence the version at run time but do not replace a formal change log per Annex IV Item 6.';
+    // AEP provenance fields flow into events via signer_key_id and are detectable from evidence blocks.
+    const eventsWithVersion = events.filter(
+      (e) => e.evidence?.signer_key_id !== undefined && e.evidence.signer_key_id !== '' &&
+             e.evidence.signer_key_id !== 'none',
+    );
+    if (eventsWithVersion.length > 0) {
+      euReqs.push({
+        id, label, status: 'partial',
+        evidence_event_ids: eventsWithVersion.slice(0, 5).map((e) => e.event_id),
+        limitation,
+      });
+    } else {
+      euReqs.push({ id, label, status: 'not_evaluated', evidence_event_ids: [], limitation });
+    }
+  }
+
   // annex-iv-monitoring
   euReqs.push({
     id: 'annex-iv-monitoring',
@@ -667,37 +752,58 @@ function buildComplianceMappings(
     limitation: 'Trace covers one run; post-market monitoring requires ongoing data collection across deployments.',
   });
 
-  // annex-iv-human-oversight
+  // annex-iv-human-oversight (Art. 14)
   {
     const id = 'annex-iv-human-oversight';
-    const label = 'Human oversight measures';
-    const limitation = 'Approval records do not establish reviewer competence.';
-    if (highRiskToolCallEvents.length === 0) {
-      euReqs.push({ id, label, status: 'not_applicable', evidence_event_ids: [], limitation });
-    } else if (humanApprovalEvents.length > 0) {
+    const label = 'Human oversight measures and stop/override capability (Art. 14)';
+    const limitation = 'Approval records do not establish reviewer competence. Art. 14(4) requires humans to understand system capabilities; this cannot be evidenced by trace alone.';
+    const askUserEvents = policyDecisionEvents.filter((e) => e.policy?.decision === 'ask_user');
+    if (humanApprovalEvents.length > 0) {
       euReqs.push({
         id, label, status: 'supported',
         evidence_event_ids: [...new Set([
           ...humanApprovalEvents.map((e) => e.event_id),
           ...highRiskToolCallEvents.map((e) => e.event_id),
+          ...askUserEvents.map((e) => e.event_id),
         ])],
         limitation,
       });
-    } else {
+    } else if (askUserEvents.length > 0) {
+      euReqs.push({
+        id, label, status: 'partial',
+        evidence_event_ids: askUserEvents.map((e) => e.event_id),
+        limitation,
+      });
+    } else if (highRiskToolCallEvents.length > 0) {
       euReqs.push({
         id, label, status: 'partial',
         evidence_event_ids: highRiskToolCallEvents.map((e) => e.event_id),
         limitation,
       });
+    } else {
+      euReqs.push({ id, label, status: 'not_applicable', evidence_event_ids: [], limitation });
     }
   }
 
-  // annex-iv-intended-use (Annex IV Item 1(b)) — EU AI Act Art. 13 transparency
+  // annex-iv-intended-use (Annex IV Item 1(b)) — Art. 13 transparency
   {
     const id = 'annex-iv-intended-use';
     const label = 'Intended purpose and foreseeable misuse (Annex IV Item 1(b), Art. 13)';
-    const limitation = 'Requires a system card or provider declaration; runtime trace cannot substitute.';
-    euReqs.push({ id, label, status: 'not_evaluated', evidence_event_ids: [], limitation });
+    const limitation = 'Requires a system card or provider declaration; runtime trace alone cannot substitute. Populate ReportMeta.intended_use to upgrade to partial.';
+    // A trace with identified agent + model + tool inventory provides partial system identity,
+    // but the purpose declaration must come from the deployer/provider.
+    const hasSystemIdentity = events.some((e) => e.agent_id !== '' && e.model_id !== '' && e.model_id !== 'unknown');
+    if (hasSystemIdentity && toolCallEvents.length > 0) {
+      euReqs.push({
+        id, label, status: 'partial',
+        evidence_event_ids: [...new Set([
+          ...toolCallEvents.slice(0, 3).map((e) => e.event_id),
+        ])],
+        limitation,
+      });
+    } else {
+      euReqs.push({ id, label, status: 'not_evaluated', evidence_event_ids: [], limitation });
+    }
   }
 
   // annex-iv-logging-capability (Annex IV / Art. 12) — automatic logging capability declaration
@@ -867,6 +973,119 @@ function buildComplianceMappings(
     }
   }
 
+  // MANAGE-2.2 — anomaly and error monitoring
+  {
+    const id = 'MANAGE-2.2';
+    const label = 'AI risk treatments are monitored and reviewed for effectiveness';
+    const limitation = 'Error and denial events evidence reactive risk responses; they do not prove proactive monitoring cadence.';
+    const riskResponseEvents = [...denyPolicyEvents, ...errorEvents, ...humanApprovalEvents];
+    if (riskResponseEvents.length > 0) {
+      nistReqs.push({
+        id, label, status: 'partial',
+        evidence_event_ids: [...new Set(riskResponseEvents.map((e) => e.event_id))],
+        limitation,
+      });
+    } else {
+      nistReqs.push({ id, label, status: 'not_evaluated', evidence_event_ids: [], limitation });
+    }
+  }
+
+  // MANAGE-4.2 — incident and error logging
+  {
+    const id = 'MANAGE-4.2';
+    const label = 'AI incidents and near-misses are logged and communicated';
+    const limitation = 'Error events and denied policy decisions are structured incident proxies but do not constitute a formal incident report.';
+    if (errorEvents.length > 0 || denyPolicyEvents.length > 0) {
+      nistReqs.push({
+        id, label, status: 'partial',
+        evidence_event_ids: [...new Set([
+          ...errorEvents.map((e) => e.event_id),
+          ...denyPolicyEvents.map((e) => e.event_id),
+        ])],
+        limitation,
+      });
+    } else {
+      nistReqs.push({ id, label, status: 'not_evaluated', evidence_event_ids: [], limitation });
+    }
+  }
+
+  // MAP-5.1 — stakeholder and impact awareness
+  {
+    const id = 'MAP-5.1';
+    const label = 'Likelihood and magnitude of impacts from AI system risks are characterised';
+    const limitation = 'Risk characterisation requires human judgment. Taint labels and risk_tags are a partial proxy for impact magnitude.';
+    const riskTaggedEvents = toolCallEvents.filter((e) => (e.tool?.risk_tags ?? []).length > 0);
+    if (riskTaggedEvents.length > 0 && policyDecisionEvents.length > 0) {
+      nistReqs.push({
+        id, label, status: 'partial',
+        evidence_event_ids: [...new Set([
+          ...riskTaggedEvents.map((e) => e.event_id),
+          ...policyDecisionEvents.map((e) => e.event_id),
+        ])],
+        limitation,
+      });
+    } else if (riskTaggedEvents.length > 0) {
+      nistReqs.push({
+        id, label, status: 'partial',
+        evidence_event_ids: riskTaggedEvents.map((e) => e.event_id),
+        limitation,
+      });
+    } else {
+      nistReqs.push({ id, label, status: 'not_evaluated', evidence_event_ids: [], limitation });
+    }
+  }
+
+  // MAP-3.2 — context-specific risk identification
+  {
+    const id = 'MAP-3.2';
+    const label = 'Scientific findings and emerging risks are reflected in AI risk identification';
+    const limitation = 'Findings from policy-audit rules reflect known risk patterns; emergent risks outside the rule set are not captured.';
+    const findingEvIds = evidenceFromRules([
+      'OAA-R-CAP-001', 'OAA-R-CAP-002', 'OAA-R-OVERSIGHT-001',
+      'OAA-R-POLICY-001', 'OAA-R-POLICY-002', 'OAA-R-INTEGRITY-001',
+    ]);
+    if (findings.length > 0) {
+      nistReqs.push({
+        id, label, status: 'partial',
+        evidence_event_ids: [...new Set(findingEvIds)],
+        limitation,
+      });
+    } else {
+      nistReqs.push({ id, label, status: 'not_evaluated', evidence_event_ids: [], limitation });
+    }
+  }
+
+  // MEASURE-2.5 — output and downstream impact
+  {
+    const id = 'MEASURE-2.5';
+    const label = 'AI system to human configuration and oversight is evaluated';
+    const limitation = 'State-changing tool calls with post_state_digest evidence show downstream impact; human approval records show oversight configuration.';
+    const stateChangingEvents = toolCallEvents.filter(
+      (e) => e.tool?.risk_tags !== undefined && e.tool.risk_tags.length > 0,
+    );
+    if (humanApprovalEvents.length > 0 && stateChangingEvents.length > 0) {
+      nistReqs.push({
+        id, label, status: 'supported',
+        evidence_event_ids: [...new Set([
+          ...humanApprovalEvents.map((e) => e.event_id),
+          ...stateChangingEvents.map((e) => e.event_id),
+        ])],
+        limitation,
+      });
+    } else if (stateChangingEvents.length > 0 || policyDecisionEvents.length > 0) {
+      nistReqs.push({
+        id, label, status: 'partial',
+        evidence_event_ids: [...new Set([
+          ...stateChangingEvents.map((e) => e.event_id),
+          ...policyDecisionEvents.map((e) => e.event_id),
+        ])],
+        limitation,
+      });
+    } else {
+      nistReqs.push({ id, label, status: 'not_evaluated', evidence_event_ids: [], limitation });
+    }
+  }
+
   // MANAGE-4.1 — not_evaluated (requires ongoing monitoring data)
   nistReqs.push({
     id: 'MANAGE-4.1',
@@ -876,11 +1095,64 @@ function buildComplianceMappings(
     limitation: 'Drift detection is statistical; semantic drift is harder. Requires ongoing monitoring data.',
   });
 
+  // MEASURE-2.11 — bias and fairness monitoring
+  {
+    const id = 'MEASURE-2.11';
+    const label = 'Fairness and bias impacts are measured and monitored';
+    const limitation = 'Taint labels (pii, user-supplied) are a proxy for sensitive-data handling; demographic bias measurement requires dedicated fairness engine output.';
+    const sensitiveDataEvents = toolCallEvents.filter((e) => {
+      const tags = e.tool?.risk_tags ?? [];
+      return tags.some((t) => ['pii', 'sensitive', 'personal', 'user-supplied'].some((k) => t.toLowerCase().includes(k)));
+    });
+    if (sensitiveDataEvents.length > 0) {
+      nistReqs.push({
+        id, label, status: 'partial',
+        evidence_event_ids: sensitiveDataEvents.map((e) => e.event_id),
+        limitation,
+      });
+    } else {
+      nistReqs.push({ id, label, status: 'not_evaluated', evidence_event_ids: [], limitation });
+    }
+  }
+
   // -------------------------------------------------------------------------
-  // ISO/IEC 42001
+  // ISO/IEC 42001:2023
   // -------------------------------------------------------------------------
 
-  const isoLimitation = 'Requires organizational documentation beyond runtime evidence.';
+  const isoOrgLimit = 'Requires organizational documentation beyond runtime evidence.';
+
+  // A.6.2 — impacts on individuals and groups
+  const a62EvIds = toolCallEvents.filter((e) => {
+    const tags = e.tool?.risk_tags ?? [];
+    return tags.some((t) => ['pii', 'sensitive', 'personal', 'user-supplied'].some((k) => t.toLowerCase().includes(k)));
+  }).map((e) => e.event_id);
+
+  // A.7.3 — verification and validation of AI system
+  const a73EvIds = observationEvents.filter(
+    (e) => e.observation?.source?.startsWith('verifier:'),
+  ).map((e) => e.event_id);
+
+  // A.7.5 — operational monitoring
+  const a75EvIds = [...new Set([
+    ...errorEvents.map((e) => e.event_id),
+    ...denyPolicyEvents.map((e) => e.event_id),
+    ...events.filter((e) => e.evidence?.hash !== undefined).slice(0, 5).map((e) => e.event_id),
+  ])];
+
+  // A.8.3 — data quality validation
+  const a83EvIds = toolCallEvents.filter((e) => {
+    const tags = e.tool?.risk_tags ?? [];
+    return tags.length > 0;
+  }).map((e) => e.event_id);
+
+  // A.8.5 — data in operation monitoring
+  const a85EvIds = toolCallEvents.filter((e) => {
+    const tags = e.tool?.risk_tags ?? [];
+    return tags.some((t) => ['user-supplied', 'external', 'input'].some((k) => t.toLowerCase().includes(k)));
+  }).map((e) => e.event_id);
+
+  // A.9.1 — third-party AI use
+  const a91EvIds = events.filter((e) => e.evidence?.signer_key_id && e.evidence.signer_key_id !== 'none').map((e) => e.event_id);
 
   const isoReqs: ReqEntry[] = [
     {
@@ -888,14 +1160,35 @@ function buildComplianceMappings(
       label: 'AI system impact assessment',
       status: 'not_evaluated',
       evidence_event_ids: [],
-      limitation: isoLimitation,
+      limitation: isoOrgLimit,
+    },
+    {
+      id: 'A.6.2',
+      label: 'Impacts of AI systems on individuals and groups',
+      ...(a62EvIds.length > 0
+        ? { status: 'partial' as const, evidence_event_ids: a62EvIds, limitation: 'Taint labels on tool calls indicate sensitive data handling; demographic impact assessment requires dedicated fairness analysis.' }
+        : { status: 'not_evaluated' as const, evidence_event_ids: [], limitation: 'No sensitive data taint labels detected in this trace.' }),
+    },
+    {
+      id: 'A.7.3',
+      label: 'Verification and validation of AI systems',
+      ...(a73EvIds.length > 0
+        ? { status: 'partial' as const, evidence_event_ids: a73EvIds, limitation: 'Verifier result observations evidence V&V execution but not test coverage or acceptance criteria adequacy.' }
+        : { status: 'not_evaluated' as const, evidence_event_ids: [], limitation: 'No verifier result observations present in this trace.' }),
     },
     {
       id: 'A.7.4',
       label: 'Data quality for AI systems',
       status: 'not_evaluated',
       evidence_event_ids: [],
-      limitation: isoLimitation,
+      limitation: isoOrgLimit,
+    },
+    {
+      id: 'A.7.5',
+      label: 'Operational monitoring of AI system behaviour',
+      ...(a75EvIds.length > 0
+        ? { status: 'partial' as const, evidence_event_ids: a75EvIds, limitation: 'Hash-chained events with error/deny records evidence operational monitoring within a single run; cross-run drift monitoring requires the drift-guard engine.' }
+        : { status: 'not_evaluated' as const, evidence_event_ids: [], limitation: 'No operational monitoring signals detected in this trace.' }),
     },
     {
       id: 'A.8.2',
@@ -903,6 +1196,27 @@ function buildComplianceMappings(
       status: 'not_evaluated',
       evidence_event_ids: [],
       limitation: 'Coverage limited to instrumented benchmarks. Requires benchmark engine output.',
+    },
+    {
+      id: 'A.8.3',
+      label: 'Data quality validation at runtime',
+      ...(a83EvIds.length > 0
+        ? { status: 'partial' as const, evidence_event_ids: a83EvIds.slice(0, 5), limitation: 'Risk-tagged tool calls evidence data handling checkpoints; schema validation requires dedicated data-quality verifier observations.' }
+        : { status: 'not_evaluated' as const, evidence_event_ids: [], limitation: 'No risk-tagged tool events detected.' }),
+    },
+    {
+      id: 'A.8.5',
+      label: 'Runtime data input monitoring',
+      ...(a85EvIds.length > 0
+        ? { status: 'partial' as const, evidence_event_ids: a85EvIds, limitation: 'User-supplied and external taint labels evidence runtime input monitoring; distribution drift detection requires baseline comparison data.' }
+        : { status: 'not_evaluated' as const, evidence_event_ids: [], limitation: 'No external/user-supplied input events detected in this trace.' }),
+    },
+    {
+      id: 'A.9.1',
+      label: 'Use of third-party AI systems and components',
+      ...(a91EvIds.length > 0
+        ? { status: 'partial' as const, evidence_event_ids: a91EvIds.slice(0, 5), limitation: 'Signer key IDs in evidence blocks identify the AI component at run time but do not substitute for vendor qualification documentation.' }
+        : { status: 'not_evaluated' as const, evidence_event_ids: [], limitation: 'No signed evidence blocks with signer identity detected.' }),
     },
     {
       id: 'A.9.2',
@@ -914,9 +1228,9 @@ function buildComplianceMappings(
     {
       id: 'A.10.2',
       label: 'Monitoring and reporting of AI system operation',
-      status: 'not_evaluated',
-      evidence_event_ids: [],
-      limitation: 'Tooling supports monitoring; does not perform it. Requires drift summary.',
+      ...(events.length > 0
+        ? { status: 'partial' as const, evidence_event_ids: events.slice(0, 5).map((e) => e.event_id), limitation: 'This audit report itself is an operational monitoring artifact per A.10.2; ongoing multi-run monitoring requires drift-guard engine integration.' }
+        : { status: 'not_evaluated' as const, evidence_event_ids: [], limitation: 'No events present in this trace.' }),
     },
   ];
 
