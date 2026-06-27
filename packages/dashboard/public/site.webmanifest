@@ -1,6 +1,7 @@
 {
   "name": "OpenAgentAudit",
   "short_name": "OAA",
+  "description": "Open-source AI agent audit and compliance platform",
   "icons": [
     {
       "src": "/web-app-manifest-192x192.png",
@@ -15,7 +16,8 @@
       "purpose": "maskable"
     }
   ],
-  "theme_color": "#ffffff",
-  "background_color": "#ffffff",
-  "display": "standalone"
+  "theme_color": "#4f46e5",
+  "background_color": "#f8fafc",
+  "display": "standalone",
+  "start_url": "/"
 }

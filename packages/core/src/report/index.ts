@@ -1423,7 +1423,9 @@ function buildHtml(
   parts.push('<head>');
   parts.push('<meta charset="utf-8">');
   parts.push('<meta name="viewport" content="width=device-width, initial-scale=1">');
-  parts.push('<title>OpenAgentAudit Report</title>');
+  parts.push('<meta name="robots" content="noindex, nofollow">');
+  parts.push(`<title>Audit Report ${escapeHtml(runId.slice(0, 8))} — ${escapeHtml(resolved.issuer)} — OpenAgentAudit</title>`);
+  parts.push(`<meta name="description" content="AI agent audit report for run ${escapeHtml(runId.slice(0, 8))}. EAS score: ${evidence_admission_score.score}/100 (Grade ${escapeHtml(grade)}). ${escapeHtml(findingsSummary)}. Issued by ${escapeHtml(resolved.issuer)}.">`);
   parts.push(`<style>${css}</style>`);
   parts.push('</head>');
   parts.push('<body>');
