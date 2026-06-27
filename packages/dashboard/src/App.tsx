@@ -9,9 +9,12 @@ interface RawEvent {
   timestamp?: string
   type?: string
   actor?: string
-  tool?: { name?: string; capability?: string }
-  policy?: { decision?: string; reason?: string }
+  tool?: { name?: string; capability?: string; risk_tags?: string[] }
+  policy?: { decision?: string; reason?: string; rule_id?: string }
   error?: { kind?: string; message?: string }
+  human?: { reviewer_id?: string; decision?: string; justification?: string }
+  observation?: { source?: string; byte_size?: number; content_hash?: string }
+  model_output?: { token_count?: number; finish_reason?: string; content_hash?: string }
 }
 
 const PAGE_SIZE = 50
@@ -41,6 +44,12 @@ function typeColorClass(type: string | undefined): string {
       return 'bg-green-100 text-green-800'
     case 'error':
       return 'bg-red-100 text-red-800'
+    case 'observation':
+      return 'bg-purple-100 text-purple-800'
+    case 'model_output':
+      return 'bg-indigo-100 text-indigo-800'
+    case 'final_answer':
+      return 'bg-teal-100 text-teal-800'
     default:
       return 'bg-gray-100 text-gray-700'
   }
@@ -48,13 +57,28 @@ function typeColorClass(type: string | undefined): string {
 
 function eventDetails(ev: RawEvent): string {
   if (ev.tool?.name) {
-    return `tool: ${ev.tool.name}${ev.tool.capability ? ` (${ev.tool.capability})` : ''}`
+    const cap = ev.tool.capability ? ` (${ev.tool.capability})` : ''
+    const tags = ev.tool.risk_tags && ev.tool.risk_tags.length > 0 ? ` [${ev.tool.risk_tags.join(', ')}]` : ''
+    return `tool: ${ev.tool.name}${cap}${tags}`
   }
   if (ev.policy?.decision) {
     return `${ev.policy.decision}${ev.policy.reason ? ` — ${ev.policy.reason}` : ''}`
   }
+  if (ev.human?.decision) {
+    return `${ev.human.decision} — ${ev.human.reviewer_id ?? 'unknown reviewer'}${ev.human.justification ? ` · "${ev.human.justification}"` : ''}`
+  }
   if (ev.error?.kind) {
     return `${ev.error.kind}${ev.error.message ? `: ${ev.error.message}` : ''}`
+  }
+  if (ev.observation?.source) {
+    const size = ev.observation.byte_size != null ? ` · ${ev.observation.byte_size}B` : ''
+    return `source: ${ev.observation.source}${size}`
+  }
+  if (ev.model_output) {
+    const parts: string[] = []
+    if (ev.model_output.finish_reason) parts.push(`finish: ${ev.model_output.finish_reason}`)
+    if (ev.model_output.token_count != null) parts.push(`${ev.model_output.token_count} tokens`)
+    if (parts.length > 0) return parts.join(' · ')
   }
   return '—'
 }

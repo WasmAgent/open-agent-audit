@@ -31,6 +31,11 @@
     "cpu_ms": 30000
   },
 
+  "routes": [
+    // Replace with your own custom domain, or remove this block to use workers.dev only.
+    { "pattern": "trustavo.com", "custom_domain": true }
+  ],
+
   "r2_buckets": [
     { "binding": "RAW_TRACES", "bucket_name": "oaa-raw-traces" },
     { "binding": "ARTIFACTS",  "bucket_name": "oaa-artifacts"  },

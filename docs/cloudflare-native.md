@@ -88,6 +88,8 @@ Containers. They are not part of the default path.
 The dashboard is a React + TypeScript + Tailwind CSS SPA deployed via
 Cloudflare Workers **Static Assets** (not Cloudflare Pages).
 
+Live at **https://trustavo.com**.
+
 Wrangler configuration:
 
 \`\`\`jsonc

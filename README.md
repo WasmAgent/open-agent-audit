@@ -8,6 +8,10 @@
 decisions, human approvals, benchmark results, and runtime traces into
 defensible technical evidence reports.
 
+## Live deployment
+
+**https://trustavo.com** — production deployment on Cloudflare Workers.
+
 ## What it does
 
 - **Validate** agent evidence records against a canonical schema.
