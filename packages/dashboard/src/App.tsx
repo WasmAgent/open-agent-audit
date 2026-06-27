@@ -46,50 +46,87 @@ function parseJsonl(text: string): RawEvent[] {
     .filter((e): e is RawEvent => e !== null)
 }
 
-function typeColorClass(type: string | undefined): string {
+interface TypeStyle {
+  chip: string
+  dot: string
+}
+
+function typeStyle(type: string | undefined): TypeStyle {
   switch (type) {
     case 'tool_call':
-      return 'bg-blue-100 text-blue-800'
+      return {
+        chip: 'bg-blue-50 text-blue-700 border border-blue-200',
+        dot: 'bg-blue-500',
+      }
     case 'policy_decision':
-      return 'bg-yellow-100 text-yellow-800'
+      return {
+        chip: 'bg-amber-50 text-amber-700 border border-amber-200',
+        dot: 'bg-amber-500',
+      }
     case 'human_approval':
-      return 'bg-green-100 text-green-800'
+      return {
+        chip: 'bg-emerald-50 text-emerald-700 border border-emerald-200',
+        dot: 'bg-emerald-500',
+      }
     case 'error':
-      return 'bg-red-100 text-red-800'
+      return {
+        chip: 'bg-red-50 text-red-700 border border-red-200',
+        dot: 'bg-red-500',
+      }
     case 'observation':
-      return 'bg-purple-100 text-purple-800'
+      return {
+        chip: 'bg-purple-50 text-purple-700 border border-purple-200',
+        dot: 'bg-purple-500',
+      }
     case 'model_output':
-      return 'bg-indigo-100 text-indigo-800'
+      return {
+        chip: 'bg-indigo-50 text-indigo-700 border border-indigo-200',
+        dot: 'bg-indigo-500',
+      }
     case 'final_answer':
-      return 'bg-teal-100 text-teal-800'
+      return {
+        chip: 'bg-teal-50 text-teal-700 border border-teal-200',
+        dot: 'bg-teal-500',
+      }
     default:
-      return 'bg-gray-100 text-gray-700'
+      return {
+        chip: 'bg-slate-50 text-slate-600 border border-slate-200',
+        dot: 'bg-slate-400',
+      }
   }
 }
 
 function eventDetails(ev: RawEvent): string {
   if (ev.tool?.name) {
     const cap = ev.tool.capability ? ` (${ev.tool.capability})` : ''
-    const tags = ev.tool.risk_tags && ev.tool.risk_tags.length > 0 ? ` [${ev.tool.risk_tags.join(', ')}]` : ''
+    const tags =
+      ev.tool.risk_tags && ev.tool.risk_tags.length > 0
+        ? ` [${ev.tool.risk_tags.join(', ')}]`
+        : ''
     return `tool: ${ev.tool.name}${cap}${tags}`
   }
   if (ev.policy?.decision) {
     return `${ev.policy.decision}${ev.policy.reason ? ` — ${ev.policy.reason}` : ''}`
   }
   if (ev.human?.decision) {
-    return `${ev.human.decision} — ${ev.human.reviewer_id ?? 'unknown reviewer'}${ev.human.justification ? ` · "${ev.human.justification}"` : ''}`
+    return `${ev.human.decision} — ${ev.human.reviewer_id ?? 'unknown reviewer'}${
+      ev.human.justification ? ` · "${ev.human.justification}"` : ''
+    }`
   }
   if (ev.error?.kind) {
     return `${ev.error.kind}${ev.error.message ? `: ${ev.error.message}` : ''}`
   }
   if (ev.observation?.source) {
-    const size = ev.observation.byte_size != null ? ` · ${ev.observation.byte_size}B` : ''
+    const size =
+      ev.observation.byte_size != null ? ` · ${ev.observation.byte_size}B` : ''
     return `source: ${ev.observation.source}${size}`
   }
   if (ev.model_output) {
     const parts: string[] = []
-    if (ev.model_output.finish_reason) parts.push(`finish: ${ev.model_output.finish_reason}`)
-    if (ev.model_output.token_count != null) parts.push(`${ev.model_output.token_count} tokens`)
+    if (ev.model_output.finish_reason)
+      parts.push(`finish: ${ev.model_output.finish_reason}`)
+    if (ev.model_output.token_count != null)
+      parts.push(`${ev.model_output.token_count} tokens`)
     if (parts.length > 0) return parts.join(' · ')
   }
   return '—'
@@ -104,14 +141,145 @@ function countByType(events: RawEvent[]): Record<string, number> {
   return counts
 }
 
+// ---------- Sub-components ----------
+
+function TypeBadge({ type }: { type: string | undefined }) {
+  const s = typeStyle(type)
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${s.chip}`}
+    >
+      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${s.dot}`} />
+      {type ?? 'unknown'}
+    </span>
+  )
+}
+
 function SummaryCard({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
-      <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">{label}</div>
-      <div className="text-2xl font-bold text-gray-900 truncate">{value}</div>
+    <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm hover:shadow-md transition-shadow">
+      <div className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-2">
+        {label}
+      </div>
+      <div className="text-3xl font-bold text-slate-900 truncate">{value}</div>
     </div>
   )
 }
+
+// Shield / checkmark logo mark SVG
+function ShieldIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 32 32"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path
+        d="M16 3L5 7.5V15c0 6.075 4.697 11.745 11 13 6.303-1.255 11-6.925 11-13V7.5L16 3Z"
+        fill="currentColor"
+        opacity="0.15"
+      />
+      <path
+        d="M16 3L5 7.5V15c0 6.075 4.697 11.745 11 13 6.303-1.255 11-6.925 11-13V7.5L16 3Z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M11 16l3.5 3.5L21 12"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+// Upload cloud icon
+function UploadIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={1.5}
+        d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"
+      />
+    </svg>
+  )
+}
+
+// Document icon
+function DocumentIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={1.5}
+        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+      />
+    </svg>
+  )
+}
+
+// Spinner
+function Spinner({ className }: { className?: string }) {
+  return (
+    <svg className={`animate-spin ${className ?? ''}`} fill="none" viewBox="0 0 24 24">
+      <circle
+        className="opacity-25"
+        cx="12"
+        cy="12"
+        r="10"
+        stroke="currentColor"
+        strokeWidth="4"
+      />
+      <path
+        className="opacity-75"
+        fill="currentColor"
+        d="M4 12a8 8 0 018-8v8z"
+      />
+    </svg>
+  )
+}
+
+// Check circle icon
+function CheckCircleIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+      />
+    </svg>
+  )
+}
+
+// Warning icon
+function WarningIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"
+      />
+    </svg>
+  )
+}
+
+// ---------- Main component ----------
 
 export default function App() {
   const [events, setEvents] = useState<RawEvent[]>([])
@@ -129,7 +297,9 @@ export default function App() {
     fetch('/api/v1/config')
       .then((r) => r.json())
       .then((d) => setConfig(d as SiteConfig))
-      .catch(() => { /* keep default */ })
+      .catch(() => {
+        /* keep default */
+      })
   }, [])
 
   const handleFile = useCallback((file: File) => {
@@ -184,13 +354,22 @@ export default function App() {
       form.append('trace', fileText)
       const headers: Record<string, string> = {}
       if (fileName) headers['x-source-file'] = fileName
-      const res = await fetch('/api/v1/runs', { method: 'POST', body: form, headers })
+      const res = await fetch('/api/v1/runs', {
+        method: 'POST',
+        body: form,
+        headers,
+      })
       if (!res.ok) {
         const text = await res.text()
         setReportError(`Server error ${res.status}: ${text}`)
         return
       }
-      const data = await res.json() as { run_id?: string; eas_score?: number; eas_grade?: string; finding_count?: number }
+      const data = (await res.json()) as {
+        run_id?: string
+        eas_score?: number
+        eas_grade?: string
+        finding_count?: number
+      }
       if (data.run_id) setReportRunId(data.run_id)
     } catch (err) {
       setReportError(err instanceof Error ? err.message : String(err))
@@ -203,70 +382,93 @@ export default function App() {
   const typeCounts = countByType(events)
   const totalPages = Math.ceil(events.length / PAGE_SIZE)
   const pageEvents = events.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+  const hasEvents = events.length > 0
+  const isEmptyState = !hasEvents && !parseError && !fileName
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
+    <div className="min-h-screen bg-slate-50 flex flex-col">
+
+      {/* Top accent gradient bar */}
+      <div className="h-[3px] w-full bg-gradient-to-r from-violet-500 to-indigo-600 shrink-0" />
+
       {/* Header */}
-      <header className="bg-white border-b border-gray-200 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-md bg-indigo-600 flex items-center justify-center">
-              <span className="text-white font-bold text-sm">T</span>
-            </div>
-            <span className="text-xl font-bold text-gray-900">{config.site_name}</span>
+      <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-sm border-b border-slate-200 shadow-sm">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex items-center gap-3">
+          {/* Logo mark */}
+          <div className="shrink-0 w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shadow-sm">
+            <ShieldIcon className="w-5 h-5 text-white" />
           </div>
-          <div className="hidden sm:block h-6 border-l border-gray-300" />
-          <p className="hidden sm:block text-sm text-gray-500">
-            {config.site_tagline}
-          </p>
-          <div className="ml-auto hidden sm:flex items-center gap-1.5 text-xs text-gray-400">
-            <span>Powered by</span>
-            <span className="font-medium text-indigo-600">{config.powered_by}</span>
+
+          {/* Site name + tagline */}
+          <div className="flex items-baseline gap-2.5 min-w-0">
+            <span className="text-lg font-bold text-slate-900 shrink-0">
+              {config.site_name}
+            </span>
+            <span className="hidden sm:block text-sm text-slate-500 truncate">
+              {config.site_tagline}
+            </span>
+          </div>
+
+          {/* Powered-by pill */}
+          <div className="ml-auto shrink-0">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-50 border border-indigo-100 text-xs font-medium text-indigo-600 whitespace-nowrap">
+              <span className="text-slate-400 font-normal hidden sm:inline">Powered by</span>
+              {config.powered_by}
+            </span>
           </div>
         </div>
       </header>
 
-      <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+      {/* Main content */}
+      <main className="flex-1 max-w-5xl mx-auto w-full px-4 sm:px-6 py-8 space-y-10">
 
-        {/* Upload Section */}
+        {/* Upload section */}
         <section>
-          <h2 className="text-lg font-semibold text-gray-800 mb-3">Load Audit Trace</h2>
+          <div className="flex items-center gap-2 mb-4">
+            <div className="w-7 h-7 rounded-lg bg-indigo-100 flex items-center justify-center">
+              <UploadIcon className="w-4 h-4 text-indigo-600" />
+            </div>
+            <h2 className="text-base font-semibold text-slate-800">Upload Audit Trace</h2>
+          </div>
+
+          {/* Drop zone */}
           <div
-            className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors ${
-              dragging ? 'border-indigo-500 bg-indigo-50' : 'border-gray-300 bg-white'
-            }`}
+            className={[
+              'border-2 border-dashed rounded-2xl p-10 text-center cursor-pointer transition-all duration-200',
+              dragging
+                ? 'border-indigo-500 bg-indigo-50 scale-[1.01]'
+                : 'border-slate-300 bg-white hover:border-indigo-400 hover:bg-slate-50/60',
+            ].join(' ')}
             onDrop={onDrop}
             onDragOver={onDragOver}
             onDragLeave={onDragLeave}
           >
-            <div className="flex flex-col items-center gap-3">
-              <svg
-                className="w-10 h-10 text-gray-400"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={1.5}
-                  d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"
-                />
-              </svg>
+            <div className="flex flex-col items-center gap-4">
+              <UploadIcon
+                className={[
+                  'w-12 h-12 transition-all duration-300',
+                  dragging
+                    ? 'text-indigo-500 animate-pulse'
+                    : 'text-slate-300',
+                ].join(' ')}
+              />
               <div>
-                <p className="text-gray-700 font-medium">
+                <p className="text-slate-700 font-medium text-sm sm:text-base">
                   {fileName ? (
-                    <span className="text-indigo-600">{fileName}</span>
+                    <span className="text-indigo-600 font-semibold">{fileName}</span>
                   ) : (
-                    'Drop a .jsonl file here, or click to select'
+                    <>Drop a{' '}
+                      <span className="font-mono text-slate-500">.jsonl</span>
+                      {' '}file here, or click to select</>
                   )}
                 </p>
-                <p className="text-sm text-gray-400 mt-1">
+                <p className="text-xs text-slate-400 mt-1">
                   JSONL format — one CanonicalEvent per line
                 </p>
               </div>
-              <label className="cursor-pointer mt-1">
-                <span className="inline-flex items-center px-4 py-2 rounded-md bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-colors">
+              <label className="cursor-pointer">
+                <span className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-gradient-to-r from-indigo-500 to-indigo-600 text-white text-sm font-semibold shadow-sm hover:from-indigo-600 hover:to-indigo-700 active:scale-95 transition-all duration-150">
+                  <UploadIcon className="w-4 h-4" />
                   Choose file
                 </span>
                 <input
@@ -278,151 +480,222 @@ export default function App() {
               </label>
             </div>
           </div>
+
+          {/* Parse error */}
           {parseError && (
-            <p className="mt-2 text-sm text-red-600">{parseError}</p>
+            <div className="mt-3 flex items-start gap-2 px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-700">
+              <WarningIcon className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>{parseError}</span>
+            </div>
           )}
         </section>
 
-        {/* Summary Section */}
-        {events.length > 0 && (
-          <section>
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-lg font-semibold text-gray-800">Summary</h2>
-              {/* Action bar */}
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={generateReport}
-                  disabled={reportGenerating}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors shadow-sm"
+        {/* Empty state hero */}
+        {isEmptyState && (
+          <section className="py-10 flex flex-col items-center text-center gap-6">
+            <div className="w-20 h-20 rounded-3xl bg-indigo-50 border border-indigo-100 flex items-center justify-center">
+              <ShieldIcon className="w-10 h-10 text-indigo-500" />
+            </div>
+            <div>
+              <h3 className="text-xl font-bold text-slate-800 mb-2">
+                AI Agent Audit Dashboard
+              </h3>
+              <p className="text-slate-500 text-sm max-w-sm mx-auto">
+                Upload a JSONL audit trace to inspect events, generate compliance
+                reports, and export findings.
+              </p>
+            </div>
+            <div className="flex flex-wrap justify-center gap-2">
+              {[
+                { dot: 'bg-blue-500', label: 'Tool call tracing' },
+                { dot: 'bg-amber-500', label: 'Policy decisions' },
+                { dot: 'bg-emerald-500', label: 'Human approvals' },
+                { dot: 'bg-indigo-500', label: 'Model outputs' },
+                { dot: 'bg-red-500', label: 'Error capture' },
+              ].map((f) => (
+                <span
+                  key={f.label}
+                  className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white border border-slate-200 text-xs text-slate-600 shadow-sm"
                 >
-                  {reportGenerating ? (
-                    <>
-                      <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
-                      </svg>
-                      Generating…
-                    </>
-                  ) : (
-                    <>
-                      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-                      </svg>
-                      Generate Full Report
-                    </>
-                  )}
-                </button>
+                  <span className={`w-2 h-2 rounded-full ${f.dot}`} />
+                  {f.label}
+                </span>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Summary section */}
+        {hasEvents && (
+          <section>
+            {/* Heading row */}
+            <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-indigo-100 flex items-center justify-center">
+                  <DocumentIcon className="w-4 h-4 text-indigo-600" />
+                </div>
+                <h2 className="text-base font-semibold text-slate-800">Audit Summary</h2>
               </div>
+              <button
+                onClick={generateReport}
+                disabled={reportGenerating}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-indigo-500 to-indigo-600 text-white text-sm font-semibold shadow-sm hover:from-indigo-600 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 transition-all duration-150"
+              >
+                {reportGenerating ? (
+                  <>
+                    <Spinner className="h-4 w-4" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <DocumentIcon className="h-4 w-4" />
+                    Generate Report
+                  </>
+                )}
+              </button>
             </div>
 
-            {/* Report status */}
+            {/* Report error */}
             {reportError && (
-              <div className="mb-3 p-3 rounded-md bg-red-50 border border-red-200 text-sm text-red-700">
-                {reportError}
+              <div className="mb-4 flex items-start gap-2 px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-700">
+                <WarningIcon className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{reportError}</span>
               </div>
             )}
+
+            {/* Report ready banner */}
             {reportRunId && (
-              <div className="mb-4 p-5 rounded-xl bg-gradient-to-r from-indigo-50 to-green-50 border border-indigo-200">
-                <div className="flex items-center gap-2 mb-4">
-                  <svg className="h-5 w-5 text-green-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                  </svg>
-                  <span className="font-semibold text-gray-900">Audit Report Ready</span>
-                  <span className="ml-auto text-xs text-gray-400 font-mono">{reportRunId.slice(0, 8)}…</span>
+              <div className="mb-6 rounded-2xl bg-gradient-to-br from-indigo-50 to-violet-50 border border-indigo-200 p-5">
+                <div className="flex items-center gap-2.5 mb-5">
+                  <CheckCircleIcon className="h-5 w-5 text-emerald-600 shrink-0" />
+                  <span className="font-semibold text-slate-900">Audit Report Ready</span>
+                  <span className="ml-auto text-xs text-slate-400 font-mono bg-white/70 px-2 py-0.5 rounded">
+                    {reportRunId.slice(0, 8)}...
+                  </span>
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  {/* Full report — spans 2 cols */}
                   <a
                     href={`/api/v1/runs/${reportRunId}/report?format=html`}
                     target="_blank"
                     rel="noreferrer"
-                    className="col-span-2 sm:col-span-2 flex flex-col items-center justify-center gap-1.5 p-4 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 transition-colors shadow-md"
+                    className="col-span-2 flex flex-col items-center justify-center gap-2 py-5 px-4 rounded-2xl bg-gradient-to-br from-indigo-500 to-indigo-600 text-white hover:from-indigo-600 hover:to-violet-600 active:scale-[0.98] transition-all duration-150 shadow-md"
                   >
-                    <svg className="h-7 w-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-                    </svg>
-                    <span className="font-semibold text-sm">Full Report</span>
+                    <DocumentIcon className="h-8 w-8" />
+                    <span className="font-bold text-sm">Full Report</span>
                     <span className="text-xs opacity-80">View · Print · Save PDF</span>
                   </a>
+
+                  {/* CSV */}
                   <a
                     href={`/api/v1/runs/${reportRunId}/report?format=csv`}
                     target="_blank"
                     rel="noreferrer"
-                    className="flex flex-col items-center justify-center gap-1.5 p-4 rounded-xl bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-indigo-300 transition-colors shadow-sm"
+                    className="flex flex-col items-center justify-center gap-2 py-5 px-4 rounded-2xl bg-white border border-slate-200 text-slate-700 hover:border-emerald-300 hover:bg-emerald-50/30 active:scale-[0.98] transition-all duration-150 shadow-sm"
                   >
-                    <svg className="h-6 w-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="h-7 w-7 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 10h18M3 14h18M10 3v18M6 3h12a3 3 0 013 3v12a3 3 0 01-3 3H6a3 3 0 01-3-3V6a3 3 0 013-3z"/>
                     </svg>
-                    <span className="font-medium text-sm">CSV</span>
-                    <span className="text-xs text-gray-400">Findings</span>
+                    <span className="font-semibold text-sm">CSV</span>
+                    <span className="text-xs text-slate-400">Findings</span>
                   </a>
+
+                  {/* JSON */}
                   <a
                     href={`/api/v1/runs/${reportRunId}/report?format=json`}
                     target="_blank"
                     rel="noreferrer"
-                    className="flex flex-col items-center justify-center gap-1.5 p-4 rounded-xl bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-indigo-300 transition-colors shadow-sm"
+                    className="flex flex-col items-center justify-center gap-2 py-5 px-4 rounded-2xl bg-white border border-slate-200 text-slate-700 hover:border-orange-300 hover:bg-orange-50/30 active:scale-[0.98] transition-all duration-150 shadow-sm"
                   >
-                    <svg className="h-6 w-6 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="h-7 w-7 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/>
                     </svg>
-                    <span className="font-medium text-sm">JSON</span>
-                    <span className="text-xs text-gray-400">Machine-readable</span>
+                    <span className="font-semibold text-sm">JSON</span>
+                    <span className="text-xs text-slate-400">Machine-readable</span>
+                  </a>
+
+                  {/* Markdown — full row on mobile, last col sm+ */}
+                  <a
+                    href={`/api/v1/runs/${reportRunId}/report?format=md`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="col-span-2 sm:col-span-4 flex items-center justify-center gap-2 py-3 px-4 rounded-2xl bg-white border border-slate-200 text-slate-700 hover:border-slate-400 hover:bg-slate-50 active:scale-[0.98] transition-all duration-150 shadow-sm"
+                  >
+                    <svg className="h-5 w-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"/>
+                    </svg>
+                    <span className="font-semibold text-sm">Markdown</span>
+                    <span className="text-xs text-slate-400">Plain text · Version control friendly</span>
                   </a>
                 </div>
               </div>
             )}
 
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+            {/* 4 stat cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               <SummaryCard label="Total Events" value={events.length} />
               <SummaryCard label="Run ID" value={firstEvent?.run_id ?? '—'} />
               <SummaryCard label="Agent ID" value={firstEvent?.agent_id ?? '—'} />
               <SummaryCard label="Model ID" value={firstEvent?.model_id ?? '—'} />
             </div>
 
-            {/* Type breakdown */}
-            <div className="mt-4 bg-white rounded-lg border border-gray-200 shadow-sm p-4">
-              <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-3">
+            {/* Event type breakdown */}
+            <div className="mt-4 bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+              <div className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-4">
                 Event Type Breakdown
               </div>
               <div className="flex flex-wrap gap-2">
                 {Object.entries(typeCounts)
                   .sort((a, b) => b[1] - a[1])
-                  .map(([type, count]) => (
-                    <span
-                      key={type}
-                      className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-medium ${typeColorClass(type)}`}
-                    >
-                      {type}
-                      <span className="font-bold">{count}</span>
-                    </span>
-                  ))}
+                  .map(([type, count]) => {
+                    const s = typeStyle(type)
+                    return (
+                      <span
+                        key={type}
+                        className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium ${s.chip} shadow-sm`}
+                      >
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${s.dot}`} />
+                        <span>{type}</span>
+                        <span
+                          className={`px-1.5 py-0.5 rounded-full font-bold text-[10px] ${s.chip} opacity-90`}
+                        >
+                          {count}
+                        </span>
+                      </span>
+                    )
+                  })}
               </div>
             </div>
           </section>
         )}
 
-        {/* Events Table */}
-        {events.length > 0 && (
+        {/* Events table */}
+        {hasEvents && (
           <section>
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-lg font-semibold text-gray-800">
-                Events
+            {/* Section heading with pagination */}
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-baseline gap-2">
+                <h2 className="text-base font-semibold text-slate-800">Events</h2>
                 {totalPages > 1 && (
-                  <span className="ml-2 text-sm font-normal text-gray-500">
-                    (page {page + 1} of {totalPages})
+                  <span className="text-sm text-slate-400">
+                    page {page + 1} of {totalPages}
                   </span>
                 )}
-              </h2>
+              </div>
               {totalPages > 1 && (
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5">
                   <button
-                    className="px-3 py-1 text-sm rounded border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-40"
+                    className="px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:border-indigo-300 disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-150"
                     disabled={page === 0}
                     onClick={() => setPage((p) => p - 1)}
                   >
                     Previous
                   </button>
+                  <span className="px-2 text-xs text-slate-400">
+                    {page + 1} / {totalPages}
+                  </span>
                   <button
-                    className="px-3 py-1 text-sm rounded border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-40"
+                    className="px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:border-indigo-300 disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-150"
                     disabled={page >= totalPages - 1}
                     onClick={() => setPage((p) => p + 1)}
                   >
@@ -432,50 +705,53 @@ export default function App() {
               )}
             </div>
 
-            <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+            {/* Table card */}
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
               <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200 text-sm">
-                  <thead className="bg-gray-50">
+                <table className="min-w-full divide-y divide-slate-100 text-sm">
+                  <thead className="bg-slate-50 sticky top-0">
                     <tr>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide w-48">
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-widest w-44">
                         Event ID
                       </th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-widest">
                         Type
                       </th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-widest">
                         Actor
                       </th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide w-44">
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-widest w-44">
                         Timestamp
                       </th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-widest">
                         Details
                       </th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-100">
+                  <tbody className="divide-y divide-slate-100">
                     {pageEvents.map((ev, idx) => (
-                      <tr key={ev.event_id ?? idx} className="hover:bg-gray-50 transition-colors">
-                        <td className="px-4 py-3 font-mono text-xs text-gray-500 truncate max-w-[12rem]">
+                      <tr
+                        key={ev.event_id ?? idx}
+                        className="hover:bg-slate-50/60 transition-colors duration-100"
+                      >
+                        <td className="px-4 py-3 font-mono text-xs text-slate-400 truncate max-w-[11rem]">
                           {ev.event_id ?? '—'}
                         </td>
                         <td className="px-4 py-3">
-                          <span
-                            className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${typeColorClass(ev.type)}`}
-                          >
-                            {ev.type ?? 'unknown'}
-                          </span>
+                          <TypeBadge type={ev.type} />
                         </td>
-                        <td className="px-4 py-3 text-gray-700">
+                        <td className="px-4 py-3 text-sm text-slate-700">
                           {ev.actor ?? '—'}
                         </td>
-                        <td className="px-4 py-3 font-mono text-xs text-gray-500 whitespace-nowrap">
+                        <td className="px-4 py-3 font-mono text-xs text-slate-400 whitespace-nowrap">
                           {ev.timestamp
-                            ? new Date(ev.timestamp).toISOString().replace('T', ' ').replace('Z', ' UTC')
+                            ? new Date(ev.timestamp)
+                                .toISOString()
+                                .replace('T', ' ')
+                                .replace('Z', ' UTC')
                             : '—'}
                         </td>
-                        <td className="px-4 py-3 text-gray-600 text-xs truncate max-w-xs">
+                        <td className="px-4 py-3 text-xs text-slate-500 truncate max-w-xs">
                           {eventDetails(ev)}
                         </td>
                       </tr>
@@ -485,20 +761,21 @@ export default function App() {
               </div>
             </div>
 
+            {/* Bottom pagination */}
             {totalPages > 1 && (
-              <div className="flex items-center justify-end gap-2 mt-3">
+              <div className="flex items-center justify-center gap-2 mt-4">
                 <button
-                  className="px-3 py-1 text-sm rounded border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-40"
+                  className="px-4 py-2 text-xs font-medium rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:border-indigo-300 disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-150"
                   disabled={page === 0}
                   onClick={() => setPage((p) => p - 1)}
                 >
                   Previous
                 </button>
-                <span className="text-sm text-gray-500">
+                <span className="px-3 py-2 text-xs text-slate-500 bg-white border border-slate-200 rounded-lg">
                   {page + 1} / {totalPages}
                 </span>
                 <button
-                  className="px-3 py-1 text-sm rounded border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-40"
+                  className="px-4 py-2 text-xs font-medium rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:border-indigo-300 disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-150"
                   disabled={page >= totalPages - 1}
                   onClick={() => setPage((p) => p + 1)}
                 >
@@ -508,20 +785,27 @@ export default function App() {
             )}
           </section>
         )}
-
-        {/* Empty state when no file loaded */}
-        {events.length === 0 && !parseError && !fileName && (
-          <div className="text-center py-16 text-gray-400">
-            <p className="text-base">Load a .jsonl audit trace to get started.</p>
-          </div>
-        )}
       </main>
 
       {/* Footer */}
-      <footer className="bg-white border-t border-gray-200 mt-auto">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between text-xs text-gray-400">
-          <span>{config.site_name} — Technical evidence only. Not legal advice.</span>
-          <span>Powered by <a href="https://github.com/WasmAgent/open-agent-audit" target="_blank" rel="noreferrer" className="text-indigo-500 hover:text-indigo-700">{config.powered_by}</a> (open source)</span>
+      <footer className="border-t border-slate-100 bg-white mt-auto">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-400">
+          <span>
+            <span className="font-medium text-slate-500">{config.site_name}</span>
+            {' '}— Technical evidence only. Not legal advice.
+          </span>
+          <span className="flex items-center gap-1">
+            Powered by{' '}
+            <a
+              href="https://github.com/WasmAgent/open-agent-audit"
+              target="_blank"
+              rel="noreferrer"
+              className="font-medium text-indigo-500 hover:text-indigo-700 transition-colors"
+            >
+              {config.powered_by}
+            </a>
+            {' '}(open source)
+          </span>
         </div>
       </footer>
     </div>
