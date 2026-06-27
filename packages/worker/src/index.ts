@@ -247,62 +247,34 @@ async function handlePostRun(request: Request, env: WorkerEnv): Promise<Response
   }, 201);
 }
 
-async function handlePublicReportLink(reportId: string, env: WorkerEnv): Promise<Response> {
-  // Try to find the HTML report by report_id prefix scan in REPORTS R2 bucket.
-  // Reports are stored as: runs/{run_id}/report.html
-  // We search D1 for the run_id matching this report_id.
-  const row = await env.DB.prepare(
-    'SELECT run_id, retention_until FROM reports WHERE report_id = ? LIMIT 1',
-  )
-    .bind(reportId)
-    .first<{ run_id: string; retention_until: string | null }>();
+async function handlePublicReportLink(runId: string, env: WorkerEnv): Promise<Response> {
+  // QR code URLs contain the run_id directly: trustavo.com/r/{run_id}
+  // Serve the HTML report straight from R2 — no D1 lookup needed.
+  const key = `runs/${runId}/report.html`;
+  const object = await env.REPORTS.get(key);
 
-  if (row === null) {
+  if (object === null) {
     return new Response(
-      `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Report Not Found</title>` +
-      `<style>body{font-family:sans-serif;max-width:500px;margin:80px auto;text-align:center;color:#374151}` +
-      `h1{color:#4f46e5}a{color:#4f46e5}</style></head><body>` +
+      `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Report Not Found — Trustavo</title>` +
+      `<style>body{font-family:sans-serif;max-width:520px;margin:80px auto;text-align:center;color:#374151;padding:0 20px}` +
+      `h1{color:#4f46e5;font-size:1.6rem;margin-bottom:8px}p{color:#6b7280;margin:8px 0}` +
+      `a{color:#4f46e5;text-decoration:none}a:hover{text-decoration:underline}` +
+      `code{background:#f3f4f6;padding:2px 6px;border-radius:4px;font-size:.85em}</style></head><body>` +
       `<h1>OpenAgentAudit</h1>` +
-      `<p>Report <code>${reportId}</code> was not found.</p>` +
+      `<p>Report <code>${runId.slice(0, 8)}…</code> was not found.</p>` +
       `<p>It may have expired or the ID may be incorrect.</p>` +
       `<p>Contact: <a href="mailto:issuer@trustavo.com">issuer@trustavo.com</a></p>` +
-      `<p><a href="/">← Go to Trustavo</a></p>` +
+      `<p style="margin-top:24px"><a href="/">← Go to Trustavo</a></p>` +
       `</body></html>`,
       { status: 404, headers: { 'content-type': 'text/html; charset=utf-8' } },
     );
-  }
-
-  // Check retention
-  if (row.retention_until !== null) {
-    const expiry = new Date(row.retention_until).getTime();
-    if (Date.now() > expiry) {
-      return new Response(
-        `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Report Expired</title>` +
-        `<style>body{font-family:sans-serif;max-width:500px;margin:80px auto;text-align:center;color:#374151}` +
-        `h1{color:#dc2626}a{color:#4f46e5}</style></head><body>` +
-        `<h1>Report Expired</h1>` +
-        `<p>Report <code>${reportId}</code> has passed its retention period (${row.retention_until}).</p>` +
-        `<p>Per EU AI Act Art. 26(6), reports are retained for a minimum of 6 months.</p>` +
-        `<p>To request an extended copy, contact: <a href="mailto:issuer@trustavo.com">issuer@trustavo.com</a></p>` +
-        `</body></html>`,
-        { status: 410, headers: { 'content-type': 'text/html; charset=utf-8' } },
-      );
-    }
-  }
-
-  // Serve the HTML report from R2
-  const key = `runs/${row.run_id}/report.html`;
-  const object = await env.REPORTS.get(key);
-  if (object === null) {
-    return corsError('Report file not found in storage', 404);
   }
 
   return new Response(object.body, {
     headers: {
       'content-type': 'text/html; charset=utf-8',
       'cache-control': 'public, max-age=3600',
-      'x-report-id': reportId,
-      'x-retained-until': row.retention_until ?? '',
+      'x-run-id': runId,
     },
   });
 }
