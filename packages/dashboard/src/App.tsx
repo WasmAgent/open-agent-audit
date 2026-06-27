@@ -814,15 +814,26 @@ export default function App() {
               </div>
             )}
 
-            {/* 4 stat cards */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <SummaryCard label="Total Events" value={events.length} />
-              <SummaryCard label="Run ID" value={firstEvent?.run_id ?? '—'} />
-              <SummaryCard label="Agent ID" value={firstEvent?.agent_id ?? '—'} />
-              <SummaryCard label="Model ID" value={firstEvent?.model_id ?? '—'} />
-            </div>
+            {/* 4 stat cards — only for JSONL (has local events); AEP files show a prompt instead */}
+            {isAepRecord ? (
+              <div className="rounded-2xl bg-gradient-to-br from-indigo-50 to-violet-50 border border-indigo-200 p-6 flex flex-col items-center text-center gap-3">
+                <ShieldIcon className="w-10 h-10 text-indigo-400" />
+                <div>
+                  <p className="font-semibold text-slate-800 text-sm">AEP record loaded: <span className="font-mono text-indigo-600">{fileName}</span></p>
+                  <p className="text-xs text-slate-500 mt-1">This file will be converted to canonical events on the server. Click <strong>Generate Report</strong> to run the full audit pipeline.</p>
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <SummaryCard label="Total Events" value={events.length} />
+                <SummaryCard label="Run ID" value={firstEvent?.run_id ?? '—'} />
+                <SummaryCard label="Agent ID" value={firstEvent?.agent_id ?? '—'} />
+                <SummaryCard label="Model ID" value={firstEvent?.model_id ?? '—'} />
+              </div>
+            )}
 
-            {/* Event type breakdown */}
+            {/* Event type breakdown — only when there are local events */}
+            {hasEvents && (
             <div className="mt-4 bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
               <div className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-4">
                 Event Type Breakdown
@@ -849,6 +860,7 @@ export default function App() {
                   })}
               </div>
             </div>
+            )}
           </section>
         )}
 
