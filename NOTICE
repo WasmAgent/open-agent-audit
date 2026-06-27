@@ -1,0 +1,61 @@
+OpenAgentAudit
+Copyright 2026 The OpenAgentAudit Authors
+
+This product is licensed under the Apache License, Version 2.0.
+You may obtain a copy of the License at:
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+================================================================================
+THIRD-PARTY ATTRIBUTIONS
+================================================================================
+
+--------------------------------------------------------------------------------
+trace-pipeline (evomerge)
+  License:    Apache-2.0
+  Repository: https://github.com/WasmAgent/trace-pipeline
+  Author:     telleroutlook
+  Note:       The AgentTrustScore multi-dimensional scoring model (7 dimensions,
+              geometric mean formula, grade thresholds) informed the design of
+              the OpenAgentAudit Evidence Admission Score (EAS) formula.
+              No evomerge source code is imported or bundled.
+
+================================================================================
+RUNTIME DEPENDENCIES (bundled / distributed)
+================================================================================
+
+The following third-party packages are included in compiled output and
+distributed under their respective licenses:
+
+  zod (MIT)          — https://github.com/colinhacks/zod
+  react (MIT)        — https://github.com/facebook/react
+  react-dom (MIT)    — https://github.com/facebook/react
+  tailwindcss (MIT)  — https://github.com/tailwindlabs/tailwindcss
+
+Full license texts for these packages are available in their respective
+npm package directories under node_modules/.
+
+================================================================================
+REGULATORY PROFILES
+================================================================================
+
+The regulatory mapping profiles in profiles/*.yaml reference the following
+standards and frameworks. These references are for documentation purposes only
+and do not imply endorsement, certification, or official association:
+
+  OWASP Top 10 for Agentic Applications 2026
+    Source: https://genai.owasp.org/
+    License: Creative Commons Attribution-ShareAlike 4.0
+
+  NIST AI Risk Management Framework 1.0 (NIST AI 100-1)
+    Source: https://www.nist.gov/artificial-intelligence
+    License: Public domain (US government work)
+
+  EU AI Act — Regulation (EU) 2024/1689
+    Source: https://eur-lex.europa.eu/eli/reg/2024/1689/oj/eng
+    License: © European Union, 1998–2026 (reuse permitted under EUR-Lex terms)
+
+  ISO/IEC 42001:2023 — AI Management Systems
+    Source: https://www.iso.org/standard/81230.html
+    Note:   ISO standards are copyrighted. Profile content is a non-normative
+            mapping aide and does not reproduce ISO text.

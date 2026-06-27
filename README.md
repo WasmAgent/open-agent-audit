@@ -107,6 +107,20 @@ regulatory certification, or a determination of compliance. Regulatory
 interpretations evolve; users are responsible for their own compliance
 posture. See [`docs/regulatory-disclaimer.md`](./docs/regulatory-disclaimer.md).
 
+## Acknowledgements
+
+OpenAgentAudit is part of the [WasmAgent](https://github.com/WasmAgent) ecosystem.
+
+The Evidence Admission Score (EAS) formula was inspired by the `AgentTrustScore`
+multi-dimensional scoring model in
+[trace-pipeline](https://github.com/WasmAgent/trace-pipeline).
+
+Runtime dependencies: [Zod](https://github.com/colinhacks/zod) (MIT),
+[React](https://github.com/facebook/react) (MIT),
+[Tailwind CSS](https://github.com/tailwindlabs/tailwindcss) (MIT).
+
+See [`NOTICE`](./NOTICE) for full third-party attributions.
+
 ## License
 
 Apache License 2.0 — see [`LICENSE`](./LICENSE).
