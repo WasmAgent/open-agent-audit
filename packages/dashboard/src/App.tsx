@@ -1,4 +1,16 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
+
+interface SiteConfig {
+  site_name: string
+  site_tagline: string
+  powered_by: string
+}
+
+const DEFAULT_CONFIG: SiteConfig = {
+  site_name: 'Trustavo',
+  site_tagline: 'Evidence-grade audit for enterprise AI agents',
+  powered_by: 'OpenAgentAudit',
+}
 
 interface RawEvent {
   schema_version?: string
@@ -111,6 +123,14 @@ export default function App() {
   const [reportGenerating, setReportGenerating] = useState(false)
   const [reportRunId, setReportRunId] = useState<string | null>(null)
   const [reportError, setReportError] = useState<string | null>(null)
+  const [config, setConfig] = useState<SiteConfig>(DEFAULT_CONFIG)
+
+  useEffect(() => {
+    fetch('/api/v1/config')
+      .then((r) => r.json())
+      .then((d) => setConfig(d as SiteConfig))
+      .catch(() => { /* keep default */ })
+  }, [])
 
   const handleFile = useCallback((file: File) => {
     if (!file.name.endsWith('.jsonl') && !file.name.endsWith('.json')) {
@@ -191,14 +211,18 @@ export default function App() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center gap-4">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-md bg-indigo-600 flex items-center justify-center">
-              <span className="text-white font-bold text-sm">OA</span>
+              <span className="text-white font-bold text-sm">T</span>
             </div>
-            <span className="text-xl font-bold text-gray-900">OpenAgentAudit</span>
+            <span className="text-xl font-bold text-gray-900">{config.site_name}</span>
           </div>
           <div className="hidden sm:block h-6 border-l border-gray-300" />
           <p className="hidden sm:block text-sm text-gray-500">
-            Evidence-grade audit for enterprise AI agents
+            {config.site_tagline}
           </p>
+          <div className="ml-auto hidden sm:flex items-center gap-1.5 text-xs text-gray-400">
+            <span>Powered by</span>
+            <span className="font-medium text-indigo-600">{config.powered_by}</span>
+          </div>
         </div>
       </header>
 
@@ -495,8 +519,9 @@ export default function App() {
 
       {/* Footer */}
       <footer className="bg-white border-t border-gray-200 mt-auto">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 text-center text-xs text-gray-400">
-          OpenAgentAudit — Technical evidence only. Not legal advice.
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between text-xs text-gray-400">
+          <span>{config.site_name} — Technical evidence only. Not legal advice.</span>
+          <span>Powered by <a href="https://github.com/WasmAgent/open-agent-audit" target="_blank" rel="noreferrer" className="text-indigo-500 hover:text-indigo-700">{config.powered_by}</a> (open source)</span>
         </div>
       </footer>
     </div>

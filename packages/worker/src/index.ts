@@ -308,6 +308,16 @@ async function handleFetch(request: Request, env: WorkerEnv): Promise<Response> 
     );
   }
 
+  // GET /api/v1/config — site branding config for the SPA
+  if (method === 'GET' && pathname === '/api/v1/config') {
+    const siteName = env.ISSUER_NAME.replace(/\s*\(.*?\)\s*$/, '').trim();
+    return corsJson({
+      site_name: siteName,
+      site_tagline: 'Evidence-grade audit for enterprise AI agents',
+      powered_by: 'OpenAgentAudit',
+    });
+  }
+
   // GET /api/v1/runs
   if (method === 'GET' && pathname === '/api/v1/runs') {
     return handleGetRuns(env);
