@@ -12,9 +12,10 @@ import {
   computeRiskScore,
   renderReport,
 } from '@openagentaudit/core';
-import type { PolicyAuditContext, ReportMeta } from '@openagentaudit/core';
+import type { PolicyAuditContext, ReportMeta, AepProvenanceForScoring } from '@openagentaudit/core';
 import { validateEvents } from '@openagentaudit/schema';
 import type { CanonicalEvent, Finding, RiskScore } from '@openagentaudit/schema';
+import { aepV0_2 } from '@openagentaudit/adapters';
 
 // ---------------------------------------------------------------------------
 // Job message shapes
@@ -203,7 +204,35 @@ async function handlePostRun(request: Request, env: WorkerEnv): Promise<Response
     try { rawEvents.push(JSON.parse(line)); } catch { /* skip */ }
   }
 
-  const { valid: events } = validateEvents(rawEvents);
+  // Detect AEP JSON: single object with schema_version "aep/v0.1" or "aep/v0.2"
+  let events: CanonicalEvent[];
+  let aepProvenance: AepProvenanceForScoring | undefined;
+
+  const firstRaw = rawEvents[0] as Record<string, unknown> | undefined;
+  const isAepRecord =
+    rawEvents.length === 1 &&
+    firstRaw !== null &&
+    typeof firstRaw === 'object' &&
+    (firstRaw['schema_version'] === 'aep/v0.2' || firstRaw['schema_version'] === 'aep/v0.1');
+
+  if (isAepRecord) {
+    try {
+      const aepRecord = firstRaw as unknown as Parameters<typeof aepV0_2.AepV0_2Adapter.toEvents>[0];
+      events = aepV0_2.AepV0_2Adapter.toEvents(aepRecord);
+      const prov = aepV0_2.getProvenance(aepRecord);
+      if (Object.keys(prov).length > 0) {
+        aepProvenance = prov;
+      }
+    } catch {
+      // Not a valid AEP record — fall through to canonical event path
+      const { valid } = validateEvents(rawEvents);
+      events = valid;
+    }
+  } else {
+    const { valid } = validateEvents(rawEvents);
+    events = valid;
+  }
+
   const sourceFile = request.headers.get('x-source-file') ?? undefined;
 
   const ctx: PolicyAuditContext = {
@@ -218,7 +247,7 @@ async function handlePostRun(request: Request, env: WorkerEnv): Promise<Response
     validate(events),
     inventory(events),
     policyAudit(events, ctx),
-    computeRiskScore(events, run_id),
+    computeRiskScore(events, run_id, aepProvenance),
   ]);
 
   const meta: ReportMeta = {
@@ -228,6 +257,9 @@ async function handlePostRun(request: Request, env: WorkerEnv): Promise<Response
   };
   if (sourceFile !== undefined) {
     meta.source_files = [sourceFile];
+  }
+  if (aepProvenance !== undefined) {
+    meta.aep_provenance = aepProvenance;
   }
 
   const bundle = await renderReport(events, findings, score, inv, meta);

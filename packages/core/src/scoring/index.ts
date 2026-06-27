@@ -3,6 +3,13 @@ import type { CanonicalEvent, RiskScore } from '@openagentaudit/schema';
 
 type Grade = 'A' | 'B' | 'C' | 'D' | 'F';
 
+export interface AepProvenanceForScoring {
+  repo_commit?: string;
+  runtime_version?: string;
+  policy_bundle_digest?: string;
+  tool_manifest_digest?: string;
+}
+
 function toGrade(score: number): Grade {
   if (score >= 90) return 'A';
   if (score >= 75) return 'B';
@@ -51,7 +58,10 @@ function computeTraceCompleteness(events: CanonicalEvent[]): number {
   return Math.max(0, score);
 }
 
-function computeProvenanceIntegrity(events: CanonicalEvent[]): number {
+function computeProvenanceIntegrity(
+  events: CanonicalEvent[],
+  aepProvenance?: AepProvenanceForScoring,
+): number {
   const eventsWithEvidence = events.filter(
     (ev) => ev.evidence?.hash !== undefined || ev.evidence?.prev_hash !== undefined,
   );
@@ -91,7 +101,23 @@ function computeProvenanceIntegrity(events: CanonicalEvent[]): number {
     (ev) => ev.evidence?.signature !== undefined,
   );
 
-  return allHaveSignature ? 100 : 60;
+  // Base score from hash chain + signatures
+  let base = allHaveSignature ? 100 : 60;
+
+  // AEP run-provenance bonus: each of the four traceability fields that is
+  // populated adds 5 points (max +20), capped at 100. These fields anchor
+  // the record to the exact code, runtime, policy ruleset, and tool manifest
+  // in effect at run time (EU AI Act Art. 12(3)(c) / Art. 19).
+  if (aepProvenance !== undefined) {
+    let bonus = 0;
+    if (aepProvenance.repo_commit) bonus += 5;
+    if (aepProvenance.runtime_version) bonus += 5;
+    if (aepProvenance.policy_bundle_digest) bonus += 5;
+    if (aepProvenance.tool_manifest_digest) bonus += 5;
+    base = Math.min(100, base + bonus);
+  }
+
+  return base;
 }
 
 function computeObjectiveVerification(events: CanonicalEvent[]): number {
@@ -145,9 +171,10 @@ function computeContaminationRiskInverted(): number {
 export async function computeRiskScore(
   events: CanonicalEvent[],
   runId?: string,
+  aepProvenance?: AepProvenanceForScoring,
 ): Promise<RiskScore> {
   const trace_completeness = computeTraceCompleteness(events);
-  const provenance_integrity = computeProvenanceIntegrity(events);
+  const provenance_integrity = computeProvenanceIntegrity(events, aepProvenance);
   const objective_verification = computeObjectiveVerification(events);
   const policy_coverage = computePolicyCoverage(events);
   const human_oversight_evidence = computeHumanOversightEvidence(events);

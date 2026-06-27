@@ -80,6 +80,7 @@ interface ResolvedMeta {
   engine_version: string;
   spec_version: string;
   report_url: string;
+  aep_provenance?: ReportMeta['aep_provenance'];
 }
 
 // ---------------------------------------------------------------------------
@@ -209,6 +210,7 @@ function resolveMeta(
     engine_version,
     spec_version,
     report_url,
+    aep_provenance: meta?.aep_provenance,
   };
 }
 
@@ -1095,6 +1097,31 @@ function buildMarkdown(
   lines.push(`| Audit scope | ${resolved.scope} |`);
   lines.push('');
 
+  // AEP Run Provenance (only rendered when present)
+  const prov = resolved.aep_provenance;
+  if (prov !== undefined && Object.keys(prov).length > 0) {
+    lines.push('## AEP Run Provenance');
+    lines.push('');
+    lines.push(
+      'These fields anchor this record to the exact code, runtime, policy ruleset,' +
+      ' and tool manifest in effect at run time (EU AI Act Art. 12(3)(c) / Art. 19).',
+    );
+    lines.push('');
+    lines.push('| Field | Value |');
+    lines.push('|---|---|');
+    if (prov.repo_commit) lines.push(`| Repo commit | \`${prov.repo_commit}\` |`);
+    if (prov.runtime_version) lines.push(`| Runtime version | ${prov.runtime_version} |`);
+    if (prov.model_provider) lines.push(`| Model provider | ${prov.model_provider} |`);
+    if (prov.policy_bundle_digest) lines.push(`| Policy bundle digest | \`${prov.policy_bundle_digest.slice(0, 16)}…\` |`);
+    if (prov.tool_manifest_digest) lines.push(`| Tool manifest digest | \`${prov.tool_manifest_digest.slice(0, 16)}…\` |`);
+    if (prov.mcp_server_card_digest) lines.push(`| MCP server card digest | \`${prov.mcp_server_card_digest.slice(0, 16)}…\` |`);
+    if (prov.parent_trace_id) lines.push(`| Parent trace ID | \`${prov.parent_trace_id}\` |`);
+    if (prov.delegation_chain && prov.delegation_chain.length > 0) {
+      lines.push(`| Delegation chain | ${prov.delegation_chain.join(' → ')} |`);
+    }
+    lines.push('');
+  }
+
   // Log Retention Notice (EU AI Act Art. 26(6))
   lines.push('## Log Retention Notice (EU AI Act Art. 26(6))');
   lines.push('');
@@ -1476,6 +1503,32 @@ function buildHtml(
   parts.push(`<tr><td>Audit scope</td><td>${escapeHtml(resolved.scope)}</td></tr>`);
   parts.push('</tbody>');
   parts.push('</table>');
+
+  // AEP Run Provenance (only rendered when present)
+  const prov = resolved.aep_provenance;
+  if (prov !== undefined && Object.keys(prov).length > 0) {
+    parts.push('<h2>AEP Run Provenance</h2>');
+    parts.push(
+      '<p>These fields anchor this record to the exact code, runtime, policy ruleset,' +
+      ' and tool manifest in effect at run time' +
+      ' (<abbr title="EU AI Act Art. 12(3)(c) / Art. 19">EU AI Act Art. 12(3)(c) / Art. 19</abbr>).</p>',
+    );
+    parts.push('<table>');
+    parts.push('<thead><tr><th>Field</th><th>Value</th></tr></thead>');
+    parts.push('<tbody>');
+    if (prov.repo_commit) parts.push(`<tr><td>Repo commit</td><td><code>${escapeHtml(prov.repo_commit)}</code></td></tr>`);
+    if (prov.runtime_version) parts.push(`<tr><td>Runtime version</td><td>${escapeHtml(prov.runtime_version)}</td></tr>`);
+    if (prov.model_provider) parts.push(`<tr><td>Model provider</td><td>${escapeHtml(prov.model_provider)}</td></tr>`);
+    if (prov.policy_bundle_digest) parts.push(`<tr><td>Policy bundle digest</td><td><code>${escapeHtml(prov.policy_bundle_digest.slice(0, 16))}…</code></td></tr>`);
+    if (prov.tool_manifest_digest) parts.push(`<tr><td>Tool manifest digest</td><td><code>${escapeHtml(prov.tool_manifest_digest.slice(0, 16))}…</code></td></tr>`);
+    if (prov.mcp_server_card_digest) parts.push(`<tr><td>MCP server card digest</td><td><code>${escapeHtml(prov.mcp_server_card_digest.slice(0, 16))}…</code></td></tr>`);
+    if (prov.parent_trace_id) parts.push(`<tr><td>Parent trace ID</td><td><code>${escapeHtml(prov.parent_trace_id)}</code></td></tr>`);
+    if (prov.delegation_chain && prov.delegation_chain.length > 0) {
+      parts.push(`<tr><td>Delegation chain</td><td>${escapeHtml(prov.delegation_chain.join(' → '))}</td></tr>`);
+    }
+    parts.push('</tbody>');
+    parts.push('</table>');
+  }
 
   // Log Retention Notice (EU AI Act Art. 26(6))
   parts.push('<h2>Log Retention Notice (EU AI Act Art. 26(6))</h2>');
