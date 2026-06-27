@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/WasmAgent/wasmagent/main/assets/logo.png" width="100" alt="WasmAgent logo"/>
+</p>
+
 # OpenAgentAudit
 
 > Open evidence format and Cloudflare-native audit toolkit for enterprise AI agents.
