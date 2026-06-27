@@ -481,6 +481,22 @@ export default function App() {
             </div>
           </div>
 
+          {/* Sample traces hint */}
+          {!fileName && (
+            <p className="mt-3 text-center text-xs text-slate-400">
+              No file yet?{' '}
+              <a
+                href="https://github.com/WasmAgent/open-agent-audit/tree/main/examples/traces"
+                target="_blank"
+                rel="noreferrer"
+                className="text-indigo-500 hover:text-indigo-700 underline underline-offset-2 transition-colors"
+              >
+                Download a sample trace
+              </a>
+              {' '}to try it out.
+            </p>
+          )}
+
           {/* Parse error */}
           {parseError && (
             <div className="mt-3 flex items-start gap-2 px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-700">
