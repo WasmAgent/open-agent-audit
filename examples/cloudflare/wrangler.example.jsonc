@@ -1,17 +1,16 @@
 {
   // OpenAgentAudit — Cloudflare Worker reference configuration
   //
-  // This file uses placeholder IDs only. Real values live in the private
-  // ops repo (`agentaudit-ops/deployments/cloudflare/`) and are never
-  // committed to the public repository.
+  // CI/CD: this file is used directly by .github/workflows/deploy.yml
+  // The CI job replaces REPLACE_ME_D1_ID with the CF_D1_DATABASE_ID secret.
   //
-  // To deploy:
+  // Manual deploy:
   //   1. Copy to `wrangler.jsonc` (gitignored).
-  //   2. Replace each `REPLACE_ME_*` placeholder with values from
-  //      your Cloudflare dashboard.
-  //   3. Use `wrangler secret put <KEY>` for secrets; never inline them.
-  //   4. Run `npm run build` in packages/schema, packages/core, packages/adapters,
-  //      and `npm run build` in packages/dashboard before deploying.
+  //   2. Replace REPLACE_ME_D1_ID with your D1 database ID.
+  //   3. Adjust "routes" to your custom domain, or remove the block entirely
+  //      to deploy to workers.dev only.
+  //   4. Build packages: schema → core → adapters → dashboard
+  //   5. wrangler deploy --config wrangler.jsonc
 
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "open-agent-audit",
@@ -19,20 +18,14 @@
   "compatibility_date": "2026-06-26",
   "compatibility_flags": ["nodejs_compat"],
 
-  // Static Assets: serves the React dashboard SPA.
-  // The dashboard must be built first: cd packages/dashboard && npm run build
   "assets": {
     "directory": "./packages/dashboard/dist/",
     "not_found_handling": "single-page-application",
-    "binding": "ASSETS"
-  },
-
-  "limits": {
-    "cpu_ms": 30000
+    "binding": "ASSETS",
+    "run_worker_first": true
   },
 
   "routes": [
-    // Replace with your own custom domain, or remove this block to use workers.dev only.
     { "pattern": "trustavo.com", "custom_domain": true }
   ],
 
