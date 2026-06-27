@@ -1,0 +1,224 @@
+<svg width="1400" height="860" viewBox="0 0 1400 860" xmlns="http://www.w3.org/2000/svg" font-family="'Segoe UI','Helvetica Neue',Arial,sans-serif">
+  <defs>
+    <marker id="arrowBlue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#1e3799"/>
+    </marker>
+    <marker id="arrowGreen" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#16a34a"/>
+    </marker>
+    <marker id="arrowAmber" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#b45309"/>
+    </marker>
+  </defs>
+
+  <!-- background -->
+  <rect width="1400" height="860" fill="#ffffff"/>
+
+  <!-- ── TITLE ───────────────────────────────────────────── -->
+  <polygon points="24,14 56,14 72,42 56,70 24,70 8,42" fill="#1e3799"/>
+  <text x="40" y="50" font-size="15" font-weight="700" fill="white" text-anchor="middle">WA</text>
+  <text x="86" y="36" font-size="24" font-weight="700" fill="#1a1a2e">WasmAgent</text>
+  <text x="86" y="58" font-size="14" fill="#555">Product Matrix</text>
+
+  <!-- ── LEFT SIDEBAR ───────────────────────────────────── -->
+  <ellipse cx="108" cy="115" rx="24" ry="8" fill="none" stroke="#aaa" stroke-width="1.5"/>
+  <rect x="84" y="115" width="48" height="20" fill="none" stroke="#aaa" stroke-width="1.5"/>
+  <ellipse cx="108" cy="135" rx="24" ry="8" fill="none" stroke="#aaa" stroke-width="1.5"/>
+  <text x="108" y="157" font-size="9" fill="#777" text-anchor="middle">WasmAgent</text>
+  <text x="108" y="168" font-size="9" fill="#777" text-anchor="middle">Core Sources</text>
+  <text x="108" y="181" font-size="8" fill="#999" text-anchor="middle">(AEP producers)</text>
+
+  <text x="108" y="270" font-size="26" font-weight="300" fill="#aaa" text-anchor="middle">{ }</text>
+  <text x="108" y="290" font-size="9" fill="#777" text-anchor="middle">Protocol</text>
+  <text x="108" y="301" font-size="9" fill="#777" text-anchor="middle">Layer</text>
+  <text x="108" y="314" font-size="8" fill="#999" text-anchor="middle">(canonical format)</text>
+
+  <circle cx="108" cy="455" r="16" fill="none" stroke="#aaa" stroke-width="1.5"/>
+  <circle cx="108" cy="455" r="7" fill="none" stroke="#aaa" stroke-width="1.5"/>
+  <text x="108" y="481" font-size="9" fill="#777" text-anchor="middle">Pipelines</text>
+  <text x="108" y="492" font-size="8" fill="#999" text-anchor="middle">(processing &amp;</text>
+  <text x="108" y="503" font-size="8" fill="#999" text-anchor="middle">validation)</text>
+
+  <rect x="90" y="706" width="36" height="28" rx="3" fill="none" stroke="#aaa" stroke-width="1.5"/>
+  <line x1="90" y1="717" x2="126" y2="717" stroke="#aaa" stroke-width="1.5"/>
+  <line x1="108" y1="706" x2="108" y2="734" stroke="#aaa" stroke-width="1.5"/>
+  <text x="108" y="749" font-size="9" fill="#777" text-anchor="middle">Outputs</text>
+  <text x="108" y="761" font-size="8" fill="#999" text-anchor="middle">(deliverables)</text>
+
+  <!-- ── ROW 1: wasmagent-js ─────────────────────────────── -->
+  <rect x="418" y="84" width="368" height="76" rx="12" fill="#dfe6ff" stroke="#1e3799" stroke-width="2.5"/>
+  <polygon points="436,98 453,98 462,113 453,128 436,128 427,113" fill="#1e3799"/>
+  <text x="444.5" y="118" font-size="10" font-weight="700" fill="white" text-anchor="middle">WA</text>
+  <text x="560" y="116" font-size="20" font-weight="700" fill="#1e3799">wasmagent-js</text>
+  <text x="560" y="136" font-size="12" fill="#445">(runtime, SDK, AEP emitter)</text>
+  <line x1="530" y1="160" x2="430" y2="196" stroke="#1e3799" stroke-width="2" marker-end="url(#arrowBlue)"/>
+  <line x1="678" y1="160" x2="760" y2="196" stroke="#1e3799" stroke-width="2" marker-end="url(#arrowBlue)"/>
+
+  <!-- ── ROW 2: bscode + erp-agent ─────────────────────── -->
+  <rect x="218" y="196" width="290" height="68" rx="10" fill="#dfe6ff" stroke="#1e3799" stroke-width="2"/>
+  <text x="248" y="236" font-size="18" font-weight="700" fill="#1e3799" font-family="monospace">&lt;/&gt;</text>
+  <text x="300" y="226" font-size="17" font-weight="700" fill="#1e3799">bscode</text>
+  <text x="300" y="245" font-size="11" fill="#445">(AEP records, real workload)</text>
+
+  <rect x="596" y="196" width="298" height="68" rx="10" fill="#f0f0fc" stroke="#7f8fc8" stroke-width="2" stroke-dasharray="8,4"/>
+  <rect x="832" y="193" width="64" height="20" rx="10" fill="#9b59b6"/>
+  <text x="864" y="207" font-size="10" font-weight="700" fill="white" text-anchor="middle">planned</text>
+  <rect x="617" y="216" width="22" height="22" rx="3" fill="none" stroke="#7f8fc8" stroke-width="2"/>
+  <line x1="617" y1="226" x2="639" y2="226" stroke="#7f8fc8" stroke-width="1.5"/>
+  <line x1="628" y1="216" x2="628" y2="238" stroke="#7f8fc8" stroke-width="1.5"/>
+  <text x="654" y="226" font-size="17" font-weight="700" fill="#7f8fc8">erp-agent</text>
+  <text x="654" y="245" font-size="11" fill="#888">(AEP records)</text>
+
+  <line x1="363" y1="264" x2="363" y2="304" stroke="#1e3799" stroke-width="2" marker-end="url(#arrowBlue)"/>
+  <line x1="745" y1="264" x2="745" y2="304" stroke="#1e3799" stroke-width="2" marker-end="url(#arrowBlue)"/>
+
+  <!-- ── ROW 3: AEP JSONL ───────────────────────────────── -->
+  <rect x="198" y="304" width="866" height="58" rx="10" fill="#bfdbfe" stroke="#1e3799" stroke-width="3"/>
+  <text x="228" y="340" font-size="24" font-weight="300" fill="#1e3799">{ }</text>
+  <text x="681" y="330" font-size="23" font-weight="800" fill="#1e3799" text-anchor="middle">AEP JSONL</text>
+  <text x="681" y="351" font-size="11.5" fill="#334" text-anchor="middle">signed runtime evidence — canonical protocol</text>
+  <line x1="420" y1="362" x2="420" y2="398" stroke="#1e3799" stroke-width="2" marker-end="url(#arrowBlue)"/>
+  <line x1="870" y1="362" x2="870" y2="398" stroke="#1e3799" stroke-width="2" marker-end="url(#arrowBlue)"/>
+
+  <!-- ── ROW 4a: trace-pipeline (y=398, height=252, bottom=650) ── -->
+  <rect x="198" y="398" width="444" height="252" rx="12" fill="#dfe6ff" stroke="#1e3799" stroke-width="2"/>
+  <circle cx="218" cy="416" r="5" fill="#1e3799"/>
+  <circle cx="232" cy="428" r="4" fill="#1e3799"/>
+  <circle cx="220" cy="430" r="4" fill="#1e3799"/>
+  <line x1="218" y1="421" x2="220" y2="426" stroke="#1e3799" stroke-width="1.5"/>
+  <line x1="218" y1="421" x2="232" y2="424" stroke="#1e3799" stroke-width="1.5"/>
+  <text x="250" y="424" font-size="17" font-weight="700" fill="#1e3799">trace-pipeline</text>
+  <line x1="210" y1="434" x2="636" y2="434" stroke="#1e3799" stroke-width="1" stroke-opacity="0.25"/>
+  <text x="420" y="450" font-size="10" fill="#446" text-anchor="middle" font-style="italic">Measurement Trust · Evidence Admission · Training Audit</text>
+
+  <rect x="212" y="458" width="422" height="54" rx="6" fill="#c7d8ff" stroke="#1e3799" stroke-width="1" stroke-opacity="0.5"/>
+  <text x="226" y="474" font-size="11" font-weight="700" fill="#1e3799">A  Measurement Trust</text>
+  <text x="226" y="490" font-size="10.5" fill="#334">     paired statistics · McNemar · Wilson CI · seed variance</text>
+  <text x="226" y="505" font-size="10.5" fill="#334">     AgentTrustScore — benchmark claim audit</text>
+
+  <rect x="212" y="518" width="422" height="40" rx="6" fill="#c7d8ff" stroke="#1e3799" stroke-width="1" stroke-opacity="0.5"/>
+  <text x="226" y="534" font-size="11" font-weight="700" fill="#1e3799">B  Evidence Admission Gate</text>
+  <text x="226" y="550" font-size="10.5" fill="#334">     signature · provenance · contamination — admitted traces only</text>
+
+  <rect x="212" y="564" width="422" height="54" rx="6" fill="#c7d8ff" stroke="#1e3799" stroke-width="1" stroke-opacity="0.5"/>
+  <text x="226" y="580" font-size="11" font-weight="700" fill="#1e3799">C  Training Audit Backend</text>
+  <text x="226" y="596" font-size="10.5" fill="#334">     training_run manifest · adapter card · regression gate</text>
+  <text x="226" y="612" font-size="10.5" fill="#334">     decision:  promote  /  hold  /  reject</text>
+
+  <!-- ── ROW 4b: open-agent-audit (y=398, height=252, bottom=650) ── -->
+  <rect x="664" y="398" width="406" height="252" rx="12" fill="#dcfce7" stroke="#166534" stroke-width="2"/>
+  <path d="M684,408 L704,408 L704,422 L694,430 L684,422 Z" fill="none" stroke="#166534" stroke-width="2"/>
+  <text x="694" y="423" font-size="10" font-weight="700" fill="#166534" text-anchor="middle">&#10003;</text>
+  <text x="718" y="424" font-size="17" font-weight="700" fill="#166534">open-agent-audit</text>
+  <line x1="676" y1="434" x2="1062" y2="434" stroke="#166534" stroke-width="1" stroke-opacity="0.25"/>
+  <text x="867" y="450" font-size="10" fill="#1a5c30" text-anchor="middle" font-style="italic">enterprise audit product · trustavo.com</text>
+
+  <text x="678" y="472" font-size="11" fill="#1a4020">&#x2022;  validate + reconstruct tool inventory</text>
+  <text x="678" y="491" font-size="11" fill="#1a4020">&#x2022;  policy-audit · excessive agency detection</text>
+  <text x="678" y="510" font-size="11" fill="#1a4020">&#x2022;  benchmark claim audit (AgentTrustScore)</text>
+  <text x="678" y="529" font-size="11" fill="#1a4020">&#x2022;  contamination check (CPU-first)</text>
+  <text x="678" y="548" font-size="11" fill="#1a4020">&#x2022;  behavioral drift monitoring</text>
+  <text x="678" y="567" font-size="11" fill="#1a4020">&#x2022;  regulatory mappings:</text>
+  <text x="694" y="583" font-size="10.5" fill="#1a4020">OWASP Agentic Top 10 · NIST AI RMF</text>
+  <text x="694" y="599" font-size="10.5" fill="#1a4020">ISO/IEC 42001 · EU AI Act Annex IV</text>
+  <text x="678" y="619" font-size="11" fill="#1a4020">&#x2022;  compliance reports (md · html · pdf)</text>
+
+  <!-- ── AMBER BRIDGE: below both pipeline boxes ────────────
+       trace-pipeline bottom=650, OAA bottom=650
+       Bridge lane: y=656 to y=710
+       Output boxes: y=716
+  ─────────────────────────────────────────────────────── -->
+  <!-- vertical leg down from trace-pipeline right bottom -->
+  <line x1="558" y1="650" x2="558" y2="672" stroke="#b45309" stroke-width="2" stroke-dasharray="5,3"/>
+  <!-- horizontal segment -->
+  <line x1="558" y1="672" x2="764" y2="672" stroke="#b45309" stroke-width="2" stroke-dasharray="5,3"/>
+  <!-- vertical leg up to OAA left edge at y=600 (mid-height) -->
+  <line x1="764" y1="672" x2="764" y2="650" stroke="#b45309" stroke-width="2" stroke-dasharray="5,3" marker-end="url(#arrowAmber)"/>
+  <!-- label on horizontal segment -->
+  <rect x="594" y="659" width="134" height="28" rx="6" fill="#fffbeb" stroke="#b45309" stroke-width="1.2"/>
+  <text x="661" y="668" font-size="9.5" fill="#92400e" text-anchor="middle" font-weight="700">AgentTrustScore</text>
+  <text x="661" y="681" font-size="9" fill="#92400e" text-anchor="middle">+ training evidence</text>
+
+  <!-- ── ROW 5: Outputs (y=716) ────────────────────────── -->
+  <!-- arrows: trace-pipeline bottom=650 → outputs top=716 -->
+  <line x1="340" y1="650" x2="292" y2="716" stroke="#1e3799" stroke-width="1.5" marker-end="url(#arrowBlue)"/>
+  <line x1="458" y1="650" x2="506" y2="716" stroke="#1e3799" stroke-width="1.5" marker-end="url(#arrowBlue)"/>
+  <!-- OAA bottom=650 → audit-report top=716 -->
+  <line x1="867" y1="650" x2="867" y2="716" stroke="#166534" stroke-width="2" marker-end="url(#arrowGreen)"/>
+
+  <!-- SFT/DPO gated -->
+  <rect x="198" y="716" width="220" height="72" rx="10" fill="#eff6ff" stroke="#1e3799" stroke-width="1.5" stroke-dasharray="5,3"/>
+  <rect x="219" y="728" width="16" height="14" rx="2" fill="none" stroke="#1e3799" stroke-width="1.5"/>
+  <path d="M221,728 Q227,720 233,728" fill="none" stroke="#1e3799" stroke-width="1.5"/>
+  <text x="248" y="742" font-size="11.5" font-weight="700" fill="#1e3799">SFT / DPO datasets</text>
+  <text x="248" y="759" font-size="10" fill="#445">(training-ready · gated)</text>
+  <text x="308" y="776" font-size="9" fill="#666" text-anchor="middle">regression gate required</text>
+
+  <!-- Adapter card -->
+  <rect x="428" y="716" width="208" height="72" rx="10" fill="#eff6ff" stroke="#1e3799" stroke-width="1.5" stroke-dasharray="5,3"/>
+  <rect x="444" y="728" width="18" height="14" rx="2" fill="none" stroke="#1e3799" stroke-width="1.5"/>
+  <line x1="448" y1="734" x2="458" y2="734" stroke="#1e3799" stroke-width="1"/>
+  <line x1="448" y1="738" x2="456" y2="738" stroke="#1e3799" stroke-width="1"/>
+  <text x="476" y="742" font-size="11.5" font-weight="700" fill="#1e3799">ADAPTER_CARD.md</text>
+  <text x="532" y="759" font-size="10" fill="#445" text-anchor="middle">promote · hold · reject</text>
+  <text x="532" y="776" font-size="9" fill="#666" text-anchor="middle">(per-adapter)</text>
+
+  <!-- Audit report -->
+  <rect x="664" y="716" width="406" height="72" rx="10" fill="#dcfce7" stroke="#166534" stroke-width="1.5"/>
+  <rect x="682" y="726" width="18" height="22" rx="2" fill="none" stroke="#166534" stroke-width="1.5"/>
+  <line x1="686" y1="733" x2="695" y2="733" stroke="#166534" stroke-width="1"/>
+  <line x1="686" y1="737" x2="695" y2="737" stroke="#166534" stroke-width="1"/>
+  <line x1="686" y1="741" x2="695" y2="741" stroke="#166534" stroke-width="1"/>
+  <text x="710" y="742" font-size="12" font-weight="700" fill="#166534">audit-report.{md, html, pdf}</text>
+  <text x="867" y="761" font-size="11" fill="#1a5c30" text-anchor="middle">evidence-bundle.zip</text>
+  <text x="867" y="777" font-size="9" fill="#1a7a4a" text-anchor="middle">(shareable · regulatory-mapped)</text>
+
+  <!-- ── EXTERNAL OBSERVABILITY ─────────────────────────── -->
+  <text x="1160" y="100" font-size="12" font-weight="700" fill="#166534" text-anchor="middle">External Observability</text>
+  <text x="1160" y="115" font-size="11" fill="#444" text-anchor="middle">Sources</text>
+  <text x="1160" y="128" font-size="10" fill="#666" text-anchor="middle">(independent, third-party)</text>
+
+  <rect x="1082" y="144" width="158" height="48" rx="8" fill="#f0fdf4" stroke="#16a34a" stroke-width="2"/>
+  <circle cx="1102" cy="168" r="10" fill="none" stroke="#16a34a" stroke-width="1.5"/>
+  <line x1="1102" y1="161" x2="1102" y2="168" stroke="#16a34a" stroke-width="1.5"/>
+  <line x1="1102" y1="168" x2="1108" y2="172" stroke="#16a34a" stroke-width="1.5"/>
+  <text x="1122" y="165" font-size="14" font-weight="700" fill="#166534">OTel</text>
+  <text x="1161" y="183" font-size="10" fill="#444" text-anchor="middle">OpenTelemetry GenAI</text>
+
+  <rect x="1082" y="202" width="158" height="48" rx="8" fill="#f0fdf4" stroke="#16a34a" stroke-width="2"/>
+  <rect x="1093" y="218" width="5" height="14" fill="#16a34a"/>
+  <rect x="1101" y="213" width="5" height="19" fill="#16a34a"/>
+  <rect x="1109" y="222" width="5" height="10" fill="#16a34a"/>
+  <text x="1125" y="225" font-size="14" font-weight="700" fill="#166534">Langfuse</text>
+  <text x="1161" y="241" font-size="10" fill="#444" text-anchor="middle">traces + evals</text>
+
+  <rect x="1082" y="260" width="158" height="48" rx="8" fill="#f0fdf4" stroke="#16a34a" stroke-width="2"/>
+  <path d="M1091,278 Q1096,271 1104,278 Q1110,284 1104,290 Q1098,297 1091,290 Q1085,284 1091,278" fill="none" stroke="#16a34a" stroke-width="1.5"/>
+  <line x1="1101" y1="281" x2="1109" y2="289" stroke="#16a34a" stroke-width="1.5"/>
+  <path d="M1106,278 Q1111,271 1119,278 Q1125,284 1119,290 Q1113,297 1106,290" fill="none" stroke="#16a34a" stroke-width="1.5"/>
+  <text x="1130" y="282" font-size="14" font-weight="700" fill="#166534">LangSmith</text>
+  <text x="1161" y="298" font-size="10" fill="#444" text-anchor="middle">traces + datasets</text>
+
+  <path d="M1082,355 C1068,400 1090,480 1070,524" stroke="#16a34a" stroke-width="2" stroke-dasharray="7,4" fill="none" marker-end="url(#arrowGreen)"/>
+  <text x="1080" y="435" font-size="10.5" fill="#166534" font-style="italic" text-anchor="end">via adapters</text>
+
+  <!-- ── LEGEND ─────────────────────────────────────────── -->
+  <rect x="1082" y="590" width="292" height="152" rx="8" fill="#f8f8f8" stroke="#ccc" stroke-width="1.5"/>
+  <text x="1092" y="610" font-size="11" font-weight="700" fill="#333">LEGEND</text>
+
+  <line x1="1092" y1="626" x2="1135" y2="626" stroke="#1e3799" stroke-width="2.5" marker-end="url(#arrowBlue)"/>
+  <text x="1142" y="630" font-size="10" fill="#333">AEP data flow</text>
+
+  <line x1="1092" y1="646" x2="1135" y2="646" stroke="#16a34a" stroke-width="2" stroke-dasharray="7,3" marker-end="url(#arrowGreen)"/>
+  <text x="1142" y="650" font-size="10" fill="#333">External source flow (via adapters)</text>
+
+  <line x1="1092" y1="666" x2="1135" y2="666" stroke="#b45309" stroke-width="2" stroke-dasharray="6,3" marker-end="url(#arrowAmber)"/>
+  <text x="1142" y="670" font-size="10" fill="#333">Evidence bundle (trace-pipeline &#x2192; OAA)</text>
+
+  <line x1="1092" y1="686" x2="1135" y2="686" stroke="#7f8fc8" stroke-width="2" stroke-dasharray="8,4"/>
+  <text x="1142" y="690" font-size="10" fill="#333">Planned</text>
+
+  <rect x="1092" y="699" width="40" height="14" rx="3" fill="#eff6ff" stroke="#1e3799" stroke-width="1.2" stroke-dasharray="4,2"/>
+  <text x="1142" y="711" font-size="10" fill="#333">Gated output (regression gate)</text>
+
+</svg>

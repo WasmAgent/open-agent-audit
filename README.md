@@ -1,16 +1,21 @@
 # OpenAgentAudit
 
 > Open evidence format and Cloudflare-native audit toolkit for enterprise AI agents.
+>
+> **Trustavo** — *Trust, voiced with authority.* The production deployment at
+> **[trustavo.com](https://trustavo.com)** is the reference implementation of
+> OpenAgentAudit. In audit, evidence only counts when it is trusted; Trustavo
+> exists to make that trust legible.
 
 ![WasmAgent product matrix](https://raw.githubusercontent.com/WasmAgent/wasmagent/main/assets/product-matrix.webp)
 
 **Agent logs are not audit evidence.** OpenAgentAudit turns tool calls, policy
-decisions, human approvals, benchmark results, and runtime traces into
-defensible technical evidence reports.
+decisions, human approvals, benchmark results, training manifests, and runtime
+traces into defensible technical evidence reports.
 
 ## Live deployment
 
-**https://trustavo.com** — production deployment on Cloudflare Workers.
+**[trustavo.com](https://trustavo.com)** — production deployment on Cloudflare Workers.
 
 ## What it does
 
@@ -20,6 +25,7 @@ defensible technical evidence reports.
 - **Audit** benchmark claims with paired statistics (McNemar, Wilson CI).
 - **Check** contamination risk with CPU-first chunked algorithms.
 - **Monitor** behavioral drift over time.
+- **Render** training-run audit reports from `trace-pipeline` evidence bundles.
 - **Map** evidence to OWASP Agentic Top 10, NIST AI RMF, ISO/IEC 42001, and
   EU AI Act Annex IV technical documentation needs.
 - **Run** as a TypeScript/Bun CLI or as a Cloudflare-native service.
@@ -30,6 +36,7 @@ defensible technical evidence reports.
 - It does **not** certify regulatory compliance.
 - It does **not** require GPU.
 - It does **not** require Python, scipy, or a traditional backend server.
+- It does **not** train models or run benchmarks directly.
 - It does **not** replace observability tools — it consumes their traces and
   produces audit evidence.
 
@@ -38,22 +45,32 @@ defensible technical evidence reports.
 ```
 wasmagent-js (runtime, SDK, AEP emitter)
         │
-        ├─── bscode (coding-agent workload)        ──┐
-        └─── erp-agent (ERP workload)               ──┤
-                                                      │ AEP records
-                                                      │ rollout JSONL
-                                                      ▼
-                            ┌─────────────────────────┴─────────────────────────┐
-                            ▼                                                   ▼
-                  trace-pipeline                                       open-agent-audit
-                  (training data pipeline)                             (audit evidence pipeline)
-                  → SFT / DPO / PPO training data                      → audit reports, findings
-                  → trust-score                                        → regulatory mappings
-                  → TrainingDataExporter                               → Evidence Admission Score
+        ├─── bscode (real coding-agent workload)  ──┐
+        └─── erp-agent (ERP workload, planned)    ──┤
+                                                    │ AEP JSONL
+                                                    │ (signed runtime evidence)
+                                                    ▼
+                        ┌────────────────────────────────────────────────────┐
+                        ▼                                                    ▼
+              trace-pipeline                                       open-agent-audit
+              Measurement Trust                                    (this repo)
+              Evidence Admission Gate                              ─────────────────
+              Training Audit Backend                               audit reports
+                │                                                  regulatory maps
+                │  AgentTrustScore                                 benchmark claims
+                │  + training evidence ──────────────────────────► evidence bundles
+                │
+                ├── SFT / DPO datasets (gated — regression gate required)
+                └── ADAPTER_CARD.md   (promote / hold / reject)
+
+External Observability (OTel, Langfuse, LangSmith) ─── via adapters ──► open-agent-audit
 ```
 
-OpenAgentAudit is a **peer** of `trace-pipeline`, not a layer inside any other
-repo. Both consume AEP records; they serve different downstream customers.
+OpenAgentAudit is the **reporting and evidence layer** of the WasmAgent
+ecosystem. `trace-pipeline` decides whether a benchmark claim is statistically
+credible and whether a training run is auditable; OpenAgentAudit turns that
+evidence into enterprise-readable reports. Both consume AEP records; they serve
+different downstream customers.
 
 ## Cloudflare-native by design
 
