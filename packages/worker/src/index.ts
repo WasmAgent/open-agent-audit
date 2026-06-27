@@ -197,38 +197,42 @@ async function handlePostRun(request: Request, env: WorkerEnv): Promise<Response
     httpMetadata: { contentType: 'application/x-ndjson' },
   });
 
-  // Run full audit pipeline synchronously so reports are available immediately
-  const lines = jsonlContent.split('\n').filter((l) => l.trim().length > 0);
-  const rawEvents: unknown[] = [];
-  for (const line of lines) {
-    try { rawEvents.push(JSON.parse(line)); } catch { /* skip */ }
-  }
-
-  // Detect AEP JSON: single object with schema_version "aep/v0.1" or "aep/v0.2"
+  // Detect AEP JSON: try parsing the whole body as a single JSON object first.
+  // AEP records are pretty-printed (multi-line), so line-by-line parsing fails.
   let events: CanonicalEvent[];
   let aepProvenance: AepProvenanceForScoring | undefined;
 
-  const firstRaw = rawEvents[0] as Record<string, unknown> | undefined;
-  const isAepRecord =
-    rawEvents.length === 1 &&
-    firstRaw !== null &&
-    typeof firstRaw === 'object' &&
-    (firstRaw['schema_version'] === 'aep/v0.2' || firstRaw['schema_version'] === 'aep/v0.1');
+  let singleObject: Record<string, unknown> | undefined;
+  try {
+    const parsed = JSON.parse(jsonlContent) as unknown;
+    if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      singleObject = parsed as Record<string, unknown>;
+    }
+  } catch { /* not a single JSON object — try JSONL below */ }
 
-  if (isAepRecord) {
+  const isAepRecord =
+    singleObject !== undefined &&
+    (singleObject['schema_version'] === 'aep/v0.2' || singleObject['schema_version'] === 'aep/v0.1');
+
+  if (isAepRecord && singleObject !== undefined) {
     try {
-      const aepRecord = firstRaw as unknown as Parameters<typeof aepV0_2.AepV0_2Adapter.toEvents>[0];
+      const aepRecord = singleObject as unknown as Parameters<typeof aepV0_2.AepV0_2Adapter.toEvents>[0];
       events = aepV0_2.AepV0_2Adapter.toEvents(aepRecord);
       const prov = aepV0_2.getProvenance(aepRecord);
       if (Object.keys(prov).length > 0) {
         aepProvenance = prov;
       }
     } catch {
-      // Not a valid AEP record — fall through to canonical event path
-      const { valid } = validateEvents(rawEvents);
-      events = valid;
+      // Invalid AEP record — fall through to canonical event path
+      events = [];
     }
   } else {
+    // JSONL path: parse line-by-line
+    const lines = jsonlContent.split('\n').filter((l) => l.trim().length > 0);
+    const rawEvents: unknown[] = [];
+    for (const line of lines) {
+      try { rawEvents.push(JSON.parse(line)); } catch { /* skip invalid lines */ }
+    }
     const { valid } = validateEvents(rawEvents);
     events = valid;
   }
