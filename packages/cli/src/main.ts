@@ -13,9 +13,10 @@ import {
   computeRiskScore,
   renderReport,
 } from '@openagentaudit/core';
+import type { ReportMeta } from '@openagentaudit/core';
 import { aepV0_2, bscode } from '@openagentaudit/adapters';
 import { validateEvents } from '@openagentaudit/schema';
-import type { CanonicalEvent } from '@openagentaudit/schema';
+import type { CanonicalEvent, Finding } from '@openagentaudit/schema';
 
 /** Local mirror of CapabilityManifest — keeps the CLI free of deep sub-path imports. */
 interface CapabilityManifest {
@@ -97,6 +98,74 @@ async function readEvents(filePath?: string): Promise<CanonicalEvent[]> {
 }
 
 // ---------------------------------------------------------------------------
+// CSV helpers
+// ---------------------------------------------------------------------------
+
+/** Escape a single CSV cell value. */
+function csvCell(value: string | number | undefined | null): string {
+  const s = value === undefined || value === null ? '' : String(value);
+  // Quote if the value contains a comma, double-quote, or newline
+  if (s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r')) {
+    return '"' + s.replace(/"/g, '""') + '"';
+  }
+  return s;
+}
+
+/**
+ * Build a CSV export from findings and basic run metadata.
+ *
+ * Columns: finding_id, rule_id, severity, category, title, description,
+ *          evidence_ids, recommendation, standard_mappings, run_id,
+ *          eas_score, eas_grade
+ */
+function buildCsv(
+  findings: Finding[],
+  runId: string,
+  easScore: number,
+  easGrade: string,
+): string {
+  const header = [
+    'finding_id',
+    'rule_id',
+    'severity',
+    'category',
+    'title',
+    'description',
+    'evidence_ids',
+    'recommendation',
+    'standard_mappings',
+    'run_id',
+    'eas_score',
+    'eas_grade',
+  ].join(',');
+
+  const rows = findings.map((f) => {
+    const evidenceIds = f.evidence_ids.join('; ');
+    const standardMappings =
+      f.standard_mappings !== undefined && f.standard_mappings.length > 0
+        ? f.standard_mappings.map((m) => `${m.profile}:${m.control_id}`).join('; ')
+        : '';
+
+    return [
+      csvCell(f.finding_id),
+      csvCell(f.rule_id),
+      csvCell(f.severity),
+      csvCell(f.category),
+      csvCell(f.title),
+      csvCell(f.description),
+      csvCell(evidenceIds),
+      csvCell(f.recommendation),
+      csvCell(standardMappings),
+      csvCell(runId),
+      csvCell(easScore),
+      csvCell(easGrade),
+    ].join(',');
+  });
+
+  return [header, ...rows].join('\n');
+}
+
+// ---------------------------------------------------------------------------
 // Argument parsing
 // ---------------------------------------------------------------------------
 
@@ -173,7 +242,7 @@ function printHelp(): void {
       '  score [file]',
       '    Read JSONL, compute Evidence Admission Score, print as JSON.',
       '',
-      '  report [file] [--format md|html|json]',
+      '  report [file] [--format md|html|json|csv] [--meta <json>]',
       '    Read JSONL, run full audit pipeline, print report.',
       '',
       '  from-aep [file]',
@@ -187,7 +256,12 @@ function printHelp(): void {
       '  --version, -v   Print version and exit.',
       '  --manifest      JSON string for CapabilityManifest (policy-audit).',
       '  --profile       Profile ID (policy-audit).',
-      '  --format        Output format: md, html, or json (report).',
+      '  --format        Output format: md, html, json, or csv (report).',
+      '  --meta          JSON string with ReportMeta fields (report).',
+      '                  Supported fields: issuer, prepared_by, source_files,',
+      '                  scope, profiles_applied, report_id, trace_start,',
+      '                  trace_end, engine_version, spec_version.',
+      '                  Example: --meta \'{"issuer":"Acme Corp","prepared_by":"Jane Smith","source_files":["trace.jsonl"]}\'',
     ].join('\n'),
   );
 }
@@ -302,8 +376,26 @@ async function cmdScore(filePath?: string): Promise<void> {
 async function cmdReport(
   filePath: string | undefined,
   format: string,
+  metaJson: string | undefined,
 ): Promise<void> {
   const events = await readEvents(filePath);
+
+  // Parse --meta flag
+  let parsedMeta: ReportMeta = {};
+  if (metaJson !== undefined) {
+    try {
+      parsedMeta = JSON.parse(metaJson) as ReportMeta;
+    } catch {
+      process.stderr.write('Error: --meta value is not valid JSON\n');
+      process.exit(1);
+    }
+  }
+
+  // Auto-inject source_files from filePath when not already set by --meta
+  const meta: ReportMeta =
+    filePath !== undefined && parsedMeta.source_files === undefined
+      ? { ...parsedMeta, source_files: [filePath] }
+      : parsedMeta;
 
   const defaultManifest: CapabilityManifest = {
     declared_capabilities: [],
@@ -320,7 +412,7 @@ async function cmdReport(
     findings = await policyAudit(events, { manifest: defaultManifest });
     inv = await inventory(events);
     score = await computeRiskScore(events);
-    bundle = await renderReport(events, findings, score, inv);
+    bundle = await renderReport(events, findings, score, inv, meta);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     process.stderr.write(`Error: ${msg}\n`);
@@ -333,6 +425,16 @@ async function cmdReport(
       break;
     case 'json':
       console.log(bundle.json);
+      break;
+    case 'csv':
+      console.log(
+        buildCsv(
+          findings,
+          score.run_id,
+          score.evidence_admission_score.score,
+          score.evidence_admission_score.grade,
+        ),
+      );
       break;
     case 'md':
     default:
@@ -453,7 +555,9 @@ switch (cmd) {
   case 'report': {
     const formatRaw = args.flags.get('format');
     const format = formatRaw !== undefined && formatRaw !== true ? formatRaw : 'md';
-    await cmdReport(args.file, format);
+    const metaRaw = args.flags.get('meta');
+    const metaJson = metaRaw !== true ? metaRaw : undefined;
+    await cmdReport(args.file, format, metaJson);
     break;
   }
   case 'from-aep': {

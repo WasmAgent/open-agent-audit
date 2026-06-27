@@ -1,5 +1,5 @@
 /**
- * bscode RolloutWireRecord → CanonicalEvent adapter.
+ * bscode RolloutWireRecord -> CanonicalEvent adapter.
  *
  * Converts bscode rollout JSONL records (rollout-wire/v1) into OpenAgentAudit
  * canonical events. No Node.js APIs are used; the code runs in Cloudflare Workers.
@@ -55,6 +55,46 @@ export interface RolloutWireRecord {
 }
 
 // ---------------------------------------------------------------------------
+// Upstream provenance
+// ---------------------------------------------------------------------------
+
+/**
+ * Upstream provenance fields extracted from a RolloutWireRecord.
+ * Consumers (CLI, Worker) can attach these to ReportMeta to preserve
+ * the full audit trail back to the originating bscode rollout.
+ */
+export interface BscodeProvenance {
+  job_id: string;
+  exported_at_ms: number;
+  evidence_source: string;
+  redaction_version: string;
+  batch_manifest_hash?: string;
+  objective_status: string;
+  objective_score: number;
+}
+
+/**
+ * Extract upstream provenance fields from a RolloutWireRecord.
+ * evidence_source and redaction_version fall back to empty string when
+ * the optional RolloutProvenance fields are absent.
+ */
+export function getProvenance(record: RolloutWireRecord): BscodeProvenance {
+  const prov: BscodeProvenance = {
+    job_id: record.provenance.job_id,
+    exported_at_ms: record.provenance.exported_at_ms,
+    evidence_source: record.provenance.evidence_source ?? '',
+    redaction_version: record.provenance.redaction_version ?? '',
+    objective_status: record.objective_status,
+    objective_score: record.objective_score,
+  };
+
+  // batch_manifest_hash is not present on RolloutProvenance today; reserve
+  // the slot for forward compatibility and omit it unless a caller sets it.
+
+  return prov;
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -98,7 +138,7 @@ function toEvents(record: RolloutWireRecord): CanonicalEvent[] {
     };
   }
 
-  // ── Tool call sequence ─────────────────────────────────────────────────
+  // -- Tool call sequence --------------------------------------------------
   for (const ev of record.tool_call_sequence) {
     const ts = msToIso(ev.timestamp_ms ?? fallbackTs);
 
@@ -130,7 +170,7 @@ function toEvents(record: RolloutWireRecord): CanonicalEvent[] {
     }
   }
 
-  // ── Final answer ────────────────────────────────────────────────────────
+  // -- Final answer --------------------------------------------------------
   events.push(
     nextEvent({
       timestamp: msToIso(fallbackTs),
@@ -139,7 +179,7 @@ function toEvents(record: RolloutWireRecord): CanonicalEvent[] {
     }),
   );
 
-  // ── Build result ────────────────────────────────────────────────────────
+  // -- Build result --------------------------------------------------------
   if (record.build_result !== null) {
     const br = record.build_result;
 

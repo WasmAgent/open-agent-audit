@@ -24,4 +24,4 @@ export { contamination } from './contamination/index.js';
 export { driftGuard } from './drift-guard/index.js';
 export { computeRiskScore } from './scoring/index.js';
 export { renderReport } from './report/index.js';
-export type { ReportBundle } from './report/index.js';
+export type { ReportBundle, ReportMeta, ComplianceMapping } from './report/index.js';

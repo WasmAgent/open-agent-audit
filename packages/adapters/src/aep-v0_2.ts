@@ -107,6 +107,63 @@ export interface AEPRecordInput {
 }
 
 // ---------------------------------------------------------------------------
+// Upstream provenance
+// ---------------------------------------------------------------------------
+
+/**
+ * Upstream provenance fields extracted from an AEPRecordInput.
+ * Consumers (CLI, Worker) can attach these to ReportMeta to preserve
+ * the full audit trail back to the originating AEP run.
+ */
+export interface AepProvenance {
+  repo_commit?: string;
+  runtime_version?: string;
+  policy_bundle_digest?: string;
+  tool_manifest_digest?: string;
+  mcp_server_card_digest?: string;
+  parent_trace_id?: string;
+  delegation_chain?: string[];
+  model_provider?: string;
+}
+
+/**
+ * Extract upstream provenance fields from an AEPRecordInput.
+ * Only defined (non-null) fields are included in the returned object.
+ */
+export function getProvenance(record: AEPRecordInput): AepProvenance {
+  const prov: AepProvenance = {};
+
+  if (record.repo_commit !== undefined) {
+    prov.repo_commit = record.repo_commit;
+  }
+  if (record.runtime_version !== undefined) {
+    prov.runtime_version = record.runtime_version;
+  }
+  if (record.policy_bundle_digest !== undefined) {
+    prov.policy_bundle_digest = record.policy_bundle_digest;
+  }
+  if (record.tool_manifest_digest !== undefined) {
+    prov.tool_manifest_digest = record.tool_manifest_digest;
+  }
+  // mcp_server_card_digest is string | null | undefined — only carry it through when it is a non-null string
+  if (record.mcp_server_card_digest !== undefined && record.mcp_server_card_digest !== null) {
+    prov.mcp_server_card_digest = record.mcp_server_card_digest;
+  }
+  // parent_trace_id is string | null | undefined — same treatment
+  if (record.parent_trace_id !== undefined && record.parent_trace_id !== null) {
+    prov.parent_trace_id = record.parent_trace_id;
+  }
+  if (record.run_context?.delegation_chain !== undefined) {
+    prov.delegation_chain = record.run_context.delegation_chain;
+  }
+  if (record.model_provider !== undefined) {
+    prov.model_provider = record.model_provider;
+  }
+
+  return prov;
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -178,7 +235,7 @@ function toEvents(record: AEPRecordInput): CanonicalEvent[] {
     return event;
   }
 
-  // ── Actions → tool_call events ─────────────────────────────────────────
+  // -- Actions -> tool_call events -----------------------------------------
   const actions = record.actions ?? [];
   for (const action of actions) {
     const riskTags: string[] = [
@@ -208,7 +265,7 @@ function toEvents(record: AEPRecordInput): CanonicalEvent[] {
     events.push(event);
   }
 
-  // ── Capability decisions → policy_decision events ──────────────────────
+  // -- Capability decisions -> policy_decision events ----------------------
   const capabilityDecisions = record.capability_decisions ?? [];
   for (const cd of capabilityDecisions) {
     // Map AEP decision to canonical PolicyDecision
@@ -235,7 +292,7 @@ function toEvents(record: AEPRecordInput): CanonicalEvent[] {
     );
   }
 
-  // ── Failed verifier results → observation events ───────────────────────
+  // -- Failed verifier results -> observation events -----------------------
   const verifierResults = record.verifier_results ?? [];
   for (const vr of verifierResults) {
     if (!vr.passed) {
