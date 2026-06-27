@@ -119,6 +119,8 @@ being built against the current `open-agent-audit/v0.1` schema.
 5. [`docs/relationship-to-wasmagent.md`](./docs/relationship-to-wasmagent.md) — how this fits with `wasmagent-js`, `bscode`, `trace-pipeline`.
 6. [`docs/schema-versioning.md`](./docs/schema-versioning.md) — versioning policy.
 7. [`docs/regulatory-disclaimer.md`](./docs/regulatory-disclaimer.md) — what we do and do not claim.
+8. [`docs/compliance-coverage-report.md`](./docs/compliance-coverage-report.md) — per-framework coverage depth and breadth (OWASP / EU AI Act / NIST AI RMF / ISO 42001), upgrade paths, and ceiling analysis.
+9. [`docs/competitive-landscape.md`](./docs/competitive-landscape.md) — market analysis: how OpenAgentAudit compares to ATR, VerifyWise, Credo AI, and other tools in the AI agent audit space.
 
 ## Disclaimer
 
