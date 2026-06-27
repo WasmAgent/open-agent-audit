@@ -46,6 +46,22 @@ function parseJsonl(text: string): RawEvent[] {
     .filter((e): e is RawEvent => e !== null)
 }
 
+/** Returns true when the text is a single AEP JSON object (schema_version aep/v0.x). */
+function isAepJson(text: string): boolean {
+  try {
+    const obj = JSON.parse(text) as Record<string, unknown>
+    return (
+      obj !== null &&
+      typeof obj === 'object' &&
+      !Array.isArray(obj) &&
+      typeof obj['schema_version'] === 'string' &&
+      (obj['schema_version'] as string).startsWith('aep/')
+    )
+  } catch {
+    return false
+  }
+}
+
 interface TypeStyle {
   chip: string
   dot: string
@@ -286,6 +302,7 @@ export default function App() {
   const [fileName, setFileName] = useState<string | null>(null)
   const [fileText, setFileText] = useState<string>('')
   const [parseError, setParseError] = useState<string | null>(null)
+  const [isAepRecord, setIsAepRecord] = useState(false)
   const [dragging, setDragging] = useState(false)
   const [page, setPage] = useState(0)
   const [reportGenerating, setReportGenerating] = useState(false)
@@ -304,20 +321,28 @@ export default function App() {
 
   const handleFile = useCallback((file: File) => {
     if (!file.name.endsWith('.jsonl') && !file.name.endsWith('.json')) {
-      setParseError('Please select a .jsonl file.')
+      setParseError('Please select a .jsonl or .json file.')
       return
     }
     setParseError(null)
     setFileName(file.name)
+    setIsAepRecord(false)
     const reader = new FileReader()
     reader.onload = (e) => {
       const text = e.target?.result as string
       setFileText(text)
-      const parsed = parseJsonl(text)
-      setEvents(parsed)
       setPage(0)
       setReportRunId(null)
       setReportError(null)
+      // Detect AEP JSON (single object with schema_version: "aep/v0.x")
+      if (isAepJson(text)) {
+        setIsAepRecord(true)
+        setEvents([])
+        // No parse error — the file is valid, worker will handle conversion
+        return
+      }
+      const parsed = parseJsonl(text)
+      setEvents(parsed)
       if (parsed.length === 0) {
         setParseError('No valid JSON lines found in the file.')
       }
@@ -383,7 +408,7 @@ export default function App() {
   const totalPages = Math.ceil(events.length / PAGE_SIZE)
   const pageEvents = events.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
   const hasEvents = events.length > 0
-  const isEmptyState = !hasEvents && !parseError && !fileName
+  const isEmptyState = !hasEvents && !parseError && !fileName && !isAepRecord
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
@@ -502,6 +527,16 @@ export default function App() {
             <div className="mt-3 flex items-start gap-2 px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-700">
               <WarningIcon className="w-4 h-4 shrink-0 mt-0.5" />
               <span>{parseError}</span>
+            </div>
+          )}
+
+          {/* AEP JSON info banner */}
+          {isAepRecord && !parseError && (
+            <div className="mt-3 flex items-start gap-2 px-4 py-3 rounded-xl bg-indigo-50 border border-indigo-200 text-sm text-indigo-700">
+              <ShieldIcon className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>
+                <strong>AEP evidence record detected</strong> — this file will be converted to canonical events server-side when you generate the report. Event preview is not available for AEP JSON files.
+              </span>
             </div>
           )}
         </section>
@@ -645,7 +680,7 @@ export default function App() {
         )}
 
         {/* Summary section */}
-        {hasEvents && (
+        {(hasEvents || isAepRecord) && (
           <section>
             {/* Heading row */}
             <div className="flex items-center justify-between mb-5">
