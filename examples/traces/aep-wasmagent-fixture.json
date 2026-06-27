@@ -1,0 +1,74 @@
+{
+  "schema_version": "aep/v0.2",
+  "run_id": "run-wasmagent-fixture-001",
+  "repo_commit": "1234567890abcdef1234567890abcdef12345678",
+  "runtime_version": "wasmagent-js@1.3.4",
+  "model_provider": "anthropic",
+  "model_id": "claude-sonnet-4-6",
+  "policy_bundle_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "tool_manifest_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "input_refs": [],
+  "output_refs": [],
+  "capability_decisions": [
+    {
+      "capability": "fs:write",
+      "subject": "agent",
+      "resource": "/tmp/output.txt",
+      "decision": "allow",
+      "reason_code": "policy-allow-tmp"
+    }
+  ],
+  "actions": [
+    {
+      "action_id": "action-0",
+      "tool_name": "bash",
+      "state_changing": false,
+      "evidence_refs": ["sha256:abc123def456"],
+      "timestamp_ms": 1700000000000,
+      "input_taint_labels": [],
+      "output_taint_labels": []
+    },
+    {
+      "action_id": "action-1",
+      "tool_name": "write_file",
+      "state_changing": true,
+      "evidence_refs": [],
+      "capability_decision": {
+        "capability": "fs:write",
+        "subject": "agent",
+        "resource": "/tmp/output.txt",
+        "decision": "allow",
+        "reason_code": "policy-allow-tmp"
+      },
+      "timestamp_ms": 1700000001000,
+      "input_taint_labels": ["user-supplied"],
+      "output_taint_labels": ["filesystem"],
+      "pre_state_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "post_state_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    }
+  ],
+  "verifier_results": [
+    {
+      "verifier_id": "deterministic-v1",
+      "passed": true,
+      "score": 1,
+      "claim_ids": ["claim-001"]
+    },
+    {
+      "verifier_id": "taint-fence-v1",
+      "passed": false,
+      "score": 0,
+      "claim_ids": ["claim-002"]
+    }
+  ],
+  "budget_ledger": {
+    "token_budget": { "limit": 10000, "spent": 4512 },
+    "tool_budget": { "limit": 20, "spent": 2 }
+  },
+  "created_at_ms": 1700000002000,
+  "signature": {
+    "alg": "ed25519",
+    "key_id": "wasmagent-fixture-key-v1",
+    "sig": "YpMt+qcUOT9ziuuSFb0Js2m2d2wmPmSWwR2McVzmfFulLGLF8AL5vt78LvR7DqSNwndiU2gxA7TXL/VxnTPjBg=="
+  }
+}

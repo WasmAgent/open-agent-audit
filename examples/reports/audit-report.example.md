@@ -149,7 +149,7 @@ Not applicable; single-run audit.
 
 ## 18. Evidence Appendix
 
-Full event list available in `examples/traces/bscode-smoke.jsonl`.
+Full event list available in `examples/traces/aep-bscode-fixture.json`.
 
 ## 19. Limitations
 

@@ -34,6 +34,17 @@ export interface ReportMeta {
   spec_version?: string;
   /** Public URL where this report is hosted (used to generate QR code). */
   report_url?: string;
+  /** Run-provenance fields extracted from an AEP source record (aep/v0.2). */
+  aep_provenance?: {
+    repo_commit?: string;
+    runtime_version?: string;
+    policy_bundle_digest?: string;
+    tool_manifest_digest?: string;
+    mcp_server_card_digest?: string;
+    parent_trace_id?: string;
+    delegation_chain?: string[];
+    model_provider?: string;
+  };
 }
 
 // ---------------------------------------------------------------------------

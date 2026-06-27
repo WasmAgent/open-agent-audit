@@ -185,6 +185,32 @@ function msToIso(ms: number): string {
 // ---------------------------------------------------------------------------
 
 /**
+ * Validate required AEP fields and throw an actionable error if any are missing.
+ * Called by both toEvents() and beginRun() so callers get the error at parse time.
+ */
+function validateRecord(record: AEPRecordInput): void {
+  const missing: string[] = [];
+  if (!record.run_id) missing.push('run_id');
+  if (!record.schema_version) missing.push('schema_version');
+  if (typeof record.created_at_ms !== 'number') missing.push('created_at_ms');
+  if (!record.signature?.alg) missing.push('signature.alg');
+  if (!record.signature?.key_id) missing.push('signature.key_id');
+  if (!record.signature?.sig) missing.push('signature.sig');
+  if (missing.length > 0) {
+    throw new Error(
+      `AEP adapter: missing required fields [${missing.join(', ')}]. ` +
+        'Ensure the AEPRecord was produced by a compliant emitter (aep/v0.2).',
+    );
+  }
+  if (record.schema_version !== 'aep/v0.2' && record.schema_version !== 'aep/v0.1') {
+    throw new Error(
+      `AEP adapter: unsupported schema_version "${record.schema_version}". ` +
+        'Expected "aep/v0.2" (or "aep/v0.1" for backward compatibility).',
+    );
+  }
+}
+
+/**
  * Convert an AEPRecordInput into an array of CanonicalEvents.
  *
  * Mapping contract:
@@ -193,6 +219,7 @@ function msToIso(ms: number): string {
  *   - verifier_result (failed) → observation (actor: system)
  */
 function toEvents(record: AEPRecordInput): CanonicalEvent[] {
+  validateRecord(record);
   const events: CanonicalEvent[] = [];
 
   const runId = record.run_id;
@@ -313,6 +340,7 @@ function toEvents(record: AEPRecordInput): CanonicalEvent[] {
 }
 
 function beginRun(record: AEPRecordInput): AuditRun {
+  validateRecord(record);
   const agentId = record.run_context?.agent_id ?? record.run_id;
   const modelId = record.model_id ?? 'unknown';
 

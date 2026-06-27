@@ -54,3 +54,4 @@ coverage/
 reports/generated/
 !reports/generated/.gitkeep
 wrangler.jsonc
+MEMORY.md
