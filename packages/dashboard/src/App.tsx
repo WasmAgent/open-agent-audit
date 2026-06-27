@@ -490,39 +490,142 @@ export default function App() {
           )}
         </section>
 
-        {/* Empty state hero */}
+        {/* Empty state — hero + how-to + compliance */}
         {isEmptyState && (
-          <section className="py-10 flex flex-col items-center text-center gap-6">
-            <div className="w-20 h-20 rounded-3xl bg-indigo-50 border border-indigo-100 flex items-center justify-center">
-              <ShieldIcon className="w-10 h-10 text-indigo-500" />
-            </div>
-            <div>
-              <h2 className="text-xl font-bold text-slate-800 mb-2">
-                AI Agent Audit Dashboard
+          <>
+            {/* Hero */}
+            <section className="pt-6 pb-2 flex flex-col items-center text-center gap-5">
+              <div className="w-20 h-20 rounded-3xl bg-indigo-50 border border-indigo-100 flex items-center justify-center">
+                <ShieldIcon className="w-10 h-10 text-indigo-500" />
+              </div>
+              <div>
+                <h2 className="text-2xl font-bold text-slate-800 mb-2">
+                  AI Agent Audit &amp; Compliance Platform
+                </h2>
+                <p className="text-slate-500 text-sm max-w-md mx-auto leading-relaxed">
+                  Upload a JSONL audit trace to inspect agent events, score evidence
+                  quality, and generate audit reports accepted under{' '}
+                  <strong className="text-slate-700">EU AI Act Art.&nbsp;26(6)</strong>.
+                </p>
+              </div>
+              <div className="flex flex-wrap justify-center gap-2">
+                {[
+                  { dot: 'bg-blue-500', label: 'Tool call tracing' },
+                  { dot: 'bg-amber-500', label: 'Policy decisions' },
+                  { dot: 'bg-emerald-500', label: 'Human approvals' },
+                  { dot: 'bg-indigo-500', label: 'Model outputs' },
+                  { dot: 'bg-red-500', label: 'Error capture' },
+                ].map((f) => (
+                  <span
+                    key={f.label}
+                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white border border-slate-200 text-xs text-slate-600 shadow-sm"
+                  >
+                    <span className={`w-2 h-2 rounded-full ${f.dot}`} />
+                    {f.label}
+                  </span>
+                ))}
+              </div>
+            </section>
+
+            {/* How to use — 3 steps */}
+            <section aria-labelledby="howto-heading">
+              <h2 id="howto-heading" className="text-base font-semibold text-slate-800 mb-4 flex items-center gap-2">
+                <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-600 text-xs font-bold flex items-center justify-center">?</span>
+                How to use
               </h2>
-              <p className="text-slate-500 text-sm max-w-sm mx-auto">
-                Upload a JSONL audit trace to inspect events, generate compliance
-                reports, and export findings.
-              </p>
-            </div>
-            <div className="flex flex-wrap justify-center gap-2">
-              {[
-                { dot: 'bg-blue-500', label: 'Tool call tracing' },
-                { dot: 'bg-amber-500', label: 'Policy decisions' },
-                { dot: 'bg-emerald-500', label: 'Human approvals' },
-                { dot: 'bg-indigo-500', label: 'Model outputs' },
-                { dot: 'bg-red-500', label: 'Error capture' },
-              ].map((f) => (
-                <span
-                  key={f.label}
-                  className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white border border-slate-200 text-xs text-slate-600 shadow-sm"
-                >
-                  <span className={`w-2 h-2 rounded-full ${f.dot}`} />
-                  {f.label}
+              <ol className="grid sm:grid-cols-3 gap-4 list-none">
+                {[
+                  {
+                    step: '1',
+                    title: 'Generate a trace',
+                    body: 'Instrument your AI agent with the OpenAgentAudit SDK or any compatible adapter (AEP v0.2, bscode). Each agent action is logged as a CanonicalEvent.',
+                    color: 'bg-blue-50 border-blue-100 text-blue-600',
+                  },
+                  {
+                    step: '2',
+                    title: 'Upload the .jsonl file',
+                    body: 'Drag and drop (or click "Choose file") to load the JSONL trace. Events are parsed locally — no raw data leaves your browser.',
+                    color: 'bg-indigo-50 border-indigo-100 text-indigo-600',
+                  },
+                  {
+                    step: '3',
+                    title: 'Generate &amp; export report',
+                    body: 'Click "Generate Report" to compute an Evidence Admission Score (EAS). Download as HTML, PDF, CSV, JSON, or Markdown.',
+                    color: 'bg-violet-50 border-violet-100 text-violet-600',
+                  },
+                ].map(({ step, title, body, color }) => (
+                  <li key={step} className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm flex flex-col gap-3">
+                    <span className={`w-8 h-8 rounded-xl border flex items-center justify-center text-sm font-bold shrink-0 ${color}`}>
+                      {step}
+                    </span>
+                    <div>
+                      <div className="font-semibold text-slate-800 text-sm mb-1" dangerouslySetInnerHTML={{ __html: title }} />
+                      <p className="text-xs text-slate-500 leading-relaxed">{body}</p>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            </section>
+
+            {/* Compliance frameworks */}
+            <section aria-labelledby="compliance-heading">
+              <h2 id="compliance-heading" className="text-base font-semibold text-slate-800 mb-4 flex items-center gap-2">
+                <span className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                  </svg>
                 </span>
-              ))}
-            </div>
-          </section>
+                Compliance coverage
+              </h2>
+              <div className="grid sm:grid-cols-2 gap-4">
+                {[
+                  {
+                    badge: 'EU AI Act',
+                    badgeColor: 'bg-blue-50 text-blue-700 border-blue-200',
+                    title: 'EU AI Act — Art. 26(6) Log Retention',
+                    body: 'Reports include a signed log retention notice meeting the mandatory record-keeping requirements for high-risk AI system deployers under the EU AI Act.',
+                    keywords: ['EUAIA', 'high-risk AI', 'Art. 26', 'log retention', 'GPAI'],
+                  },
+                  {
+                    badge: 'ISO 42001',
+                    badgeColor: 'bg-violet-50 text-violet-700 border-violet-200',
+                    title: 'ISO/IEC 42001 — AI Management System',
+                    body: 'Audit trails produced by OpenAgentAudit support the evidence requirements for ISO 42001 AI management system certification audits.',
+                    keywords: ['AI governance', 'AIMS', 'risk management', 'auditability'],
+                  },
+                  {
+                    badge: 'NIST AI RMF',
+                    badgeColor: 'bg-amber-50 text-amber-700 border-amber-200',
+                    title: 'NIST AI RMF — Govern & Measure',
+                    body: 'The Evidence Admission Score (EAS) maps to NIST AI RMF Govern and Measure functions, providing quantified evidence of AI system oversight.',
+                    keywords: ['NIST', 'AI risk', 'trustworthy AI', 'measurement'],
+                  },
+                  {
+                    badge: 'SOC 2 / Internal',
+                    badgeColor: 'bg-slate-100 text-slate-600 border-slate-200',
+                    title: 'SOC 2 & Internal Audit',
+                    body: 'Export findings as CSV or JSON to feed into your existing GRC platform, internal audit workflow, or security information system.',
+                    keywords: ['SOC 2', 'GRC', 'internal audit', 'security', 'AI transparency'],
+                  },
+                ].map(({ badge, badgeColor, title, body, keywords }) => (
+                  <div key={badge} className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm flex flex-col gap-3">
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full border ${badgeColor}`}>{badge}</span>
+                    </div>
+                    <div>
+                      <div className="font-semibold text-slate-800 text-sm mb-1">{title}</div>
+                      <p className="text-xs text-slate-500 leading-relaxed">{body}</p>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 mt-auto">
+                      {keywords.map((kw) => (
+                        <span key={kw} className="text-[10px] px-2 py-0.5 rounded-full bg-slate-50 border border-slate-200 text-slate-400">{kw}</span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          </>
         )}
 
         {/* Summary section */}
