@@ -1,6 +1,7 @@
 # Competitive Landscape — AI Agent Audit and Compliance Tools
 
 > **Research date:** 2026-06-27  
+> **OpenAgentAudit coverage numbers last updated:** 2026-06-27 (commit `281bb25`, verified against production run `87ce677f`).  
 > **Method:** Multi-source web research with adversarial claim verification (110 sub-agents,
 > 1 630 tool uses, 3-vote consensus per factual claim).  
 > **Scope:** Commercial and open-source tools that generate compliance reports or runtime
@@ -146,17 +147,20 @@ compliance tool.
 | Capability | OpenAgentAudit | ATR | VerifyWise | Credo AI | Argus |
 |---|---|---|---|---|---|
 | OTel / AEP trace ingestion | ✅ | ✅ | ❌ | partial | ❌ |
-| EU AI Act Annex IV | ✅ 12 controls | ❌ | ✅ (questionnaire) | ✅ (questionnaire) | ❌ |
-| NIST AI RMF | ✅ 12 subcategories | ✅ (rules) | ✅ (questionnaire) | ✅ (questionnaire) | probe target |
-| OWASP Agentic Top 10 | ✅ AAI01–10 | ✅ 10/10 | ❌ | ❌ | ❌ |
-| ISO/IEC 42001 | ✅ 12 controls | ❌ | ✅ (questionnaire) | ✅ (questionnaire) | ❌ |
+| EU AI Act Annex IV | ✅ **13 controls** (54% depth) | ❌ | ✅ (questionnaire) | ✅ (questionnaire) | ❌ |
+| NIST AI RMF | ✅ **17 subcategories** (38% depth) | ✅ (rules) | ✅ (questionnaire) | ✅ (questionnaire) | probe target |
+| OWASP Agentic Top 10 | ✅ AAI01–10 (75% depth) | ✅ 10/10 | ❌ | ❌ | ❌ |
+| ISO/IEC 42001 | ✅ **11 controls** (46% depth) | ❌ | ✅ (questionnaire) | ✅ (questionnaire) | ❌ |
 | Multi-framework in one report | ✅ | ❌ | ✅ (questionnaire) | ✅ (questionnaire) | ❌ |
 | Generates Md / HTML / JSON report | ✅ | ❌ (SARIF) | ✅ | ✅ | ❌ |
 | Multi-agent delegation chain | ✅ AEP `delegation_chain` | ❌ | ❌ | ❌ | ❌ |
 | Ed25519 signed evidence chain | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Evidence links control to specific event | ✅ | ✅ (rule → event) | ❌ | ❌ | ❌ |
+| Benchmark engine (statistical validity) | ✅ McNemar + Wilson CI | ❌ | ❌ | partial | ❌ |
 | Fully open-source | ✅ | ✅ | ✅ | ❌ | ✅ |
 | Cloudflare-native deployment | ✅ | ❌ | ❌ | ❌ | ❌ |
+
+See [`docs/compliance-coverage-report.md`](./compliance-coverage-report.md) for the full per-framework breakdown and upgrade paths.
 
 ---
 
