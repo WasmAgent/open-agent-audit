@@ -345,8 +345,14 @@ async function handleFetch(request: Request, env: WorkerEnv): Promise<Response> 
     return handlePublicReportLink(reportId, env);
   }
 
-  // Fall through to static assets (SPA)
-  return env.ASSETS.fetch(request);
+  // Fall through: serve SPA for all other GET requests (client-side routing)
+  // We fetch the asset directly; if not found (SPA route), serve index.html instead.
+  const assetResp = await env.ASSETS.fetch(request);
+  if (assetResp.status === 404 && method === 'GET') {
+    const indexReq = new Request(new URL('/', request.url).toString(), request);
+    return env.ASSETS.fetch(indexReq);
+  }
+  return assetResp;
 }
 
 // ---------------------------------------------------------------------------
