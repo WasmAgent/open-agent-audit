@@ -87,6 +87,7 @@ CREATE TABLE IF NOT EXISTS reports (
   profile_ids          TEXT NOT NULL,
   generated_by_version TEXT NOT NULL,
   created_at           TEXT NOT NULL,
+  retention_until      TEXT,
   FOREIGN KEY (run_id) REFERENCES audit_runs(run_id)
 );
 

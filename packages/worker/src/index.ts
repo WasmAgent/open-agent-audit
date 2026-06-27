@@ -202,6 +202,66 @@ async function handlePostRun(request: Request, env: WorkerEnv): Promise<Response
   return corsJson({ run_id, status: 'queued' }, 202);
 }
 
+async function handlePublicReportLink(reportId: string, env: WorkerEnv): Promise<Response> {
+  // Try to find the HTML report by report_id prefix scan in REPORTS R2 bucket.
+  // Reports are stored as: runs/{run_id}/report.html
+  // We search D1 for the run_id matching this report_id.
+  const row = await env.DB.prepare(
+    'SELECT run_id, retention_until FROM reports WHERE report_id = ? LIMIT 1',
+  )
+    .bind(reportId)
+    .first<{ run_id: string; retention_until: string | null }>();
+
+  if (row === null) {
+    return new Response(
+      `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Report Not Found</title>` +
+      `<style>body{font-family:sans-serif;max-width:500px;margin:80px auto;text-align:center;color:#374151}` +
+      `h1{color:#4f46e5}a{color:#4f46e5}</style></head><body>` +
+      `<h1>OpenAgentAudit</h1>` +
+      `<p>Report <code>${reportId}</code> was not found.</p>` +
+      `<p>It may have expired or the ID may be incorrect.</p>` +
+      `<p>Contact: <a href="mailto:issuer@trustavo.com">issuer@trustavo.com</a></p>` +
+      `<p><a href="/">← Go to Trustavo</a></p>` +
+      `</body></html>`,
+      { status: 404, headers: { 'content-type': 'text/html; charset=utf-8' } },
+    );
+  }
+
+  // Check retention
+  if (row.retention_until !== null) {
+    const expiry = new Date(row.retention_until).getTime();
+    if (Date.now() > expiry) {
+      return new Response(
+        `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Report Expired</title>` +
+        `<style>body{font-family:sans-serif;max-width:500px;margin:80px auto;text-align:center;color:#374151}` +
+        `h1{color:#dc2626}a{color:#4f46e5}</style></head><body>` +
+        `<h1>Report Expired</h1>` +
+        `<p>Report <code>${reportId}</code> has passed its retention period (${row.retention_until}).</p>` +
+        `<p>Per EU AI Act Art. 26(6), reports are retained for a minimum of 6 months.</p>` +
+        `<p>To request an extended copy, contact: <a href="mailto:issuer@trustavo.com">issuer@trustavo.com</a></p>` +
+        `</body></html>`,
+        { status: 410, headers: { 'content-type': 'text/html; charset=utf-8' } },
+      );
+    }
+  }
+
+  // Serve the HTML report from R2
+  const key = `runs/${row.run_id}/report.html`;
+  const object = await env.REPORTS.get(key);
+  if (object === null) {
+    return corsError('Report file not found in storage', 404);
+  }
+
+  return new Response(object.body, {
+    headers: {
+      'content-type': 'text/html; charset=utf-8',
+      'cache-control': 'public, max-age=3600',
+      'x-report-id': reportId,
+      'x-retained-until': row.retention_until ?? '',
+    },
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Fetch handler
 // ---------------------------------------------------------------------------
@@ -257,6 +317,15 @@ async function handleFetch(request: Request, env: WorkerEnv): Promise<Response> 
     if (runId === undefined) return corsError('Bad route', 400);
     const format = url.searchParams.get('format') ?? 'md';
     return handleGetReport(runId, format, env);
+  }
+
+  // GET /r/:reportId — public short link for QR code scan
+  // Serves the HTML report directly; no auth required (reports are public by design)
+  const shortLinkMatch = matchRoute(pathname, /^\/r\/([A-Za-z0-9_-]+)$/);
+  if (shortLinkMatch !== null && method === 'GET') {
+    const reportId = shortLinkMatch[1];
+    if (reportId === undefined) return corsError('Bad route', 400);
+    return handlePublicReportLink(reportId, env);
   }
 
   // Fall through to static assets (SPA)
