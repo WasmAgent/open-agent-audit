@@ -12,7 +12,7 @@ import {
   computeRiskScore,
   renderReport,
 } from '@openagentaudit/core';
-import type { PolicyAuditContext } from '@openagentaudit/core';
+import type { PolicyAuditContext, ReportMeta } from '@openagentaudit/core';
 import { validateEvents } from '@openagentaudit/schema';
 import type { CanonicalEvent, Finding, RiskScore } from '@openagentaudit/schema';
 
@@ -175,7 +175,6 @@ async function handlePostRun(request: Request, env: WorkerEnv): Promise<Response
     }
     jsonlContent = traceField;
   } else {
-    // application/json — body is an AEP record or raw JSONL
     const bodyBuf = await request.arrayBuffer();
     if (bodyBuf.byteLength > maxBytes) {
       return corsError(`Payload exceeds ${maxMb}MB limit`, 413);
@@ -186,20 +185,66 @@ async function handlePostRun(request: Request, env: WorkerEnv): Promise<Response
   const run_id = crypto.randomUUID();
   const r2Key = `runs/${run_id}/raw.jsonl`;
 
+  // Store raw trace
   await env.RAW_TRACES.put(r2Key, jsonlContent, {
     httpMetadata: { contentType: 'application/x-ndjson' },
   });
 
-  const profiles = env.DEFAULT_PROFILES.split(',').map((p) => p.trim()).filter(Boolean);
+  // Run full audit pipeline synchronously so reports are available immediately
+  const lines = jsonlContent.split('\n').filter((l) => l.trim().length > 0);
+  const rawEvents: unknown[] = [];
+  for (const line of lines) {
+    try { rawEvents.push(JSON.parse(line)); } catch { /* skip */ }
+  }
 
-  await env.AUDIT_JOBS.send({
+  const { valid: events } = validateEvents(rawEvents);
+  const sourceFile = request.headers.get('x-source-file') ?? undefined;
+
+  const ctx: PolicyAuditContext = {
+    manifest: {
+      declared_capabilities: [],
+      high_risk_capabilities: [],
+      denied_capabilities: [],
+    },
+  };
+
+  const [validationResult, inv, findings, score] = await Promise.all([
+    validate(events),
+    inventory(events),
+    policyAudit(events, ctx),
+    computeRiskScore(events, run_id),
+  ]);
+
+  const meta: ReportMeta = {
+    issuer: 'Trustavo (trustavo.com)',
+    issuer_email: 'issuer@trustavo.com',
+    report_url: `https://trustavo.com/r/${run_id}`,
+  };
+  if (sourceFile !== undefined) {
+    meta.source_files = [sourceFile];
+  }
+
+  const bundle = await renderReport(events, findings, score, inv, meta);
+
+  // Store all report formats in R2
+  await Promise.all([
+    env.REPORTS.put(`runs/${run_id}/report.html`, bundle.html, { httpMetadata: { contentType: 'text/html; charset=utf-8' } }),
+    env.REPORTS.put(`runs/${run_id}/report.md`, bundle.markdown, { httpMetadata: { contentType: 'text/markdown; charset=utf-8' } }),
+    env.REPORTS.put(`runs/${run_id}/report.json`, bundle.json, { httpMetadata: { contentType: 'application/json; charset=utf-8' } }),
+    env.REPORTS.put(`runs/${run_id}/report.csv`, bundle.csv, { httpMetadata: { contentType: 'text/csv; charset=utf-8' } }),
+    env.ARTIFACTS.put(`runs/${run_id}/findings.json`, JSON.stringify(findings, null, 2)),
+    env.ARTIFACTS.put(`runs/${run_id}/score.json`, JSON.stringify(score, null, 2)),
+  ]);
+
+  return corsJson({
     run_id,
-    tenant_id: 'default',
-    r2_key: r2Key,
-    profiles,
-  });
-
-  return corsJson({ run_id, status: 'queued' }, 202);
+    status: 'completed',
+    event_count: events.length,
+    error_count: validationResult.errors.length,
+    finding_count: findings.length,
+    eas_score: score.evidence_admission_score.score,
+    eas_grade: score.evidence_admission_score.grade,
+  }, 201);
 }
 
 async function handlePublicReportLink(reportId: string, env: WorkerEnv): Promise<Response> {

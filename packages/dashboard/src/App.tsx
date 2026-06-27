@@ -162,13 +162,15 @@ export default function App() {
     try {
       const form = new FormData()
       form.append('trace', fileText)
-      const res = await fetch('/api/v1/runs', { method: 'POST', body: form })
+      const headers: Record<string, string> = {}
+      if (fileName) headers['x-source-file'] = fileName
+      const res = await fetch('/api/v1/runs', { method: 'POST', body: form, headers })
       if (!res.ok) {
         const text = await res.text()
         setReportError(`Server error ${res.status}: ${text}`)
         return
       }
-      const data = await res.json() as { run_id?: string }
+      const data = await res.json() as { run_id?: string; eas_score?: number; eas_grade?: string; finding_count?: number }
       if (data.run_id) setReportRunId(data.run_id)
     } catch (err) {
       setReportError(err instanceof Error ? err.message : String(err))
@@ -296,50 +298,51 @@ export default function App() {
               </div>
             )}
             {reportRunId && (
-              <div className="mb-3 p-4 rounded-md bg-green-50 border border-green-200 flex items-start gap-3">
-                <svg className="h-5 w-5 text-green-600 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                </svg>
-                <div>
-                  <p className="text-sm font-medium text-green-800">Audit report queued successfully</p>
-                  <p className="text-xs text-green-700 mt-1">Run ID: <code className="bg-green-100 px-1 rounded">{reportRunId}</code></p>
-                  <div className="flex gap-3 mt-2">
-                    <a
-                      href={`/api/v1/runs/${reportRunId}/report?format=html`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1 text-xs font-medium text-indigo-700 hover:text-indigo-900"
-                    >
-                      <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
-                      </svg>
-                      View HTML Report (print / save PDF)
-                    </a>
-                    <a
-                      href={`/api/v1/runs/${reportRunId}/report?format=md`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1 text-xs font-medium text-gray-600 hover:text-gray-800"
-                    >
-                      Markdown
-                    </a>
-                    <a
-                      href={`/api/v1/runs/${reportRunId}/report?format=json`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1 text-xs font-medium text-gray-600 hover:text-gray-800"
-                    >
-                      JSON
-                    </a>
-                    <a
-                      href={`/api/v1/runs/${reportRunId}/report?format=csv`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1 text-xs font-medium text-gray-600 hover:text-gray-800"
-                    >
-                      CSV
-                    </a>
-                  </div>
+              <div className="mb-4 p-5 rounded-xl bg-gradient-to-r from-indigo-50 to-green-50 border border-indigo-200">
+                <div className="flex items-center gap-2 mb-4">
+                  <svg className="h-5 w-5 text-green-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                  </svg>
+                  <span className="font-semibold text-gray-900">Audit Report Ready</span>
+                  <span className="ml-auto text-xs text-gray-400 font-mono">{reportRunId.slice(0, 8)}…</span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <a
+                    href={`/api/v1/runs/${reportRunId}/report?format=html`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="col-span-2 sm:col-span-2 flex flex-col items-center justify-center gap-1.5 p-4 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 transition-colors shadow-md"
+                  >
+                    <svg className="h-7 w-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                    </svg>
+                    <span className="font-semibold text-sm">Full Report</span>
+                    <span className="text-xs opacity-80">View · Print · Save PDF</span>
+                  </a>
+                  <a
+                    href={`/api/v1/runs/${reportRunId}/report?format=csv`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex flex-col items-center justify-center gap-1.5 p-4 rounded-xl bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-indigo-300 transition-colors shadow-sm"
+                  >
+                    <svg className="h-6 w-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 10h18M3 14h18M10 3v18M6 3h12a3 3 0 013 3v12a3 3 0 01-3 3H6a3 3 0 01-3-3V6a3 3 0 013-3z"/>
+                    </svg>
+                    <span className="font-medium text-sm">CSV</span>
+                    <span className="text-xs text-gray-400">Findings</span>
+                  </a>
+                  <a
+                    href={`/api/v1/runs/${reportRunId}/report?format=json`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex flex-col items-center justify-center gap-1.5 p-4 rounded-xl bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-indigo-300 transition-colors shadow-sm"
+                  >
+                    <svg className="h-6 w-6 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/>
+                    </svg>
+                    <span className="font-medium text-sm">JSON</span>
+                    <span className="text-xs text-gray-400">Machine-readable</span>
+                  </a>
                 </div>
               </div>
             )}
