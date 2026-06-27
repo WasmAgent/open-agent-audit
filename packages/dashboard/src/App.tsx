@@ -506,20 +506,49 @@ export default function App() {
             </div>
           </div>
 
-          {/* Sample traces hint */}
+          {/* Sample traces — load directly */}
           {!fileName && (
-            <p className="mt-3 text-center text-xs text-slate-400">
-              No file yet?{' '}
-              <a
-                href="https://github.com/WasmAgent/open-agent-audit/tree/main/examples/traces"
-                target="_blank"
-                rel="noreferrer"
-                className="text-indigo-500 hover:text-indigo-700 underline underline-offset-2 transition-colors"
-              >
-                Download a sample trace
-              </a>
-              {' '}to try it out.
-            </p>
+            <div className="mt-3 text-center">
+              <p className="text-xs text-slate-400 mb-2">No file yet? Try a sample:</p>
+              <div className="flex flex-wrap justify-center gap-2">
+                {[
+                  { label: 'wasmagent-js AEP', file: 'wasmagent-js-runtime.aep.json' },
+                  { label: 'bscode AEP', file: 'bscode-session.aep.json' },
+                ].map(({ label, file }) => (
+                  <button
+                    key={file}
+                    onClick={async () => {
+                      const url = `https://raw.githubusercontent.com/WasmAgent/open-agent-audit/main/examples/traces/${file}`
+                      try {
+                        const res = await fetch(url)
+                        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+                        const text = await res.text()
+                        setParseError(null)
+                        setFileName(file)
+                        setIsAepRecord(false)
+                        setFileText(text)
+                        setPage(0)
+                        setReportRunId(null)
+                        setReportError(null)
+                        if (isAepJson(text)) {
+                          setIsAepRecord(true)
+                          setEvents([])
+                        } else {
+                          const parsed = parseJsonl(text)
+                          setEvents(parsed)
+                          if (parsed.length === 0) setParseError('No valid JSON lines found in the file.')
+                        }
+                      } catch (e) {
+                        setParseError(`Failed to load sample: ${e instanceof Error ? e.message : String(e)}`)
+                      }
+                    }}
+                    className="px-3 py-1.5 rounded-full text-xs font-medium bg-indigo-50 border border-indigo-200 text-indigo-600 hover:bg-indigo-100 transition-colors"
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
           )}
 
           {/* Parse error */}
