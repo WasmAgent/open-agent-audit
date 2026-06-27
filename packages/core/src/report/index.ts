@@ -34,6 +34,14 @@ export interface ReportMeta {
   spec_version?: string;
   /** Public URL where this report is hosted (used to generate QR code). */
   report_url?: string;
+  /** Intended use of the AI system (EU AI Act Annex IV Item 1(b), Art. 13 transparency). */
+  intended_use?: string;
+  /** Deployment context — environment, user population, geography. */
+  deployment_context?: string;
+  /** Transparency statement surfaced to end users (EU AI Act Art. 13). */
+  transparency_statement?: string;
+  /** Quality management system reference (EU AI Act Art. 17). */
+  qms_reference?: string;
   /** Run-provenance fields extracted from an AEP source record (aep/v0.2). */
   aep_provenance?: {
     repo_commit?: string;
@@ -80,6 +88,10 @@ interface ResolvedMeta {
   engine_version: string;
   spec_version: string;
   report_url: string;
+  intended_use?: string;
+  deployment_context?: string;
+  transparency_statement?: string;
+  qms_reference?: string;
   aep_provenance?: ReportMeta['aep_provenance'];
 }
 
@@ -191,11 +203,21 @@ function resolveMeta(
   const source_files = meta?.source_files ?? [];
   const trace_start = meta?.trace_start ?? deriveTraceStart(events);
   const trace_end = meta?.trace_end ?? deriveTraceEnd(events);
-  const profiles_applied = meta?.profiles_applied ?? [];
+  // Auto-populate profiles_applied from the compliance mappings we always compute
+  const profiles_applied = meta?.profiles_applied ?? [
+    'owasp-agentic-top10-2026',
+    'eu-ai-act-annex-iv',
+    'nist-ai-rmf-1.0',
+    'iso-iec-42001',
+  ];
   const scope = meta?.scope ?? 'Full trace analysis';
   const engine_version = meta?.engine_version ?? '0.1.0';
   const spec_version = meta?.spec_version ?? 'open-agent-audit/v0.1';
   const report_url = meta?.report_url ?? `https://trustavo.com/r/${report_id}`;
+  const intended_use = meta?.intended_use;
+  const deployment_context = meta?.deployment_context;
+  const transparency_statement = meta?.transparency_statement;
+  const qms_reference = meta?.qms_reference;
 
   return {
     report_id,
@@ -210,6 +232,10 @@ function resolveMeta(
     engine_version,
     spec_version,
     report_url,
+    ...(intended_use !== undefined ? { intended_use } : {}),
+    ...(deployment_context !== undefined ? { deployment_context } : {}),
+    ...(transparency_statement !== undefined ? { transparency_statement } : {}),
+    ...(qms_reference !== undefined ? { qms_reference } : {}),
     aep_provenance: meta?.aep_provenance,
   };
 }
@@ -448,10 +474,16 @@ function buildComplianceMappings(
   {
     const id = 'AAI06';
     const label = 'Data Exfiltration Through Agent Outputs';
-    const limitation = 'Detection relies on taint tags being present and accurate.';
+    const limitation = 'Detection relies on taint labels being present in the trace. Labels are set by the AEP emitter at run time.';
+    // Match any tool call whose risk_tags contain a known output-taint indicator.
+    // AEP adapters copy output_taint_labels values (e.g. "filesystem", "network", "pii")
+    // into risk_tags — so we check for non-empty tags that are not purely allow-list items.
+    const OUTPUT_TAINT_INDICATORS = ['filesystem', 'network', 'pii', 'exfil', 'output', 'external'];
     const taintedEvents = toolCallEvents.filter((e) => {
       const tags = e.tool?.risk_tags ?? [];
-      return tags.includes('output_taint') || tags.includes('output_taint_labels');
+      return tags.some((t) =>
+        OUTPUT_TAINT_INDICATORS.some((ind) => t.toLowerCase().includes(ind)),
+      );
     });
     if (taintedEvents.length > 0) {
       owaspReqs.push({
@@ -587,10 +619,10 @@ function buildComplianceMappings(
   {
     const id = 'annex-iv-risk-management';
     const label = 'Description of the risk management system';
-    const limitation = 'Runtime trace evidence does not replace organizational risk management documentation.';
+    const limitation = 'Policy decision events show runtime enforcement but Art. 9 requires a documented continuous risk management system (FMEA, risk register) — organizational documentation is required.';
     if (policyDecisionEvents.length > 0) {
       euReqs.push({
-        id, label, status: 'supported',
+        id, label, status: 'partial',
         evidence_event_ids: [...new Set([
           ...policyDecisionEvents.map((e) => e.event_id),
           ...humanApprovalEvents.map((e) => e.event_id),
@@ -658,6 +690,46 @@ function buildComplianceMappings(
         limitation,
       });
     }
+  }
+
+  // annex-iv-intended-use (Annex IV Item 1(b)) — EU AI Act Art. 13 transparency
+  {
+    const id = 'annex-iv-intended-use';
+    const label = 'Intended purpose and foreseeable misuse (Annex IV Item 1(b), Art. 13)';
+    const limitation = 'Requires a system card or provider declaration; runtime trace cannot substitute.';
+    euReqs.push({ id, label, status: 'not_evaluated', evidence_event_ids: [], limitation });
+  }
+
+  // annex-iv-logging-capability (Annex IV / Art. 12) — automatic logging capability declaration
+  {
+    const id = 'annex-iv-logging-capability';
+    const label = 'Automatic logging capability (Art. 12(1))';
+    const limitation = 'The presence of a trace demonstrates logging occurred; it does not certify the logging system meets Art. 12 specifications.';
+    if (eventsWithEvidence.length > 0) {
+      euReqs.push({
+        id, label, status: 'partial',
+        evidence_event_ids: eventsWithEvidence.slice(0, 5).map((e) => e.event_id),
+        limitation,
+      });
+    } else {
+      euReqs.push({ id, label, status: 'not_evaluated', evidence_event_ids: [], limitation });
+    }
+  }
+
+  // annex-iv-qms (Art. 17) — quality management system reference
+  {
+    const id = 'annex-iv-qms';
+    const label = 'Quality management system documentation (Art. 17)';
+    const limitation = 'QMS documentation is organizational; runtime trace cannot evidence its existence.';
+    euReqs.push({ id, label, status: 'not_evaluated', evidence_event_ids: [], limitation });
+  }
+
+  // annex-iv-transparency (Art. 13) — transparency to deployers and users
+  {
+    const id = 'annex-iv-transparency';
+    const label = 'Transparency obligations — capabilities and limitations disclosure (Art. 13)';
+    const limitation = 'Art. 13 requires provider-supplied instructions for use; runtime trace cannot verify disclosure reached end users.';
+    euReqs.push({ id, label, status: 'not_evaluated', evidence_event_ids: [], limitation });
   }
 
   // annex-iv-accuracy-robustness
@@ -765,26 +837,29 @@ function buildComplianceMappings(
     limitation: 'Statistical validity depends on dataset quality and sampling protocol.',
   });
 
-  // MANAGE-2.3 — supported if deny policy decisions or human approvals present
+  // MANAGE-2.3 — response and recovery procedures
+  // Deny-policy alone is NOT evidence of response/recovery; it is policy enforcement.
+  // Human approvals + deny decisions together suggest an active response posture (partial).
   {
     const id = 'MANAGE-2.3';
     const label = 'Procedures are followed to respond to and recover from AI risks';
-    const limitation = 'Trace records what happened, not what should have happened.';
-    const supportingEvents = [
-      ...denyPolicyEvents,
-      ...humanApprovalEvents,
-      ...errorEvents,
-    ];
-    if (denyPolicyEvents.length > 0 || humanApprovalEvents.length > 0) {
-      nistReqs.push({
-        id, label, status: 'supported',
-        evidence_event_ids: [...new Set(supportingEvents.map((e) => e.event_id))],
-        limitation,
-      });
-    } else if (errorEvents.length > 0) {
+    const limitation = 'Runtime trace can show that risk responses were triggered (deny, escalate) but cannot verify that documented recovery procedures exist or were followed.';
+    if (humanApprovalEvents.length > 0 && denyPolicyEvents.length > 0) {
       nistReqs.push({
         id, label, status: 'partial',
-        evidence_event_ids: errorEvents.map((e) => e.event_id),
+        evidence_event_ids: [...new Set([
+          ...humanApprovalEvents.map((e) => e.event_id),
+          ...denyPolicyEvents.map((e) => e.event_id),
+        ])],
+        limitation,
+      });
+    } else if (denyPolicyEvents.length > 0 || errorEvents.length > 0) {
+      nistReqs.push({
+        id, label, status: 'partial',
+        evidence_event_ids: [...new Set([
+          ...denyPolicyEvents.map((e) => e.event_id),
+          ...errorEvents.map((e) => e.event_id),
+        ])],
         limitation,
       });
     } else {
@@ -1005,6 +1080,16 @@ function buildComplianceMappingMarkdown(mappings: ComplianceMapping[]): string[]
   return lines;
 }
 
+/** Attempt to base64-decode an event_id for human-readable display; falls back to original. */
+function decodeEventId(id: string): string {
+  try {
+    const decoded = atob(id);
+    // Only use the decoded form if it is printable ASCII (no control chars)
+    if (/^[ -~]+$/.test(decoded)) return decoded;
+  } catch { /* not base64 */ }
+  return id;
+}
+
 /** Build a human-readable details string for one event (used in Forensic Appendix). */
 function buildEventDetails(ev: CanonicalEvent): string {
   if (ev.tool?.name) {
@@ -1066,7 +1151,7 @@ function buildMarkdown(
       ? `${resolved.trace_start} → ${resolved.trace_end}`
       : '—';
 
-  const retentionUntil = addSixMonths(generatedAt);
+  const retentionUntil = addSixMonths(resolved.trace_end !== '' ? resolved.trace_end : generatedAt);
 
   const lines: string[] = [];
 
@@ -1095,6 +1180,10 @@ function buildMarkdown(
   lines.push(`| Model ID | ${modelId} |`);
   lines.push(`| Profiles applied | ${profilesDisplay} |`);
   lines.push(`| Audit scope | ${resolved.scope} |`);
+  if (resolved.intended_use) lines.push(`| Intended use | ${resolved.intended_use} |`);
+  if (resolved.deployment_context) lines.push(`| Deployment context | ${resolved.deployment_context} |`);
+  if (resolved.transparency_statement) lines.push(`| Transparency statement | ${resolved.transparency_statement} |`);
+  if (resolved.qms_reference) lines.push(`| QMS reference (Art. 17) | ${resolved.qms_reference} |`);
   lines.push('');
 
   // AEP Run Provenance (only rendered when present)
@@ -1156,16 +1245,25 @@ function buildMarkdown(
   // EAS breakdown
   lines.push('## Evidence Admission Score');
   lines.push('');
-  lines.push('| Component | Score |');
-  lines.push('|---|---|');
-  lines.push(`| Trace Completeness | ${components['trace_completeness'] ?? 0}/100 |`);
-  lines.push(`| Provenance Integrity | ${components['provenance_integrity'] ?? 0}/100 |`);
-  lines.push(`| Objective Verification | ${components['objective_verification'] ?? 0}/100 |`);
-  lines.push(`| Policy Coverage | ${components['policy_coverage'] ?? 0}/100 |`);
-  lines.push(`| Human Oversight Evidence | ${components['human_oversight_evidence'] ?? 0}/100 |`);
-  lines.push(`| Contamination Risk | ${components['contamination_risk_inverted'] ?? 0}/100 |`);
+  lines.push('| Component | Score | What this means |');
+  lines.push('|---|---|---|');
+  const tcScore = components['trace_completeness'] ?? 0;
+  const piScore = components['provenance_integrity'] ?? 0;
+  const ovScore = components['objective_verification'] ?? 0;
+  const pcScore = components['policy_coverage'] ?? 0;
+  const hoScore = components['human_oversight_evidence'] ?? 0;
+  const crScore = components['contamination_risk_inverted'] ?? 0;
+  const toolCalls = events.filter((e) => e.type === 'tool_call').length;
+  const policyDecisions = events.filter((e) => e.type === 'policy_decision').length;
+  const verifierObs = events.filter((e) => e.type === 'observation' && e.observation?.source?.startsWith('verifier:')).length;
+  lines.push(`| Trace Completeness | ${tcScore}/100 | Penalties for missing evidence_id or timestamp fields, and unpaired tool calls |`);
+  lines.push(`| Provenance Integrity | ${piScore}/100 | Hash chain integrity and Ed25519 signature coverage across all events |`);
+  lines.push(`| Objective Verification | ${ovScore}/100 | ${verifierObs} verifier result(s) against ${toolCalls} tool call(s) — deterministic verifier coverage |`);
+  lines.push(`| Policy Coverage | ${pcScore}/100 | ${policyDecisions} policy decision(s) against ${toolCalls} tool call(s) — ${toolCalls > 0 ? Math.round((policyDecisions / toolCalls) * 100) : 'N/A'}% coverage |`);
+  lines.push(`| Human Oversight Evidence | ${hoScore}/100 | Human approval records for actions tagged high_risk or human_required |`);
+  lines.push(`| Contamination Risk | ${crScore}/100 | Training/test data overlap risk (100 = no contamination detected) |`);
   lines.push(
-    `| **Total EAS** | **${evidence_admission_score.score}/100 (Grade ${evidence_admission_score.grade})** |`,
+    `| **Total EAS** | **${evidence_admission_score.score}/100 (Grade ${evidence_admission_score.grade})** | Weighted average — see docs/evidence-admission-score.md |`,
   );
   lines.push('');
 
@@ -1254,7 +1352,7 @@ function buildMarkdown(
         if (ev.evidence?.prev_hash !== prevHash) brokenCount++;
       }
       prevHash = ev.evidence?.hash ?? '';
-      lines.push(`| ${ev.event_id} | ${ev.type} | ${hasSig} | ${chainStatus} |`);
+      lines.push(`| ${decodeEventId(ev.event_id)} | ${ev.type} | ${hasSig} | ${chainStatus} |`);
     }
     const unsigned = events.length - chainEvents.length;
     lines.push('');
@@ -1278,7 +1376,7 @@ function buildMarkdown(
     if (ev === undefined) continue;
     const details = buildEventDetails(ev);
     const evidenceId = ev.evidence?.evidence_id ?? '—';
-    lines.push(`| ${i + 1} | ${ev.event_id} | ${ev.type} | ${ev.actor} | ${ev.timestamp} | ${details} | ${evidenceId} |`);
+    lines.push(`| ${i + 1} | ${decodeEventId(ev.event_id)} | ${ev.type} | ${ev.actor} | ${ev.timestamp} | ${details} | ${evidenceId} |`);
   }
   lines.push('');
 
@@ -1400,7 +1498,7 @@ function buildHtml(
       ? `${escapeHtml(resolved.trace_start)} &rarr; ${escapeHtml(resolved.trace_end)}`
       : '<em>—</em>';
 
-  const retentionUntil = addSixMonths(generatedAt);
+  const retentionUntil = addSixMonths(resolved.trace_end !== '' ? resolved.trace_end : generatedAt);
 
   const css = `
     body { font-family: sans-serif; max-width: 800px; margin: 40px auto; padding: 0 20px; color: #222; }
@@ -1501,6 +1599,10 @@ function buildHtml(
   parts.push(`<tr><td>Model ID</td><td>${escapeHtml(modelId)}</td></tr>`);
   parts.push(`<tr><td>Profiles applied</td><td>${profilesDisplay}</td></tr>`);
   parts.push(`<tr><td>Audit scope</td><td>${escapeHtml(resolved.scope)}</td></tr>`);
+  if (resolved.intended_use) parts.push(`<tr><td>Intended use</td><td>${escapeHtml(resolved.intended_use)}</td></tr>`);
+  if (resolved.deployment_context) parts.push(`<tr><td>Deployment context</td><td>${escapeHtml(resolved.deployment_context)}</td></tr>`);
+  if (resolved.transparency_statement) parts.push(`<tr><td>Transparency statement (Art. 13)</td><td>${escapeHtml(resolved.transparency_statement)}</td></tr>`);
+  if (resolved.qms_reference) parts.push(`<tr><td>QMS reference (Art. 17)</td><td>${escapeHtml(resolved.qms_reference)}</td></tr>`);
   parts.push('</tbody>');
   parts.push('</table>');
 
@@ -1566,17 +1668,26 @@ function buildHtml(
   // EAS breakdown
   parts.push('<h2>Evidence Admission Score</h2>');
   parts.push('<table>');
-  parts.push('<thead><tr><th>Component</th><th>Score</th></tr></thead>');
+  parts.push('<thead><tr><th>Component</th><th>Score</th><th>What this means</th></tr></thead>');
   parts.push('<tbody>');
-  parts.push(`<tr><td>Trace Completeness</td><td>${components['trace_completeness'] ?? 0}/100</td></tr>`);
-  parts.push(`<tr><td>Provenance Integrity</td><td>${components['provenance_integrity'] ?? 0}/100</td></tr>`);
-  parts.push(`<tr><td>Objective Verification</td><td>${components['objective_verification'] ?? 0}/100</td></tr>`);
-  parts.push(`<tr><td>Policy Coverage</td><td>${components['policy_coverage'] ?? 0}/100</td></tr>`);
-  parts.push(`<tr><td>Human Oversight Evidence</td><td>${components['human_oversight_evidence'] ?? 0}/100</td></tr>`);
-  parts.push(`<tr><td>Contamination Risk</td><td>${components['contamination_risk_inverted'] ?? 0}/100</td></tr>`);
+  const tcScoreH = components['trace_completeness'] ?? 0;
+  const piScoreH = components['provenance_integrity'] ?? 0;
+  const ovScoreH = components['objective_verification'] ?? 0;
+  const pcScoreH = components['policy_coverage'] ?? 0;
+  const hoScoreH = components['human_oversight_evidence'] ?? 0;
+  const crScoreH = components['contamination_risk_inverted'] ?? 0;
+  const toolCallsH = events.filter((e) => e.type === 'tool_call').length;
+  const policyDecisionsH = events.filter((e) => e.type === 'policy_decision').length;
+  const verifierObsH = events.filter((e) => e.type === 'observation' && e.observation?.source?.startsWith('verifier:')).length;
+  parts.push(`<tr><td>Trace Completeness</td><td>${tcScoreH}/100</td><td>Penalties for missing evidence_id or timestamp fields, and unpaired tool calls</td></tr>`);
+  parts.push(`<tr><td>Provenance Integrity</td><td>${piScoreH}/100</td><td>Hash chain integrity and Ed25519 signature coverage across all events</td></tr>`);
+  parts.push(`<tr><td>Objective Verification</td><td>${ovScoreH}/100</td><td>${verifierObsH} verifier result(s) against ${toolCallsH} tool call(s) — deterministic verifier coverage</td></tr>`);
+  parts.push(`<tr><td>Policy Coverage</td><td>${pcScoreH}/100</td><td>${policyDecisionsH} policy decision(s) against ${toolCallsH} tool call(s) — ${toolCallsH > 0 ? Math.round((policyDecisionsH / toolCallsH) * 100) : 'N/A'}% coverage</td></tr>`);
+  parts.push(`<tr><td>Human Oversight Evidence</td><td>${hoScoreH}/100</td><td>Human approval records for actions tagged high_risk or human_required</td></tr>`);
+  parts.push(`<tr><td>Contamination Risk</td><td>${crScoreH}/100</td><td>Training/test data overlap risk (100 = no contamination detected)</td></tr>`);
   parts.push(
     `<tr><td><strong>Total EAS</strong></td><td><strong>${evidence_admission_score.score}/100 ` +
-    `(Grade <span style="${gradeStyle}">${grade}</span>)</strong></td></tr>`,
+    `(Grade <span style="${gradeStyle}">${grade}</span>)</strong></td><td>Weighted average — 20% each for first three, 15% oversight + policy, 10% contamination</td></tr>`,
   );
   parts.push('</tbody>');
   parts.push('</table>');
@@ -1716,7 +1827,7 @@ function buildHtml(
       }
       prevHashHtml = ev.evidence?.hash ?? '';
       parts.push(
-        `<tr><td><code>${escapeHtml(ev.event_id)}</code></td>` +
+        `<tr><td><code>${escapeHtml(decodeEventId(ev.event_id))}</code></td>` +
         `<td>${escapeHtml(ev.type)}</td>` +
         `<td>${hasSig}</td>` +
         `<td style="color:${chainColor};font-weight:500">${chainStatus}</td></tr>`,
@@ -1752,7 +1863,7 @@ function buildHtml(
     parts.push(
       `<tr style="background:${bg}">` +
       `<td>${i + 1}</td>` +
-      `<td><code>${escapeHtml(ev.event_id)}</code></td>` +
+      `<td><code>${escapeHtml(decodeEventId(ev.event_id))}</code></td>` +
       `<td><span style="font-weight:500">${escapeHtml(ev.type)}</span></td>` +
       `<td>${escapeHtml(ev.actor)}</td>` +
       `<td style="font-family:monospace;font-size:10px">${escapeHtml(ev.timestamp)}</td>` +
