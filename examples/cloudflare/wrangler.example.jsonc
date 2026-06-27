@@ -10,12 +10,22 @@
   //   2. Replace each `REPLACE_ME_*` placeholder with values from
   //      your Cloudflare dashboard.
   //   3. Use `wrangler secret put <KEY>` for secrets; never inline them.
+  //   4. Run `npm run build` in packages/schema, packages/core, packages/adapters,
+  //      and `npm run build` in packages/dashboard before deploying.
 
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "open-agent-audit-api",
+  "name": "open-agent-audit",
   "main": "packages/worker/src/index.ts",
   "compatibility_date": "2026-06-26",
   "compatibility_flags": ["nodejs_compat"],
+
+  // Static Assets: serves the React dashboard SPA.
+  // The dashboard must be built first: cd packages/dashboard && npm run build
+  "assets": {
+    "directory": "./packages/dashboard/dist/",
+    "not_found_handling": "single-page-application",
+    "binding": "ASSETS"
+  },
 
   "limits": {
     "cpu_ms": 30000
@@ -54,6 +64,10 @@
       { "name": "TENANT_LIMITER",        "class_name": "TenantLimiter"        }
     ]
   },
+
+  "migrations": [
+    { "tag": "v1", "new_classes": ["AuditRunCoordinator", "TenantLimiter"] }
+  ],
 
   "vars": {
     "OAA_ENV": "production",
