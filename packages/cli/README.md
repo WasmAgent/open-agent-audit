@@ -2,26 +2,38 @@
 
 Local developer CLI for OpenAgentAudit. Bun-first; production uses `@openagentaudit/worker`.
 
+**Status:** implemented — all commands operational.
+
 ## Commands
 
 ```
 openagentaudit validate      <trace.jsonl>
 openagentaudit inventory     <trace.jsonl>
-openagentaudit policy-audit  <trace.jsonl> [--profile owasp-agentic-top10-2026]
-openagentaudit benchmark-audit <candidate.json> <baseline.json>
-openagentaudit contamination  <trace.jsonl>
-openagentaudit drift-guard    <trace.jsonl>
-openagentaudit report         <trace.jsonl>
+openagentaudit policy-audit  <trace.jsonl> [--manifest <json>] [--profile <id>]
+openagentaudit score         <trace.jsonl>
+openagentaudit report        <trace.jsonl> [--format md|html|json|csv] [--meta <json>]
+openagentaudit from-aep      <record.json>
+openagentaudit from-bscode   <record.json>
 ```
 
-Commands delegate to `@openagentaudit/core` engines. All commands read
-`CanonicalEvent` JSONL from stdin or a file path. AEP or bscode input is
-first converted via `@openagentaudit/adapters`.
+Commands delegate to `@openagentaudit/core` engines. `validate`, `inventory`,
+`policy-audit`, `score`, and `report` read `CanonicalEvent` JSONL from stdin or
+a file path. `from-aep` and `from-bscode` read a single source-format JSON record
+and emit `CanonicalEvent` JSONL to stdout.
 
-**Status:** implementing — engine wiring in progress.
+### from-aep
+
+Converts an AEP v0.2 JSON record directly to canonical event JSONL:
+
+```bash
+openagentaudit from-aep examples/traces/aep-wasmagent-fixture.json
+# pipe into report
+openagentaudit from-aep record.json | openagentaudit report --format html > report.html
+```
 
 ## Run
 
 ```bash
 bunx openagentaudit --help
 ```
+

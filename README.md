@@ -104,11 +104,11 @@ being built against the current `open-agent-audit/v0.1` schema.
 | `schemas/v0.1/*.schema.json` | draft |
 | `profiles/*.yaml` | draft |
 | `packages/schema` | implemented — Zod runtime validation |
-| `packages/core` | implementing |
-| `packages/adapters` | implementing — AEP v0.2, bscode |
-| `packages/cli` | implementing |
-| `packages/worker` | skeleton |
-| `packages/dashboard` | planned — React + Tailwind + CF Static Assets |
+| `packages/core` | implemented — all engines operational |
+| `packages/adapters` | implemented — AEP v0.2, bscode; real fixtures + bun tests |
+| `packages/cli` | implemented — 7 commands including `from-aep`, `from-bscode` |
+| `packages/worker` | implemented — REST API, deployed at trustavo.com |
+| `packages/dashboard` | implemented — React SPA deployed at trustavo.com |
 
 ## Documents you should read first
 

@@ -58,23 +58,35 @@ MUST NOT use random IDs or timestamps as IDs.
 
 A typical strategy: derive `event_id` from `sha256(source_record_id || canonical_position)`.
 
-### 4. Coverage reporting
+### 4. Required-field validation
 
-Adapters MUST emit a coverage summary describing which canonical fields
-were populated and which were left empty. The scoring engine uses this
-to compute the trace_completeness component of EAS.
+Adapters MUST validate required fields before mapping. Missing required
+fields MUST throw an actionable error that names the missing fields — not
+a silent partial parse that produces incomplete events.
+
+Example error format:
+```
+AEP adapter: missing required fields [run_id, signature.sig]. Ensure the
+AEPRecord was produced by a compliant emitter (aep/v0.2).
+```
+
+### 5. Coverage reporting
+
+Adapters SHOULD document which canonical fields they populate and which
+they leave empty. The `AdapterCoverage` interface is available for this
+purpose but is not yet required by the scoring engine:
 
 ```ts
 export interface AdapterCoverage {
   source_records_total: number;
   events_emitted: number;
-  fields_populated: Record<keyof CanonicalEvent, number>;
-  fields_missing: Record<keyof CanonicalEvent, number>;
+  fields_populated: Record<string, number>;
+  fields_missing: Record<string, number>;
   notes: string[];
 }
 ```
 
-### 5. No side effects
+### 6. No side effects
 
 Adapters MUST be pure. They MUST NOT:
 
@@ -97,11 +109,11 @@ The canonical model is stable. Adapter versions absorb source changes.
 
 ## Conformance test fixtures
 
-Every adapter MUST ship with conformance fixtures in
-`packages/adapters/fixtures/<source-id>/`:
+Adapter fixtures live under `examples/traces/` (real-world records) and
+`packages/adapters/src/` (test files):
 
-- `input.<source-format>` — source records.
-- `expected-events.jsonl` — expected canonical output.
-- `coverage.json` — expected coverage summary.
+| Adapter | Fixture | Test file |
+|---|---|---|
+| `aep-v0.2` | `examples/traces/aep-wasmagent-fixture.json`, `examples/traces/aep-bscode-fixture.json` | `packages/adapters/src/aep-v0_2.test.ts` |
 
-Fixtures are run in CI on every change to the adapter.
+CI runs adapter tests (`bun test ./src` in `packages/adapters`) on every change.

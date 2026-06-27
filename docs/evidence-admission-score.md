@@ -36,10 +36,28 @@ Penalties:
 
 Cryptographic and chain checks.
 
-- Hash chain unbroken across events: +60 baseline.
-- Signatures present and verify: +40.
-- One or more signature failures: floor to 0.
-- One or more chain breaks: floor to 0.
+Scoring rules (evaluated in order):
+
+1. No events with `evidence.hash` or `evidence.prev_hash` → **20** (baseline, no chain).
+2. Hash chain broken (`prev_hash[i] ≠ hash[i-1]` for any i) → **0**.
+3. Any event has `signature_algorithm` set but `signature` missing → **0**.
+4. All evidence-bearing events have a `signature` field → base **100**; otherwise base **60**.
+
+**AEP run-provenance bonus** (applied after base, capped at 100):
+When an AEP source record is uploaded, each of the four traceability fields
+that is populated adds **+5 points** to the base score (maximum +20 total):
+
+| Field | Meaning |
+|---|---|
+| `repo_commit` | Git commit of the agent code at run time |
+| `runtime_version` | Agent runtime version string |
+| `policy_bundle_digest` | SHA-256 of the active policy ruleset |
+| `tool_manifest_digest` | SHA-256 of the declared tool manifest |
+
+These fields anchor the record to the exact code, runtime, policy, and tool
+manifest in effect — satisfying EU AI Act Art. 12(3)(c) / Art. 19 traceability
+requirements. A record with a complete hash chain, full signatures, and all four
+provenance fields populated scores **100** on this component.
 
 ### Objective verification (20%)
 
