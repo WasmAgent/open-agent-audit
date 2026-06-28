@@ -297,12 +297,25 @@ function WarningIcon({ className }: { className?: string }) {
 
 // ---------- Main component ----------
 
+/** Build an AEP metadata object, omitting undefined fields (required by exactOptionalPropertyTypes). */
+function buildAepMeta(aep: Record<string, unknown>) {
+  const m: { run_id?: string; model_id?: string; model_provider?: string; actions?: number; schema_version?: string } = {}
+  if (typeof aep['run_id'] === 'string') m.run_id = aep['run_id']
+  if (typeof aep['model_id'] === 'string') m.model_id = aep['model_id']
+  if (typeof aep['model_provider'] === 'string') m.model_provider = aep['model_provider']
+  if (Array.isArray(aep['actions'])) m.actions = (aep['actions'] as unknown[]).length
+  if (typeof aep['schema_version'] === 'string') m.schema_version = aep['schema_version']
+  return m
+}
+
 export default function App() {
   const [events, setEvents] = useState<RawEvent[]>([])
   const [fileName, setFileName] = useState<string | null>(null)
   const [fileText, setFileText] = useState<string>('')
   const [parseError, setParseError] = useState<string | null>(null)
   const [isAepRecord, setIsAepRecord] = useState(false)
+  const [aepMeta, setAepMeta] = useState<{ run_id?: string; model_id?: string; model_provider?: string; actions?: number; schema_version?: string } | null>(null)
+  const [reportSummary, setReportSummary] = useState<{ eas_score?: number; eas_grade?: string; finding_count?: number; event_count?: number } | null>(null)
   const [dragging, setDragging] = useState(false)
   const [page, setPage] = useState(0)
   const [reportGenerating, setReportGenerating] = useState(false)
@@ -327,6 +340,8 @@ export default function App() {
     setParseError(null)
     setFileName(file.name)
     setIsAepRecord(false)
+    setAepMeta(null)
+    setReportSummary(null)
     const reader = new FileReader()
     reader.onload = (e) => {
       const text = e.target?.result as string
@@ -338,7 +353,11 @@ export default function App() {
       if (isAepJson(text)) {
         setIsAepRecord(true)
         setEvents([])
-        // No parse error — the file is valid, worker will handle conversion
+        // Parse AEP metadata for display before report is generated
+        try {
+          const aep = JSON.parse(text) as Record<string, unknown>
+          setAepMeta(buildAepMeta(aep))
+        } catch { /* best-effort */ }
         return
       }
       const parsed = parseJsonl(text)
@@ -394,8 +413,10 @@ export default function App() {
         eas_score?: number
         eas_grade?: string
         finding_count?: number
+        event_count?: number
       }
       if (data.run_id) setReportRunId(data.run_id)
+      setReportSummary({ ...(data.eas_score !== undefined && { eas_score: data.eas_score }), ...(data.eas_grade !== undefined && { eas_grade: data.eas_grade }), ...(data.finding_count !== undefined && { finding_count: data.finding_count }), ...(data.event_count !== undefined && { event_count: data.event_count }) })
     } catch (err) {
       setReportError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -419,10 +440,18 @@ export default function App() {
       {/* Header */}
       <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-sm border-b border-slate-200 shadow-sm">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex items-center gap-3">
-          {/* Logo mark */}
-          <div className="shrink-0 w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shadow-sm">
+          {/* Logo mark — click to reset to homepage */}
+          <button
+            onClick={() => {
+              setEvents([]); setFileName(null); setFileText(''); setParseError(null);
+              setIsAepRecord(false); setAepMeta(null); setReportSummary(null);
+              setReportRunId(null); setReportError(null); setPage(0);
+            }}
+            className="shrink-0 w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shadow-sm hover:opacity-90 transition-opacity cursor-pointer"
+            aria-label="Back to home"
+          >
             <ShieldIcon className="w-5 h-5 text-white" />
-          </div>
+          </button>
 
           {/* Site name + tagline */}
           <div className="flex items-baseline gap-2.5 min-w-0">
@@ -509,11 +538,11 @@ export default function App() {
           {/* Sample traces — load directly */}
           {!fileName && (
             <div className="mt-3 text-center">
-              <p className="text-xs text-slate-400 mb-2">No file yet? Try a sample:</p>
+              <p className="text-xs text-slate-400 mb-2">No file yet? Try an example:</p>
               <div className="flex flex-wrap justify-center gap-2">
                 {[
-                  { label: 'wasmagent-js AEP', file: 'wasmagent-js-runtime.aep.json' },
-                  { label: 'bscode AEP', file: 'bscode-session.aep.json' },
+                  { label: 'wasmagent-js (Example)', file: 'wasmagent-js-runtime.aep.json' },
+                  { label: 'bscode (Example)', file: 'bscode-session.aep.json' },
                 ].map(({ label, file }) => (
                   <button
                     key={file}
@@ -526,6 +555,8 @@ export default function App() {
                         setParseError(null)
                         setFileName(file)
                         setIsAepRecord(false)
+                        setAepMeta(null)
+                        setReportSummary(null)
                         setFileText(text)
                         setPage(0)
                         setReportRunId(null)
@@ -533,6 +564,10 @@ export default function App() {
                         if (isAepJson(text)) {
                           setIsAepRecord(true)
                           setEvents([])
+                          try {
+                            const aep = JSON.parse(text) as Record<string, unknown>
+                            setAepMeta(buildAepMeta(aep))
+                          } catch { /* best-effort */ }
                         } else {
                           const parsed = parseJsonl(text)
                           setEvents(parsed)
@@ -814,14 +849,66 @@ export default function App() {
               </div>
             )}
 
-            {/* 4 stat cards — only for JSONL (has local events); AEP files show a prompt instead */}
+            {/* AEP card — shows metadata before report, summary after */}
             {isAepRecord ? (
-              <div className="rounded-2xl bg-gradient-to-br from-indigo-50 to-violet-50 border border-indigo-200 p-6 flex flex-col items-center text-center gap-3">
-                <ShieldIcon className="w-10 h-10 text-indigo-400" />
-                <div>
-                  <p className="font-semibold text-slate-800 text-sm">AEP record loaded: <span className="font-mono text-indigo-600">{fileName}</span></p>
-                  <p className="text-xs text-slate-500 mt-1">This file will be converted to canonical events on the server. Click <strong>Generate Report</strong> to run the full audit pipeline.</p>
-                </div>
+              <div className="rounded-2xl border border-indigo-200 bg-gradient-to-br from-indigo-50 to-violet-50 p-5">
+                {reportSummary ? (
+                  /* Post-report: show EAS score + key stats */
+                  <div>
+                    <div className="flex items-center gap-2 mb-4">
+                      <CheckCircleIcon className="w-5 h-5 text-emerald-500 shrink-0" />
+                      <span className="font-semibold text-slate-800 text-sm">Report generated for <span className="font-mono text-indigo-600">{fileName}</span></span>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      <div className="bg-white rounded-xl border border-slate-200 p-3 text-center shadow-sm">
+                        <div className="text-[10px] uppercase tracking-widest text-slate-400 mb-1">EAS Score</div>
+                        <div className="text-2xl font-bold text-indigo-600">{reportSummary.eas_score ?? '—'}</div>
+                        <div className="text-xs text-slate-500 mt-0.5">Grade {reportSummary.eas_grade ?? '—'}</div>
+                      </div>
+                      <div className="bg-white rounded-xl border border-slate-200 p-3 text-center shadow-sm">
+                        <div className="text-[10px] uppercase tracking-widest text-slate-400 mb-1">Events</div>
+                        <div className="text-2xl font-bold text-slate-700">{reportSummary.event_count ?? '—'}</div>
+                      </div>
+                      <div className="bg-white rounded-xl border border-slate-200 p-3 text-center shadow-sm">
+                        <div className="text-[10px] uppercase tracking-widest text-slate-400 mb-1">Findings</div>
+                        <div className={`text-2xl font-bold ${(reportSummary.finding_count ?? 0) > 0 ? 'text-amber-500' : 'text-emerald-500'}`}>{reportSummary.finding_count ?? 0}</div>
+                      </div>
+                      <div className="bg-white rounded-xl border border-slate-200 p-3 text-center shadow-sm">
+                        <div className="text-[10px] uppercase tracking-widest text-slate-400 mb-1">Model</div>
+                        <div className="text-xs font-semibold text-slate-700 mt-1 truncate">{aepMeta?.model_id ?? '—'}</div>
+                        <div className="text-[10px] text-slate-400">{aepMeta?.model_provider ?? ''}</div>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  /* Pre-report: show AEP metadata */
+                  <div>
+                    <div className="flex items-center gap-2 mb-4">
+                      <ShieldIcon className="w-5 h-5 text-indigo-400 shrink-0" />
+                      <span className="font-semibold text-slate-800 text-sm">AEP record loaded: <span className="font-mono text-indigo-600">{fileName}</span></span>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      <div className="bg-white/70 rounded-xl border border-indigo-100 p-3 shadow-sm">
+                        <div className="text-[10px] uppercase tracking-widest text-slate-400 mb-1">Run ID</div>
+                        <div className="text-xs font-mono text-slate-700 truncate">{aepMeta?.run_id ?? '—'}</div>
+                      </div>
+                      <div className="bg-white/70 rounded-xl border border-indigo-100 p-3 shadow-sm">
+                        <div className="text-[10px] uppercase tracking-widest text-slate-400 mb-1">Model</div>
+                        <div className="text-xs font-semibold text-slate-700 truncate">{aepMeta?.model_id ?? '—'}</div>
+                        <div className="text-[10px] text-slate-400">{aepMeta?.model_provider ?? ''}</div>
+                      </div>
+                      <div className="bg-white/70 rounded-xl border border-indigo-100 p-3 shadow-sm">
+                        <div className="text-[10px] uppercase tracking-widest text-slate-400 mb-1">Actions</div>
+                        <div className="text-xl font-bold text-slate-700">{aepMeta?.actions ?? '—'}</div>
+                      </div>
+                      <div className="bg-white/70 rounded-xl border border-indigo-100 p-3 shadow-sm">
+                        <div className="text-[10px] uppercase tracking-widest text-slate-400 mb-1">Schema</div>
+                        <div className="text-xs font-mono text-indigo-600">{aepMeta?.schema_version ?? '—'}</div>
+                      </div>
+                    </div>
+                    <p className="text-xs text-slate-400 mt-3 text-center">Click <strong className="text-slate-600">Generate Report</strong> to run the full audit pipeline.</p>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
