@@ -313,6 +313,7 @@ async function handlePostRun(request: Request, env: WorkerEnv): Promise<Response
     issuer: env.ISSUER_NAME,
     issuer_email: env.ISSUER_EMAIL,
     report_url: `${env.PUBLIC_URL}/r/${run_id}`,
+    crypto_summary: validationResult.crypto_summary,
   };
   if (sourceFile !== undefined) {
     meta.source_files = [sourceFile];
@@ -598,7 +599,7 @@ async function processAuditJob(
   // contamination check requires a separate training event set (pass via contamination_result param)
   // currently deferred — computeRiskScore uses neutral score (100) when no result is provided
   const score: RiskScore = await computeRiskScore(events, run_id);
-  const reportBundle = await renderReport(events, findings, score, inv);
+  const reportBundle = await renderReport(events, findings, score, inv, { crypto_summary: validationResult.crypto_summary });
 
   // 4. Store results in ARTIFACTS R2
   await env.ARTIFACTS.put(
