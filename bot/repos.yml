@@ -49,7 +49,7 @@ repositories:
     enabled: true
 
   - id: claude-bot-sandbox
-    repo: WasmAgent/claude-bot-sandbox
+    repo: telleroutlook/claude-bot-sandbox
     project_name: claude-bot-sandbox
     mode: discuss_only
     base_branch: main
