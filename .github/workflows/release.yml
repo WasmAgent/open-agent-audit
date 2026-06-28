@@ -11,8 +11,6 @@ jobs:
   release:
     name: Release
     runs-on: ubuntu-latest
-    # Only run when NPM_TOKEN is configured (skip if secret is absent)
-    if: ${{ vars.RELEASE_ENABLED == 'true' }}
     steps:
       - uses: actions/checkout@v4
         with:
