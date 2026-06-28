@@ -1,0 +1,837 @@
+openapi: 3.1.0
+
+info:
+  title: OpenAgentAudit Worker API
+  version: 0.1.0
+  description: |
+    REST API for the OpenAgentAudit Cloudflare Worker deployment.
+
+    Upload AI agent traces (JSONL or AEP JSON), run the full audit pipeline,
+    and retrieve runs, findings, and rendered reports. Deployed at trustavo.com.
+
+    ## Authentication
+
+    Authentication is optional. When the `API_KEY` environment variable is set in
+    the Worker deployment, `POST /api/v1/runs` requires a `Bearer` token. All other
+    endpoints are publicly accessible. If `API_KEY` is unset the Worker operates in
+    open/demo mode and no token is required.
+
+  contact:
+    url: https://trustavo.com
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+
+servers:
+  - url: https://trustavo.com
+    description: Production deployment
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: |
+        Shared secret configured as `API_KEY` in the Worker environment.
+        Required on `POST /api/v1/runs` when `API_KEY` is set.
+        Omit entirely in open/demo deployments.
+
+  schemas:
+    # ------------------------------------------------------------------
+    # CanonicalEvent
+    # ------------------------------------------------------------------
+    CanonicalEventTool:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          description: Tool name as registered in the agent capability manifest.
+        capability:
+          type: string
+          description: Capability category (e.g. "file_write", "web_search").
+        args_hash:
+          type: string
+          description: SHA-256 hex digest of the serialised tool arguments.
+        result_hash:
+          type: string
+          description: SHA-256 hex digest of the tool result payload.
+        risk_tags:
+          type: array
+          items:
+            type: string
+          description: Risk classification tags for the tool call.
+
+    CanonicalEventPolicy:
+      type: object
+      required:
+        - decision
+        - reason
+      properties:
+        decision:
+          type: string
+          enum: [allow, deny, ask_user]
+        reason:
+          type: string
+        rule_id:
+          type: string
+
+    CanonicalEventHuman:
+      type: object
+      required:
+        - reviewer_id
+        - decision
+      properties:
+        reviewer_id:
+          type: string
+        decision:
+          type: string
+          enum: [approve, deny, escalate]
+        justification:
+          type: string
+
+    CanonicalEventError:
+      type: object
+      required:
+        - kind
+        - message
+      properties:
+        kind:
+          type: string
+        message:
+          type: string
+
+    CanonicalEventModelOutput:
+      type: object
+      properties:
+        content_hash:
+          type: string
+        token_count:
+          type: integer
+        finish_reason:
+          type: string
+
+    CanonicalEventObservation:
+      type: object
+      properties:
+        source:
+          type: string
+        content_hash:
+          type: string
+        byte_size:
+          type: integer
+
+    CanonicalEventEvidence:
+      type: object
+      properties:
+        evidence_id:
+          type: string
+        hash:
+          type: string
+          description: SHA-256 hex digest of the event payload.
+        prev_hash:
+          type: string
+          description: Hash of the preceding event, forming a hash chain.
+        signature:
+          type: string
+          description: Base64-encoded cryptographic signature over the event hash.
+        signature_algorithm:
+          type: string
+          enum: [ed25519, ecdsa-p256]
+        signer_key_id:
+          type: string
+
+    CanonicalEvent:
+      type: object
+      description: |
+        A single auditable event in an agent trace. One `CanonicalEvent` object
+        per line in JSONL upload format (`schema_version: "open-agent-audit/v0.1"`).
+      required:
+        - schema_version
+        - run_id
+        - agent_id
+        - model_id
+        - event_id
+        - timestamp
+        - type
+        - actor
+      properties:
+        schema_version:
+          type: string
+          enum: ["open-agent-audit/v0.1"]
+        run_id:
+          type: string
+          format: uuid
+        session_id:
+          type: string
+        agent_id:
+          type: string
+        model_id:
+          type: string
+        event_id:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        type:
+          type: string
+          enum:
+            - tool_call
+            - policy_decision
+            - human_approval
+            - observation
+            - model_output
+            - final_answer
+            - error
+        actor:
+          type: string
+          enum: [agent, user, system, tool, human_reviewer]
+        tool:
+          $ref: '#/components/schemas/CanonicalEventTool'
+        policy:
+          $ref: '#/components/schemas/CanonicalEventPolicy'
+        human:
+          $ref: '#/components/schemas/CanonicalEventHuman'
+        error:
+          $ref: '#/components/schemas/CanonicalEventError'
+        model_output:
+          $ref: '#/components/schemas/CanonicalEventModelOutput'
+        observation:
+          $ref: '#/components/schemas/CanonicalEventObservation'
+        evidence:
+          $ref: '#/components/schemas/CanonicalEventEvidence'
+
+    # ------------------------------------------------------------------
+    # AEP JSON record (auto-detected on upload)
+    # ------------------------------------------------------------------
+    AepRecord:
+      type: object
+      description: |
+        Agent Event Protocol (AEP) v0.2 record. When the uploaded body is a
+        single JSON object with `schema_version: "aep/v0.2"` (or `"aep/v0.1"`),
+        the Worker auto-detects this format, converts it via the AEP adapter,
+        and extracts run-provenance for scoring. No pre-conversion is needed.
+      required:
+        - schema_version
+      properties:
+        schema_version:
+          type: string
+          enum: ["aep/v0.2", "aep/v0.1"]
+      additionalProperties: true
+
+    # ------------------------------------------------------------------
+    # RunSummary — returned in GET /api/v1/runs list
+    # ------------------------------------------------------------------
+    RunSummary:
+      type: object
+      description: Abbreviated run record as stored in D1 and returned by the list endpoint.
+      properties:
+        run_id:
+          type: string
+          format: uuid
+          description: Unique identifier for this audit run.
+        tenant_id:
+          type: string
+          description: Tenant identifier. Defaults to "default" if not supplied via x-tenant-id.
+        status:
+          type: string
+          enum: [completed, failed, pending]
+          description: Current status of the run.
+        input_format:
+          type: string
+          enum: [jsonl, aep]
+          description: Detected upload format.
+        event_count:
+          type: integer
+          description: Number of CanonicalEvent records successfully parsed.
+        finding_count:
+          type: integer
+          description: Number of policy findings raised.
+        risk_score:
+          type: number
+          description: Numeric agent risk score.
+        evidence_admission_score:
+          type: string
+          enum: [A, B, C, D, F]
+          description: |
+            Evidence Admission Score (EAS) grade. Reflects chain-of-custody
+            completeness. Stored as the letter grade in the list view.
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    # ------------------------------------------------------------------
+    # RunDetail — returned in GET /api/v1/runs/{runId}
+    # ------------------------------------------------------------------
+    RunDetail:
+      allOf:
+        - $ref: '#/components/schemas/RunSummary'
+      description: Full run record including all D1 columns.
+      properties:
+        project_id:
+          type: string
+        schema_version:
+          type: string
+        profile_ids:
+          type: string
+          description: JSON-encoded array of compliance profile IDs applied to this run.
+        raw_r2_key:
+          type: string
+          description: R2 object key for the raw uploaded trace.
+        normalized_prefix:
+          type: string
+          nullable: true
+        report_prefix:
+          type: string
+          nullable: true
+        updated_at:
+          type: string
+          format: date-time
+        error_message:
+          type: string
+          nullable: true
+
+    # ------------------------------------------------------------------
+    # Finding
+    # ------------------------------------------------------------------
+    StandardMapping:
+      type: object
+      required:
+        - profile
+        - control_id
+        - limitation
+      properties:
+        profile:
+          type: string
+          description: Compliance profile identifier (e.g. "NIST-AI-RMF", "EU-AI-Act").
+        control_id:
+          type: string
+        limitation:
+          type: string
+
+    Finding:
+      type: object
+      description: A policy or integrity finding raised by the audit engine.
+      required:
+        - finding_id
+        - run_id
+        - severity
+        - category
+        - title
+        - evidence_ids
+        - recommendation
+        - created_at
+      properties:
+        finding_id:
+          type: string
+          description: Composite key — `{run_id}:{original_finding_id}` as stored in D1.
+        run_id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+        severity:
+          type: string
+          enum: [info, low, medium, high, critical]
+        category:
+          type: string
+          description: Finding category (e.g. "policy_violation", "trace_integrity").
+        title:
+          type: string
+        evidence_ids:
+          type: string
+          description: JSON-encoded array of evidence IDs referenced by this finding.
+        standard_mappings:
+          type: string
+          nullable: true
+          description: JSON-encoded array of StandardMapping objects.
+        recommendation:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    # ------------------------------------------------------------------
+    # RunCreateResponse — returned on POST /api/v1/runs (201)
+    # ------------------------------------------------------------------
+    RunCreateResponse:
+      type: object
+      required:
+        - run_id
+        - status
+        - event_count
+        - error_count
+        - finding_count
+        - eas_score
+        - eas_grade
+      properties:
+        run_id:
+          type: string
+          format: uuid
+          description: Assigned identifier for the newly created run.
+        status:
+          type: string
+          enum: [completed]
+          description: Always "completed" for synchronous uploads.
+        event_count:
+          type: integer
+          description: Number of CanonicalEvent records successfully parsed from the upload.
+        error_count:
+          type: integer
+          description: Number of events that failed schema validation.
+        finding_count:
+          type: integer
+          description: Total findings (policy + parse errors).
+        eas_score:
+          type: number
+          description: Evidence Admission Score — numeric value (0–100).
+        eas_grade:
+          type: string
+          enum: [A, B, C, D, F]
+          description: Evidence Admission Score — letter grade.
+
+    # ------------------------------------------------------------------
+    # ReportFormat — the ?format= query parameter values
+    # ------------------------------------------------------------------
+    ReportFormat:
+      type: string
+      enum: [md, html, json, csv]
+      description: |
+        Report output format.
+        - `md`   — Markdown (default)
+        - `html` — Self-contained HTML report
+        - `json` — Structured JSON bundle
+        - `csv`  — Findings CSV export
+
+    # ------------------------------------------------------------------
+    # Branding config
+    # ------------------------------------------------------------------
+    SiteConfig:
+      type: object
+      required:
+        - site_name
+        - site_tagline
+        - powered_by
+      properties:
+        site_name:
+          type: string
+          description: Display name of the deploying organisation.
+        site_tagline:
+          type: string
+          description: Short tagline shown in the SPA header.
+        powered_by:
+          type: string
+          description: Always "OpenAgentAudit".
+
+    # ------------------------------------------------------------------
+    # Health
+    # ------------------------------------------------------------------
+    HealthResponse:
+      type: object
+      required:
+        - status
+        - version
+        - env
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        version:
+          type: string
+          description: Worker package version (semver).
+        env:
+          type: string
+          description: Runtime environment label (e.g. "production", "staging").
+
+    # ------------------------------------------------------------------
+    # Error
+    # ------------------------------------------------------------------
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          description: Human-readable error message.
+
+# ---------------------------------------------------------------------------
+# Default security: no authentication required (most endpoints are public)
+# ---------------------------------------------------------------------------
+security: []
+
+# ---------------------------------------------------------------------------
+# Paths
+# ---------------------------------------------------------------------------
+paths:
+
+  /health:
+    get:
+      operationId: getHealth
+      summary: Health check
+      description: Returns the Worker status, package version, and runtime environment label. No authentication required.
+      tags:
+        - System
+      security: []
+      responses:
+        '200':
+          description: Worker is running.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                status: ok
+                version: 0.1.0
+                env: production
+
+  /api/v1/config:
+    get:
+      operationId: getSiteConfig
+      summary: Site branding configuration
+      description: Returns branding variables used by the React SPA. No authentication required.
+      tags:
+        - System
+      security: []
+      responses:
+        '200':
+          description: Branding config.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SiteConfig'
+              example:
+                site_name: Trustavo
+                site_tagline: Evidence-grade audit for enterprise AI agents
+                powered_by: OpenAgentAudit
+
+  /api/v1/runs:
+    get:
+      operationId: listRuns
+      summary: List audit runs
+      description: |
+        Returns the 50 most recent audit runs ordered by creation time (newest first).
+        No authentication required.
+      tags:
+        - Runs
+      security: []
+      responses:
+        '200':
+          description: List of run summaries.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - runs
+                properties:
+                  runs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/RunSummary'
+
+    post:
+      operationId: createRun
+      summary: Upload a trace and run the audit pipeline
+      description: |
+        Accepts an AI agent trace and synchronously runs the full OpenAgentAudit
+        pipeline (validation, inventory, policy audit, risk scoring, report rendering).
+
+        **Supported upload formats:**
+
+        - **JSONL** (`application/x-ndjson`): One `CanonicalEvent` JSON object per
+          line. Lines that cannot be parsed generate an `OAA-P-001` finding instead
+          of being silently dropped.
+        - **AEP JSON** (`application/json`): A single AEP record with
+          `schema_version: "aep/v0.2"` or `"aep/v0.1"`. Auto-detected and converted
+          via the AEP adapter.
+        - **Multipart form** (`multipart/form-data`): Either format above supplied
+          in a field named `trace`.
+
+        The response is returned synchronously after all engines have completed.
+        The run is immediately visible in `GET /api/v1/runs`.
+
+        **Authentication:** required when `API_KEY` is configured in the Worker
+        environment; omit the `Authorization` header in open/demo deployments.
+      tags:
+        - Runs
+      security:
+        - bearerAuth: []
+        - {}
+      parameters:
+        - in: header
+          name: x-tenant-id
+          required: false
+          schema:
+            type: string
+          description: |
+            Tenant identifier for multi-tenant deployments. Defaults to `"default"`
+            if omitted. The tenant is created automatically if it does not exist.
+        - in: header
+          name: x-source-file
+          required: false
+          schema:
+            type: string
+          description: |
+            Original filename or path of the uploaded trace. Included in the report
+            metadata when provided.
+      requestBody:
+        required: true
+        content:
+          application/x-ndjson:
+            description: JSONL trace — one CanonicalEvent per line.
+            schema:
+              type: string
+              format: binary
+              description: |
+                Newline-delimited JSON. Each non-empty line must be a complete
+                CanonicalEvent JSON object.
+          application/json:
+            description: AEP v0.2 or v0.1 record (single JSON object).
+            schema:
+              $ref: '#/components/schemas/AepRecord'
+          multipart/form-data:
+            description: |
+              Multipart upload. Supply the trace content (JSONL or AEP JSON string)
+              in a field named `trace`.
+            schema:
+              type: object
+              required:
+                - trace
+              properties:
+                trace:
+                  type: string
+                  description: JSONL or AEP JSON trace content.
+      responses:
+        '201':
+          description: Run completed successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunCreateResponse'
+              example:
+                run_id: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                status: completed
+                event_count: 42
+                error_count: 0
+                finding_count: 3
+                eas_score: 87.5
+                eas_grade: B
+        '400':
+          description: Bad request (missing trace field in multipart upload, etc.).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing or invalid Bearer token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: Unauthorized
+        '413':
+          description: Payload exceeds the configured MAX_UPLOAD_MB limit.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/runs/{runId}:
+    get:
+      operationId: getRun
+      summary: Get run details
+      description: Returns the full D1 record for a single audit run. No authentication required.
+      tags:
+        - Runs
+      security: []
+      parameters:
+        - in: path
+          name: runId
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: The run identifier returned by `POST /api/v1/runs`.
+      responses:
+        '200':
+          description: Run detail record.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - run
+                properties:
+                  run:
+                    $ref: '#/components/schemas/RunDetail'
+        '404':
+          description: Run not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: Run not found
+
+  /api/v1/runs/{runId}/findings:
+    get:
+      operationId: getFindings
+      summary: Get findings for a run
+      description: |
+        Returns up to 100 findings for the specified run, ordered by severity
+        (most severe first). No authentication required.
+      tags:
+        - Runs
+      security: []
+      parameters:
+        - in: path
+          name: runId
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: The run identifier.
+      responses:
+        '200':
+          description: List of findings.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - findings
+                properties:
+                  findings:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Finding'
+        '404':
+          description: Run not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/runs/{runId}/report:
+    get:
+      operationId: getReport
+      summary: Get a rendered audit report
+      description: |
+        Retrieves a pre-rendered audit report from R2 storage. The report is
+        generated synchronously during `POST /api/v1/runs` and stored in all
+        four formats. No authentication required.
+      tags:
+        - Runs
+      security: []
+      parameters:
+        - in: path
+          name: runId
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: The run identifier.
+        - in: query
+          name: format
+          required: false
+          schema:
+            $ref: '#/components/schemas/ReportFormat'
+          description: |
+            Report format. Defaults to `md` if not specified.
+            Valid values: `md`, `html`, `json`, `csv`.
+      responses:
+        '200':
+          description: Report content in the requested format.
+          content:
+            text/markdown:
+              schema:
+                type: string
+                description: Markdown-formatted audit report.
+            text/html:
+              schema:
+                type: string
+                description: Self-contained HTML audit report.
+            application/json:
+              schema:
+                type: object
+                description: Structured JSON report bundle.
+                additionalProperties: true
+            text/csv:
+              schema:
+                type: string
+                description: Findings export in CSV format.
+        '404':
+          description: Report not found (run does not exist or report has not been generated).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: Report not found
+
+  /r/{reportId}:
+    get:
+      operationId: getPublicReport
+      summary: Public HTML report shortlink
+      description: |
+        Serves the HTML audit report directly from R2. Intended for QR code
+        scanning and shareable report URLs. No authentication required.
+
+        Returns a `404` HTML page (not JSON) if the report is not found or
+        the `reportId` is incorrect.
+
+        Successful responses include `cache-control: public, max-age=3600` and
+        an `x-run-id` header with the resolved run identifier.
+      tags:
+        - Reports
+      security: []
+      parameters:
+        - in: path
+          name: reportId
+          required: true
+          schema:
+            type: string
+            pattern: '^[A-Za-z0-9_-]+$'
+          description: |
+            The run ID (UUID) used as the report identifier. Same value as
+            `run_id` from `POST /api/v1/runs`.
+      responses:
+        '200':
+          description: HTML report.
+          headers:
+            cache-control:
+              schema:
+                type: string
+              description: Always "public, max-age=3600".
+            x-run-id:
+              schema:
+                type: string
+              description: The resolved run identifier.
+          content:
+            text/html:
+              schema:
+                type: string
+                description: Self-contained HTML audit report.
+        '404':
+          description: Report not found — returns an HTML error page (not JSON).
+          content:
+            text/html:
+              schema:
+                type: string
+                description: HTML 404 page with contact information.
+
+tags:
+  - name: System
+    description: Health and configuration endpoints.
+  - name: Runs
+    description: Audit run lifecycle — upload, list, retrieve, and report.
+  - name: Reports
+    description: Public report shortlinks for QR code distribution.

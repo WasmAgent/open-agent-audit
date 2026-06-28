@@ -4,6 +4,9 @@
 
 # OpenAgentAudit
 
+[![CI](https://github.com/WasmAgent/open-agent-audit/actions/workflows/ci.yml/badge.svg)](https://github.com/WasmAgent/open-agent-audit/actions/workflows/ci.yml)
+[![Deploy](https://github.com/WasmAgent/open-agent-audit/actions/workflows/deploy.yml/badge.svg)](https://github.com/WasmAgent/open-agent-audit/actions/workflows/deploy.yml)
+
 > Open evidence format and Cloudflare-native audit toolkit for enterprise AI agents.
 >
 > **Trustavo** — *Trust, voiced with authority.* The production deployment at

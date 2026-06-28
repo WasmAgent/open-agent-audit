@@ -156,8 +156,13 @@ describe('validate', () => {
     expect(result.errors.filter((e) => e.path === 'policy')).toHaveLength(0);
   });
 
-  // 11. Valid hash chain — no warnings
-  test('valid hash chain with correct prev_hash produces no warnings', async () => {
+  // 11. Valid hash chain — no chain-linkage warnings; content hash verification
+  // NOTE: The hash values here ('abc123', 'def456', 'ghi789') are intentional dummy values
+  // and will NOT match the SHA-256 recomputed from event content. The chain-linkage check
+  // passes (prev_hash == previous hash), but the content-hash verification emits warnings
+  // for each event. This is the correct behavior — content hash verification is intentionally
+  // not tested with real SHA-256 values in this test (see hash-content-verification test below).
+  test('valid hash chain with correct prev_hash produces no chain-linkage warnings', async () => {
     const e1 = makeEvent({
       event_id: 'evt-1',
       evidence: {
@@ -181,7 +186,20 @@ describe('validate', () => {
     });
     const result = await validate([e1, e2, e3]);
     expect(result.errors).toHaveLength(0);
-    expect(result.warnings).toHaveLength(0);
+    // No chain-linkage warnings (prev_hash == previous hash for all)
+    const chainLinkageWarnings = result.warnings.filter(
+      (w) => w.path === 'evidence.prev_hash',
+    );
+    expect(chainLinkageWarnings).toHaveLength(0);
+    // Content hash warnings fire because dummy hashes don't match SHA-256
+    const contentWarnings = result.warnings.filter(
+      (w) => w.path === 'evidence.hash' && w.message.includes('content mismatch'),
+    );
+    expect(contentWarnings).toHaveLength(3);
+    // crypto_summary reflects the mismatches
+    expect(result.crypto_summary.events_with_hash).toBe(3);
+    expect(result.crypto_summary.hashes_content_mismatch).toBe(3);
+    expect(result.crypto_summary.hashes_content_verified).toBe(0);
   });
 
   // 12. Broken hash chain — warning
@@ -255,6 +273,8 @@ describe('validate', () => {
     const result = await validate([e1, e2]);
     expect(result.errors).toHaveLength(0);
     expect(result.warnings).toHaveLength(0);
+    expect(result.crypto_summary.events_with_hash).toBe(0);
+    expect(result.crypto_summary.hashes_content_mismatch).toBe(0);
   });
 
   test('human_approval without human field produces an error on human path', async () => {
@@ -271,5 +291,46 @@ describe('validate', () => {
     const errFieldErrors = result.errors.filter((e) => e.path === 'error');
     expect(errFieldErrors.length).toBeGreaterThan(0);
     expect(errFieldErrors[0]!.message).toContain('error field must be present');
+  });
+
+  // 15. crypto_summary — present on all results
+  test('crypto_summary is present on result even when no events have hashes', async () => {
+    const result = await validate([makeEvent()]);
+    expect(result.crypto_summary).toBeDefined();
+    expect(result.crypto_summary.events_with_hash).toBe(0);
+    expect(result.crypto_summary.hashes_content_verified).toBe(0);
+    expect(result.crypto_summary.hashes_content_mismatch).toBe(0);
+    expect(result.crypto_summary.events_with_signature).toBe(0);
+  });
+
+  test('crypto_summary counts events_with_signature correctly', async () => {
+    const e1 = makeEvent({
+      evidence: { hash: 'abc', signature: 'sig1' },
+    });
+    const e2 = makeEvent({
+      evidence: { hash: 'def' },
+    });
+    const result = await validate([e1, e2]);
+    expect(result.crypto_summary.events_with_signature).toBe(1);
+    expect(result.crypto_summary.events_with_hash).toBe(2);
+  });
+
+  // 16. Hash content mismatch warning — dummy hash triggers warning
+  test('event with a non-SHA-256 dummy hash triggers content mismatch warning', async () => {
+    const event = makeEvent({
+      event_id: 'evt-dummy-hash',
+      evidence: {
+        hash: 'not-a-real-sha256-hash',
+        prev_hash: '0'.repeat(64),
+      },
+    });
+    const result = await validate([event]);
+    const contentWarnings = result.warnings.filter(
+      (w) => w.path === 'evidence.hash' && w.message.includes('content mismatch'),
+    );
+    expect(contentWarnings).toHaveLength(1);
+    expect(contentWarnings[0]!.event_id).toBe('evt-dummy-hash');
+    expect(result.crypto_summary.hashes_content_mismatch).toBe(1);
+    expect(result.crypto_summary.hashes_content_verified).toBe(0);
   });
 });

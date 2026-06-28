@@ -68,6 +68,7 @@ HTTP / Queue message
 | `ISSUER_EMAIL` | yes | — | Contact email in reports and 404 pages |
 | `PUBLIC_URL` | yes | — | Base URL for QR code links and report permalinks |
 | `CORS_ORIGIN` | no | `*` | Allowed CORS origin (e.g. `https://app.example.com`); defaults to wildcard |
+| `API_KEY` | no | (unset) | Bearer token required on POST /api/v1/runs; omit to run in open/demo mode |
 
 ## References
 

@@ -6,6 +6,13 @@ export interface ValidationResult {
   total: number;
   errors: Array<{ event_id: string; path: string; message: string }>;
   warnings: Array<{ event_id: string; path: string; message: string }>;
+  // Summary of cryptographic verification status
+  crypto_summary: {
+    events_with_hash: number;
+    hashes_content_verified: number;
+    hashes_content_mismatch: number;
+    events_with_signature: number;
+  };
 }
 
 const SPEC_VERSION = 'open-agent-audit/v0.1';
@@ -32,6 +39,26 @@ function isValidRfc3339(ts: string): boolean {
   if (!ts) return false;
   const ms = Date.parse(ts);
   return !isNaN(ms);
+}
+
+async function computeEventHash(event: CanonicalEvent): Promise<string> {
+  // Canonical JSON: sorted keys, strip evidence field itself (hash/prev_hash/signature)
+  const forHashing: Record<string, unknown> = {};
+  const keys: Array<keyof CanonicalEvent> = [
+    'schema_version', 'run_id', 'event_id', 'timestamp', 'type', 'actor',
+    'agent_id', 'model_id', 'session_id', 'tool', 'policy', 'human',
+    'error', 'model_output', 'observation',
+  ];
+  for (const k of keys) {
+    if (event[k] !== undefined) forHashing[k] = event[k];
+  }
+  const canonical = JSON.stringify(forHashing, Object.keys(forHashing).sort());
+  const encoded = new TextEncoder().encode(canonical);
+  const hashBuf = await crypto.subtle.digest('SHA-256', encoded);
+  const hex = Array.from(new Uint8Array(hashBuf))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+  return hex;
 }
 
 export async function validate(events: CanonicalEvent[]): Promise<ValidationResult> {
@@ -241,5 +268,35 @@ export async function validate(events: CanonicalEvent[]): Promise<ValidationResu
     }
   }
 
-  return { total: events.length, errors, warnings };
+  // Hash content verification: recompute SHA-256 over event content, compare to evidence.hash
+  let contentMismatchCount = 0;
+  for (const e of chainEvents) {
+    if (!e.evidence?.hash) continue;
+    const recomputed = await computeEventHash(e);
+    if (recomputed !== e.evidence.hash) {
+      contentMismatchCount++;
+      warnings.push({
+        event_id: e.event_id ?? '',
+        path: 'evidence.hash',
+        message: `Hash content mismatch: stored hash '${e.evidence.hash.slice(0, 16)}…' does not match recomputed SHA-256 '${recomputed.slice(0, 16)}…'. Event content may have been tampered.`,
+      });
+    }
+  }
+
+  const events_with_hash = chainEvents.length;
+  const hashes_content_mismatch = contentMismatchCount;
+  const hashes_content_verified = events_with_hash - hashes_content_mismatch;
+  const events_with_signature = events.filter(e => e.evidence?.signature !== undefined).length;
+
+  return {
+    total: events.length,
+    errors,
+    warnings,
+    crypto_summary: {
+      events_with_hash,
+      hashes_content_verified,
+      hashes_content_mismatch,
+      events_with_signature,
+    },
+  };
 }

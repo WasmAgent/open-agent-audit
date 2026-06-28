@@ -1,0 +1,5 @@
+{
+  "declared_capabilities": ["file_read", "file_write"],
+  "high_risk_capabilities": ["file_write"],
+  "denied_capabilities": []
+}

@@ -71,3 +71,90 @@ A breaking change to the canonical model requires **all** of:
 A "spec-bug fix" that does not change observable behavior may land without
 a full RFC (e.g. fixing a typo, tightening a regex, clarifying a description).
 These are patch-level changes.
+
+---
+
+## Current version
+
+The canonical schema currently in production is **`open-agent-audit/v0.1`** (status: `stable`).
+
+All `CanonicalEvent` records written to R2 and D1 carry
+`"schema_version": "open-agent-audit/v0.1"` as their top-level identifier.
+All `Finding` records written by the audit engines use the same version string.
+
+The D1 `audit_runs` table also records the version in `schema_version` for
+each run, enabling version-filtered queries as new majors are introduced.
+
+## What changes between versions
+
+### Minor version (e.g. v0.1 → v0.2)
+
+- New **optional** fields may be added to `CanonicalEvent`, `Finding`, or `RiskScore`.
+- New enum values may be added to existing string-union fields.
+- No existing field is removed or renamed.
+- No semantic meaning of an existing field changes.
+- Engines that do not recognise a new optional field silently ignore it — the
+  record is still valid and scores unchanged.
+
+### Major version (e.g. v0.x → v1.0)
+
+- One or more fields may be removed, renamed, or have their type changed.
+- A semantic meaning of an existing field may change.
+- All five steps in the **Breaking-change policy** section above must be
+  followed before a new major reaches `stable`.
+
+### Patch version
+
+- Schema documentation is corrected.
+- A regex constraint is tightened to close an unintentional gap.
+- No observable behaviour change for well-formed records.
+
+## Migration policy — old events remain valid
+
+Events stored under an older minor version remain fully valid until the **next
+major version** is released and the older major enters `deprecated` state.
+
+Once a major is `deprecated`:
+
+- The corresponding adapter is frozen (no new features, security fixes only).
+- Events written under that major can still be _read_ and _scored_ for a
+  minimum of **6 months** after `deprecated` status is assigned.
+- After that window, support may be dropped in a subsequent major bump.
+
+This means a deployment that has not been updated will continue to accept and
+score legacy events without loss of data or audit continuity throughout the
+deprecation window.
+
+## How adapters handle version differences
+
+Each adapter in `packages/adapters/` is responsible for mapping an external
+event format to the current canonical model:
+
+```
+external format (AEP v0.2, bscode rollout, …)
+        │
+        ▼
+adapter (packages/adapters/src/<name>.ts)
+        │   - reads the external schema_version field
+        │   - maps to CanonicalEvent with schema_version = 'open-agent-audit/v0.1'
+        │   - drops unknown fields; fills missing optional fields with undefined
+        ▼
+CanonicalEvent[]  →  audit engines (validate / inventory / policyAudit / computeRiskScore)
+```
+
+Adapter versioning rules:
+
+1. **One adapter per external format family** — `aep-v0_2.ts` covers AEP
+   schema_version `aep/v0.1` and `aep/v0.2` (backward-compatible reads).
+2. **When the canonical model gets a new minor**, adapters are updated to
+   populate the new optional fields if the upstream data carries them; old
+   adapters that do not populate the new fields remain valid.
+3. **When the canonical model gets a new major**, a new adapter version is
+   created (e.g. `aep-v0_2-to-oaa-v2.ts`). The old adapter is kept and
+   continues to emit v1 records until the v1 deprecation window closes.
+4. **Unknown external fields** are never passed through to the canonical
+   model; they are silently discarded. This prevents accidental schema
+   pollution across version boundaries.
+5. **The `schema_version` field on the emitted `CanonicalEvent` always
+   reflects the canonical model version**, not the external format version,
+   so downstream consumers can rely on a single version axis.

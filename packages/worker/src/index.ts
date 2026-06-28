@@ -73,6 +73,8 @@ export interface WorkerEnv {
   PUBLIC_URL: string;
   /** Allowed CORS origin. Defaults to '*' if not set. */
   CORS_ORIGIN?: string;
+  /** Shared secret for API authentication. If unset, auth is disabled (dev/demo mode). */
+  API_KEY?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -96,6 +98,17 @@ function corsJson(body: unknown, env: WorkerEnv, status = 200): Response {
 
 function corsError(message: string, status: number, env: WorkerEnv): Response {
   return corsJson({ error: message }, env, status);
+}
+
+// ---------------------------------------------------------------------------
+// Auth helper
+// ---------------------------------------------------------------------------
+
+function checkAuth(request: Request, env: WorkerEnv): boolean {
+  if (!env.API_KEY) return true; // auth disabled in demo mode
+  const header = request.headers.get('Authorization') ?? '';
+  const token = header.startsWith('Bearer ') ? header.slice(7) : '';
+  return token === env.API_KEY;
 }
 
 // ---------------------------------------------------------------------------
@@ -169,6 +182,16 @@ async function handleGetReport(
   });
 }
 
+// ---------------------------------------------------------------------------
+// Retention helpers
+// ---------------------------------------------------------------------------
+
+function retentionDate(fromIso: string): string {
+  const d = new Date(fromIso);
+  d.setMonth(d.getMonth() + 6); // 6-month default, EU AI Act Art. 26(6)
+  return d.toISOString().slice(0, 10);
+}
+
 async function handlePostRun(request: Request, env: WorkerEnv): Promise<Response> {
   const maxMb = parseInt(env.MAX_UPLOAD_MB, 10) || 100;
   const maxBytes = maxMb * 1024 * 1024;
@@ -195,11 +218,13 @@ async function handlePostRun(request: Request, env: WorkerEnv): Promise<Response
   }
 
   const run_id = crypto.randomUUID();
+  const tenant_id = request.headers.get('x-tenant-id') ?? 'default';
   const r2Key = `runs/${run_id}/raw.jsonl`;
 
   // Store raw trace
   await env.RAW_TRACES.put(r2Key, jsonlContent, {
     httpMetadata: { contentType: 'application/x-ndjson' },
+    customMetadata: { retain_until: retentionDate(new Date().toISOString()) },
   });
 
   // Detect AEP JSON: try parsing the whole body as a single JSON object first.
@@ -257,6 +282,8 @@ async function handlePostRun(request: Request, env: WorkerEnv): Promise<Response
     },
   };
 
+  // contamination check requires a separate training event set (pass via contamination_result param)
+  // currently deferred — computeRiskScore uses neutral score (100) when no result is provided
   const [validationResult, inv, auditFindings, score] = await Promise.all([
     validate(events),
     inventory(events),
@@ -308,7 +335,7 @@ async function handlePostRun(request: Request, env: WorkerEnv): Promise<Response
 
   // Write run and findings to D1 so GET /api/v1/runs reflects this run
   const completedAt = new Date().toISOString();
-  await writeRunToD1(env, run_id, 'default', r2Key, inputFormat, events.length, findings, score, completedAt);
+  await writeRunToD1(env, run_id, tenant_id, r2Key, inputFormat, events.length, findings, score, completedAt);
 
   return corsJson({
     run_id,
@@ -393,6 +420,7 @@ async function handleFetch(request: Request, env: WorkerEnv): Promise<Response> 
 
   // POST /api/v1/runs
   if (method === 'POST' && pathname === '/api/v1/runs') {
+    if (!checkAuth(request, env)) return corsError('Unauthorized', 401, env);
     return handlePostRun(request, env);
   }
 
@@ -567,6 +595,8 @@ async function processAuditJob(
     },
   };
   const findings: Finding[] = await policyAudit(events, policyCtx);
+  // contamination check requires a separate training event set (pass via contamination_result param)
+  // currently deferred — computeRiskScore uses neutral score (100) when no result is provided
   const score: RiskScore = await computeRiskScore(events, run_id);
   const reportBundle = await renderReport(events, findings, score, inv);
 

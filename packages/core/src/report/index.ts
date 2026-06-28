@@ -54,6 +54,13 @@ export interface ReportMeta {
     delegation_chain?: string[];
     model_provider?: string;
   };
+  /** Crypto verification summary from validate(). Shown in report as evidence quality badge. */
+  crypto_summary?: {
+    events_with_hash: number;
+    hashes_content_verified: number;
+    hashes_content_mismatch: number;
+    events_with_signature: number;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1847,6 +1854,7 @@ function buildMarkdown(
   generatedAt: string,
   resolved: ResolvedMeta,
   complianceMappings: ComplianceMapping[],
+  cryptoSummary?: ReportMeta['crypto_summary'],
 ): string {
   const counts = countBySeverity(findings);
   const { evidence_admission_score, components } = score;
@@ -1987,6 +1995,14 @@ function buildMarkdown(
   lines.push(
     `| **Total EAS** | **${evidence_admission_score.score}/100 (Grade ${evidence_admission_score.grade})** | Weighted average — see docs/evidence-admission-score.md |`,
   );
+  if (cryptoSummary !== undefined) {
+    const mismatchNote = cryptoSummary.hashes_content_mismatch > 0
+      ? ` — ⚠️ ${cryptoSummary.hashes_content_mismatch} hash mismatch(es) detected`
+      : '';
+    lines.push(
+      `| Cryptographic Verification | ${cryptoSummary.hashes_content_verified}/${cryptoSummary.events_with_hash} events hash-verified${mismatchNote} | ${cryptoSummary.events_with_signature} signature(s) present |`,
+    );
+  }
   lines.push('');
 
   // Tool Inventory
@@ -2191,6 +2207,7 @@ function buildHtml(
   generatedAt: string,
   resolved: ResolvedMeta,
   complianceMappings: ComplianceMapping[],
+  cryptoSummary?: ReportMeta['crypto_summary'],
 ): string {
   const counts = countBySeverity(findings);
   const { evidence_admission_score, components } = score;
@@ -2414,6 +2431,16 @@ function buildHtml(
     `<tr><td><strong>Total EAS</strong></td><td><strong>${evidence_admission_score.score}/100 ` +
     `(Grade <span style="${gradeStyle}">${grade}</span>)</strong></td><td>Weighted average — 20% each for first three, 15% oversight + policy, 10% contamination</td></tr>`,
   );
+  if (cryptoSummary !== undefined) {
+    const mismatchNote = cryptoSummary.hashes_content_mismatch > 0
+      ? ` — <span style="color:orange;font-weight:bold">&#9888; ${cryptoSummary.hashes_content_mismatch} hash mismatch(es) detected</span>`
+      : '';
+    parts.push(
+      `<tr><td>Cryptographic Verification</td>` +
+      `<td>${cryptoSummary.hashes_content_verified}/${cryptoSummary.events_with_hash} events hash-verified${mismatchNote}</td>` +
+      `<td>${cryptoSummary.events_with_signature} signature(s) present</td></tr>`,
+    );
+  }
   parts.push('</tbody>');
   parts.push('</table>');
 
@@ -2620,6 +2647,7 @@ interface JsonReport {
   inventory?: InventoryReport;
   event_count: number;
   meta?: ResolvedMeta;
+  crypto_verification?: ReportMeta['crypto_summary'];
 }
 
 function buildJson(
@@ -2630,6 +2658,7 @@ function buildJson(
   generatedAt: string,
   resolved: ResolvedMeta,
   complianceMappings: ComplianceMapping[],
+  cryptoSummary?: ReportMeta['crypto_summary'],
 ): string {
   const obj: JsonReport = {
     schema_version: 'open-agent-audit/v0.1',
@@ -2643,6 +2672,9 @@ function buildJson(
   };
   if (inv !== undefined) {
     obj.inventory = inv;
+  }
+  if (cryptoSummary !== undefined) {
+    obj.crypto_verification = cryptoSummary;
   }
   return JSON.stringify(obj, null, 2);
 }
@@ -2662,10 +2694,11 @@ export async function renderReport(
   const generatedAt = new Date().toISOString();
   const resolved = resolveMeta(events, score, generatedAt, meta);
   const complianceMappings = buildComplianceMappings(events, findings, meta, benchmarkResult);
+  const cryptoSummary = meta?.crypto_summary;
 
-  const markdown = buildMarkdown(events, findings, score, inventoryReport, generatedAt, resolved, complianceMappings);
-  const html = buildHtml(events, findings, score, inventoryReport, generatedAt, resolved, complianceMappings);
-  const json = buildJson(events, findings, score, inventoryReport, generatedAt, resolved, complianceMappings);
+  const markdown = buildMarkdown(events, findings, score, inventoryReport, generatedAt, resolved, complianceMappings, cryptoSummary);
+  const html = buildHtml(events, findings, score, inventoryReport, generatedAt, resolved, complianceMappings, cryptoSummary);
+  const json = buildJson(events, findings, score, inventoryReport, generatedAt, resolved, complianceMappings, cryptoSummary);
   const csv = buildCsv(events, findings);
 
   return { markdown, html, json, csv };

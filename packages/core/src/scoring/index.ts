@@ -61,6 +61,7 @@ function computeTraceCompleteness(events: CanonicalEvent[]): number {
 function computeProvenanceIntegrity(
   events: CanonicalEvent[],
   aepProvenance?: AepProvenanceForScoring,
+  cryptoSummary?: { events_with_hash: number; hashes_content_verified: number; hashes_content_mismatch: number },
 ): number {
   const eventsWithEvidence = events.filter(
     (ev) => ev.evidence?.hash !== undefined || ev.evidence?.prev_hash !== undefined,
@@ -117,6 +118,11 @@ function computeProvenanceIntegrity(
     base = Math.min(100, base + bonus);
   }
 
+  // Penalize for content hash mismatches: each mismatch reduces score by 20, floored at 0
+  if (cryptoSummary !== undefined && cryptoSummary.hashes_content_mismatch > 0) {
+    base = Math.max(0, base - cryptoSummary.hashes_content_mismatch * 20);
+  }
+
   return base;
 }
 
@@ -164,21 +170,26 @@ function computeHumanOversightEvidence(events: CanonicalEvent[]): number {
   return Math.round((humanCount / requiredCount) * 100);
 }
 
-function computeContaminationRiskInverted(): number {
-  return 100;
+function computeContaminationRiskInverted(contaminationResult?: { contamination_score: number }): number {
+  if (contaminationResult === undefined) return 100; // no contamination data → neutral
+  // contamination_score is 0-100 where 100 = high overlap
+  // inverted: 0 contamination → 100 EAS; 100 contamination → 0 EAS
+  return Math.max(0, 100 - contaminationResult.contamination_score);
 }
 
 export async function computeRiskScore(
   events: CanonicalEvent[],
   runId?: string,
   aepProvenance?: AepProvenanceForScoring,
+  cryptoSummary?: { events_with_hash: number; hashes_content_verified: number; hashes_content_mismatch: number },
+  contaminationResult?: { contamination_score: number },
 ): Promise<RiskScore> {
   const trace_completeness = computeTraceCompleteness(events);
-  const provenance_integrity = computeProvenanceIntegrity(events, aepProvenance);
+  const provenance_integrity = computeProvenanceIntegrity(events, aepProvenance, cryptoSummary);
   const objective_verification = computeObjectiveVerification(events);
   const policy_coverage = computePolicyCoverage(events);
   const human_oversight_evidence = computeHumanOversightEvidence(events);
-  const contamination_risk_inverted = computeContaminationRiskInverted();
+  const contamination_risk_inverted = computeContaminationRiskInverted(contaminationResult);
 
   const eas =
     0.2 * trace_completeness +

@@ -74,5 +74,6 @@
     "ISSUER_EMAIL": "issuer@trustavo.com",
     "PUBLIC_URL": "https://trustavo.com"
     // "CORS_ORIGIN": "https://trustavo.com"  // optional — restrict CORS to your domain; defaults to '*'
+    // "API_KEY": "your-secret-api-key"  // optional — if unset, auth is disabled (demo/dev mode)
   }
 }
