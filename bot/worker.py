@@ -1003,6 +1003,8 @@ def execute_job(conn: sqlite3.Connection, job: sqlite3.Row):
     conn.execute("UPDATE jobs SET stage='implementing', updated_at=CURRENT_TIMESTAMP WHERE id=?", (job_id,))
     conn.commit()
 
+    last_outputs: list[str] = []  # track last 3 Claude outputs to detect stuck loops
+
     if enable_ultracode:
         prompt_prefix = (
             f"ultracode: Implement GitHub Issue #{issue_number} until all acceptance criteria are met "
@@ -1057,6 +1059,11 @@ def execute_job(conn: sqlite3.Connection, job: sqlite3.Row):
             return
         log.warning("Claude implementation failed, will retry CI loop")
 
+    # track output for stuck-loop detection
+    last_outputs.append(output[:200])
+    if len(last_outputs) > 3:
+        last_outputs.pop(0)
+
     # --- Step 3: local verification ---
     conn.execute("UPDATE jobs SET stage='local_verify', updated_at=CURRENT_TIMESTAMP WHERE id=?", (job_id,))
     conn.commit()
@@ -1105,6 +1112,15 @@ def execute_job(conn: sqlite3.Connection, job: sqlite3.Row):
         if not fix_success and any(x in fix_output for x in ["rate limit", "429", "quota"]):
             wip_checkpoint(worktree_path, issue_number)
             handle_provider_error(conn, job_id, "zai-glm", model_tier, fix_output)
+            return
+
+        # Stuck-loop detection: if Claude keeps returning identical output, bail
+        last_outputs.append(fix_output[:200])
+        if len(last_outputs) > 3:
+            last_outputs.pop(0)
+        if len(last_outputs) == 3 and len(set(last_outputs)) == 1:
+            mark_max_retry(conn, job_id, "stuck_loop",
+                           "Claude produced identical output 3 times in a row — likely stuck.")
             return
 
     # --- Step 4: commit and push ---
@@ -1199,6 +1215,82 @@ def execute_job(conn: sqlite3.Connection, job: sqlite3.Row):
 
 
 # ---------------------------------------------------------------------------
+# Failure diagnosis and GitHub issue comment
+# ---------------------------------------------------------------------------
+
+DIAGNOSIS_PROMPT = """\
+You are a developer assistant reviewing an automated bot failure.
+
+Repository: {repo}
+Issue: #{issue_number} — {title}
+Stage: {stage}
+Retry count: {retry_count}
+Error:
+{error}
+
+Diagnose the root cause in 2-3 sentences. Then suggest the single most likely fix.
+Be concrete: name files, functions, or commands if relevant.
+Return plain text, no JSON.
+"""
+
+
+def diagnose_failure(repo: str, issue_number: int, title: str,
+                     stage: str, retry_count: int, error: str) -> str:
+    """Call glm-4.7 to diagnose a job failure. Returns plain text."""
+    prompt = DIAGNOSIS_PROMPT.format(
+        repo=repo, issue_number=issue_number, title=title,
+        stage=stage, retry_count=retry_count,
+        error=error[:1500],
+    )
+    env = os.environ.copy()
+    token = env.get("ANTHROPIC_AUTH_TOKEN", "")
+    base_url = env.get("ANTHROPIC_BASE_URL", "https://api.z.ai/api/anthropic").rstrip("/")
+    if not token:
+        return ""
+    try:
+        import urllib.request
+        payload = json.dumps({
+            "model": "glm-4.7",
+            "max_tokens": 300,
+            "messages": [{"role": "user", "content": prompt}],
+        }).encode()
+        req = urllib.request.Request(
+            f"{base_url}/v1/messages",
+            data=payload,
+            headers={"Content-Type": "application/json",
+                     "x-api-key": token,
+                     "anthropic-version": "2023-06-01"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            data = json.loads(resp.read())
+        return data["content"][0]["text"].strip()
+    except Exception as e:
+        log.debug("Diagnosis AI call failed: %s", e)
+        return ""
+
+
+def post_failure_comment(repo: str, issue_number: int, stage: str,
+                          retry_count: int, error: str, diagnosis: str):
+    """Post a diagnostic comment to the GitHub issue."""
+    error_preview = error[:800] if error else "(no error details)"
+    diag_section = f"\n**Diagnosis:**\n{diagnosis}\n" if diagnosis else ""
+    body = (
+        f"🤖 **Automated bot could not complete this issue** after {retry_count} attempt(s).\n\n"
+        f"**Failed at stage:** `{stage}`\n"
+        f"{diag_section}\n"
+        f"**Last error:**\n```\n{error_preview}\n```\n\n"
+        f"Please review the issue description and add more detail, "
+        f"or re-add the `claude` label once it is clarified."
+    )
+    gh([
+        "issue", "comment", str(issue_number),
+        "--repo", repo,
+        "--body", body,
+    ], check=False)
+
+
+# ---------------------------------------------------------------------------
 # State helpers
 # ---------------------------------------------------------------------------
 
@@ -1227,6 +1319,8 @@ def mark_blocked(conn: sqlite3.Connection, job_id: int, reason: str):
 
 
 def mark_max_retry(conn: sqlite3.Connection, job_id: int, stage: str, reason: str):
+    row = conn.execute("SELECT repo, issue_number, title, retry_count FROM jobs WHERE id=?",
+                       (job_id,)).fetchone()
     conn.execute("""
         UPDATE jobs SET state='max_retry_exceeded', stage=?,
             last_error=?, finished_at=CURRENT_TIMESTAMP,
@@ -1236,6 +1330,28 @@ def mark_max_retry(conn: sqlite3.Connection, job_id: int, stage: str, reason: st
     """, (f"max_retry_{stage}", reason[:2000], job_id))
     conn.commit()
     log.warning("Job %d exceeded max retries at stage %s", job_id, stage)
+
+    if row:
+        repo = row["repo"]
+        issue_number = row["issue_number"]
+        # Diagnose the failure
+        diagnosis = diagnose_failure(
+            repo=repo,
+            issue_number=issue_number,
+            title=row["title"],
+            stage=stage,
+            retry_count=row["retry_count"],
+            error=reason,
+        )
+        # Post diagnostic comment
+        post_failure_comment(repo, issue_number, stage, row["retry_count"], reason, diagnosis)
+        # Remove claude label so the issue is not re-queued automatically
+        gh(["issue", "edit", str(issue_number), "--repo", repo,
+            "--remove-label", "claude"], check=False)
+        # Add blocked label
+        gh(["issue", "edit", str(issue_number), "--repo", repo,
+            "--add-label", "claude-max-retry-exceeded"], check=False)
+        log.info("Posted failure diagnosis for %s#%d and removed claude label", repo, issue_number)
 
 
 # ---------------------------------------------------------------------------

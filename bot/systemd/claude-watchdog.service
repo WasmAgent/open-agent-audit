@@ -1,0 +1,12 @@
+[Unit]
+Description=Claude Bot Watchdog
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+EnvironmentFile=/etc/claude-bot/claude-bot.env
+ExecStart=/srv/claude-bot/bin/watchdog.sh
+
+[Install]
+WantedBy=multi-user.target
