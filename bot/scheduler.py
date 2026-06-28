@@ -1,19 +1,21 @@
 #!/usr/bin/env python3
 """
 Claude Bot Scheduler — polls GitHub for labeled issues and enqueues jobs.
-Reads monitored repos from /srv/claude-bot/repos.yml (or REPOS_CONFIG_PATH).
-After each poll cycle, newly enqueued jobs are batch-scored by glm-4.7 and
-assigned a priority (1–100, lower = higher priority) for cross-repo ordering.
+
+Permission model:
+- Organization members: issues with 'claude' label are enqueued immediately.
+- External contributors: bot enters a discussion loop, evaluates maturity and
+  long-term alignment, and only enqueues if the proposal is approved.
 """
 
 import json
 import logging
 import os
+import re
 import sqlite3
 import subprocess
 import sys
 import time
-from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
@@ -29,9 +31,15 @@ DB_PATH = os.environ.get("DB_PATH", "/srv/claude-bot/db.sqlite3")
 REPOS_CONFIG_PATH = os.environ.get("REPOS_CONFIG_PATH", "/srv/claude-bot/repos.yml")
 POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL", "120"))
 GH_TOKEN = os.environ.get("GH_TOKEN", "")
-
 ANTHROPIC_AUTH_TOKEN = os.environ.get("ANTHROPIC_AUTH_TOKEN", "")
 ANTHROPIC_BASE_URL = os.environ.get("ANTHROPIC_BASE_URL", "https://api.z.ai/api/anthropic")
+
+# Minimum seconds between re-evaluating the same external discussion
+DISCUSSION_REEVAL_INTERVAL = int(os.environ.get("DISCUSSION_REEVAL_INTERVAL", "21600"))  # 6h
+
+# Membership cache: {(org, login): (is_member: bool, timestamp: float)}
+_member_cache: dict = {}
+MEMBER_CACHE_TTL = 3600  # 1 hour
 
 
 # ---------------------------------------------------------------------------
@@ -51,6 +59,13 @@ CREATE TABLE IF NOT EXISTS jobs (
   title TEXT NOT NULL,
   body TEXT DEFAULT '',
   labels_json TEXT DEFAULT '[]',
+
+  author_login TEXT DEFAULT '',
+  author_is_member INTEGER DEFAULT 1,
+  discussion_state TEXT DEFAULT NULL,
+  bot_comment_id TEXT DEFAULT NULL,
+  discussion_last_checked_at TEXT DEFAULT NULL,
+  discussion_comment_count INTEGER DEFAULT 0,
 
   base_branch TEXT NOT NULL DEFAULT 'main',
   branch TEXT,
@@ -99,10 +114,11 @@ CREATE TABLE IF NOT EXISTS jobs (
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_jobs_issue    ON jobs(repo, issue_number);
-CREATE INDEX IF NOT EXISTS idx_jobs_claim    ON jobs(state, priority, created_at, next_retry_at);
-CREATE INDEX IF NOT EXISTS idx_jobs_lease    ON jobs(state, lease_expires_at);
-CREATE INDEX IF NOT EXISTS idx_jobs_provider ON jobs(provider, model_tier, state);
+CREATE INDEX IF NOT EXISTS idx_jobs_issue      ON jobs(repo, issue_number);
+CREATE INDEX IF NOT EXISTS idx_jobs_claim      ON jobs(state, priority, created_at, next_retry_at);
+CREATE INDEX IF NOT EXISTS idx_jobs_lease      ON jobs(state, lease_expires_at);
+CREATE INDEX IF NOT EXISTS idx_jobs_provider   ON jobs(provider, model_tier, state);
+CREATE INDEX IF NOT EXISTS idx_jobs_discussion ON jobs(author_is_member, discussion_state, discussion_last_checked_at);
 
 CREATE TABLE IF NOT EXISTS provider_account_state (
   provider TEXT PRIMARY KEY,
@@ -142,10 +158,15 @@ VALUES
   ('zai-glm', 'hard',   'opus',   'glm-5.2[1m]', 1);
 """
 
-# Migration: add priority_reason column if it doesn't exist yet
-MIGRATION = """
-ALTER TABLE jobs ADD COLUMN priority_reason TEXT DEFAULT '';
-"""
+MIGRATIONS = [
+    "ALTER TABLE jobs ADD COLUMN priority_reason TEXT DEFAULT ''",
+    "ALTER TABLE jobs ADD COLUMN author_login TEXT DEFAULT ''",
+    "ALTER TABLE jobs ADD COLUMN author_is_member INTEGER DEFAULT 1",
+    "ALTER TABLE jobs ADD COLUMN discussion_state TEXT DEFAULT NULL",
+    "ALTER TABLE jobs ADD COLUMN bot_comment_id TEXT DEFAULT NULL",
+    "ALTER TABLE jobs ADD COLUMN discussion_last_checked_at TEXT DEFAULT NULL",
+    "ALTER TABLE jobs ADD COLUMN discussion_comment_count INTEGER DEFAULT 0",
+]
 
 
 def open_db() -> sqlite3.Connection:
@@ -153,11 +174,12 @@ def open_db() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
-    try:
-        conn.execute(MIGRATION)
-        conn.commit()
-    except sqlite3.OperationalError:
-        pass  # column already exists
+    for migration in MIGRATIONS:
+        try:
+            conn.execute(migration)
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass
     return conn
 
 
@@ -165,24 +187,30 @@ def open_db() -> sqlite3.Connection:
 # GitHub helpers
 # ---------------------------------------------------------------------------
 
-def gh(args: list[str], capture: bool = True) -> str | None:
+def _gh_env() -> dict:
     env = os.environ.copy()
     if GH_TOKEN:
         env["GH_TOKEN"] = GH_TOKEN
+    return env
+
+
+def gh(args: list[str], capture: bool = True, check: bool = False) -> str | None:
     try:
         result = subprocess.run(
             ["gh"] + args,
             capture_output=capture,
             text=True,
             timeout=30,
-            env=env,
+            env=_gh_env(),
         )
+        if check and result.returncode != 0:
+            raise RuntimeError(f"gh failed: {result.stderr.strip()}")
         if result.returncode != 0:
-            log.warning("gh %s failed: %s", " ".join(args), result.stderr.strip())
+            log.warning("gh %s failed: %s", " ".join(args[:3]), (result.stderr or "").strip())
             return None
         return result.stdout.strip() if capture else None
     except subprocess.TimeoutExpired:
-        log.warning("gh %s timed out", " ".join(args))
+        log.warning("gh %s timed out", " ".join(args[:3]))
         return None
     except FileNotFoundError:
         log.error("gh CLI not found in PATH")
@@ -191,11 +219,8 @@ def gh(args: list[str], capture: bool = True) -> str | None:
 
 def gh_issue_list(repo: str, label: str) -> list[dict]:
     out = gh([
-        "issue", "list",
-        "--repo", repo,
-        "--label", label,
-        "--state", "open",
-        "--json", "number,title,body,labels",
+        "issue", "list", "--repo", repo, "--label", label,
+        "--state", "open", "--json", "number,title,body,labels,author",
         "--limit", "50",
     ])
     if not out:
@@ -205,6 +230,72 @@ def gh_issue_list(repo: str, label: str) -> list[dict]:
     except json.JSONDecodeError:
         log.warning("Failed to parse issue list for %s", repo)
         return []
+
+
+def gh_issue_comments(repo: str, issue_number: int) -> list[dict]:
+    out = gh([
+        "issue", "view", str(issue_number), "--repo", repo,
+        "--json", "comments",
+        "--jq", ".comments",
+    ])
+    if not out:
+        return []
+    try:
+        return json.loads(out)
+    except json.JSONDecodeError:
+        return []
+
+
+def gh_post_comment(repo: str, issue_number: int, body: str) -> str | None:
+    """Post a comment and return its node_id/URL."""
+    out = gh([
+        "issue", "comment", str(issue_number),
+        "--repo", repo,
+        "--body", body,
+    ])
+    return out
+
+
+def gh_close_issue(repo: str, issue_number: int, comment: str):
+    gh_post_comment(repo, issue_number, comment)
+    gh(["issue", "close", str(issue_number), "--repo", repo])
+
+
+# ---------------------------------------------------------------------------
+# Org membership check
+# ---------------------------------------------------------------------------
+
+def org_from_repo(repo: str) -> str:
+    return repo.split("/")[0]
+
+
+def is_org_member(org: str, login: str) -> bool:
+    """Check if login is a member of the org. Fails open (returns True) on API errors."""
+    cache_key = (org, login)
+    cached = _member_cache.get(cache_key)
+    if cached:
+        result, ts = cached
+        if time.time() - ts < MEMBER_CACHE_TTL:
+            return result
+
+    result = subprocess.run(
+        ["gh", "api", f"orgs/{org}/members/{login}"],
+        capture_output=True, text=True, timeout=15, env=_gh_env(),
+    )
+
+    if result.returncode == 0:
+        is_member = True
+    elif "404" in (result.stderr or "") or "Not Found" in (result.stderr or ""):
+        is_member = False
+    else:
+        # API error / insufficient permissions — fail open to avoid blocking legit contributors
+        log.warning("Membership check failed for %s/%s (%s) — treating as member",
+                    org, login, (result.stderr or "").strip()[:100])
+        is_member = True
+
+    _member_cache[cache_key] = (is_member, time.time())
+    log.debug("Membership %s/%s: %s", org, login, is_member)
+    return is_member
 
 
 # ---------------------------------------------------------------------------
@@ -217,14 +308,11 @@ def determine_tiers(labels: set[str], repo_cfg: dict) -> tuple[str, str, bool]:
         model_tier = "docs"
     elif repo_cfg.get("hard_label", "claude-hard") in labels:
         model_tier = "hard"
-
     review_tier = "deep" if repo_cfg.get("deep_review_label", "claude-deep-review") in labels else "light"
-
     automerge = (
         repo_cfg.get("automerge_default", True)
         and repo_cfg.get("no_automerge_label", "claude-no-automerge") not in labels
     )
-
     return model_tier, review_tier, automerge
 
 
@@ -237,71 +325,21 @@ def model_for_tier(model_tier: str) -> tuple[str, str]:
 
 
 # ---------------------------------------------------------------------------
-# AI priority scoring — single batch call to glm-4.7
+# AI helpers (shared by scoring + discussion evaluation)
 # ---------------------------------------------------------------------------
 
-PRIORITY_PROMPT = """You are a task scheduler for an autonomous software development bot.
-You will receive a list of GitHub issues from multiple repositories.
-Score each issue with a priority from 1 to 100 (lower = execute first).
-
-Scoring guidelines:
-- 1–15:  Production incident / crash / data loss / security vulnerability / blocks other work
-- 16–30: Important bug affecting core functionality, regression, broken CI
-- 31–50: Normal feature or bug with clear acceptance criteria, moderate complexity
-- 51–70: Improvement, refactor, or feature with lower urgency
-- 71–85: Documentation, README, comments, minor cleanup
-- 86–100: Nice-to-have, low urgency, cosmetic
-
-Cross-repo ordering: treat all issues equally regardless of repo.
-Prefer issues that unblock other issues or are quick to complete over slow complex ones.
-
-Return ONLY a JSON array, no other text:
-[
-  {"id": <issue id from input>, "priority": <1-100>, "reason": "<one sentence>"},
-  ...
-]
-
-Issues to score:
-"""
-
-
-def score_issues_with_ai(issues: list[dict]) -> dict[int, tuple[int, str]]:
-    """
-    Call glm-4.7 once to score all issues.
-    Returns {job_id: (priority, reason)}.
-    Falls back to heuristic scoring on any error.
-    """
-    if not issues:
-        return {}
-
-    # Build compact issue list for the prompt
-    issue_text = json.dumps([
-        {
-            "id": item["job_id"],
-            "repo": item["repo"],
-            "title": item["title"],
-            "body": (item["body"] or "")[:300],
-            "labels": item["labels"],
-            "model_tier": item["model_tier"],
-        }
-        for item in issues
-    ], ensure_ascii=False, indent=2)
-
-    prompt = PRIORITY_PROMPT + issue_text
-
+def call_ai(prompt: str, max_tokens: int = 1024) -> str | None:
+    if not ANTHROPIC_AUTH_TOKEN:
+        return None
     try:
         import urllib.request
-        import urllib.error
-
         payload = json.dumps({
             "model": "glm-4.7",
-            "max_tokens": 1024,
+            "max_tokens": max_tokens,
             "messages": [{"role": "user", "content": prompt}],
         }).encode()
-
-        base_url = ANTHROPIC_BASE_URL.rstrip("/")
         req = urllib.request.Request(
-            f"{base_url}/v1/messages",
+            f"{ANTHROPIC_BASE_URL.rstrip('/')}/v1/messages",
             data=payload,
             headers={
                 "Content-Type": "application/json",
@@ -310,59 +348,362 @@ def score_issues_with_ai(issues: list[dict]) -> dict[int, tuple[int, str]]:
             },
             method="POST",
         )
-
         with urllib.request.urlopen(req, timeout=30) as resp:
             data = json.loads(resp.read())
+        return data["content"][0]["text"].strip()
+    except Exception as e:
+        log.warning("AI call failed: %s", e)
+        return None
 
-        text = data["content"][0]["text"].strip()
 
-        # Strip markdown fences if present
-        if text.startswith("```"):
-            text = text.split("```")[1]
-            if text.startswith("json"):
-                text = text[4:]
-        text = text.strip()
+def parse_json_from_ai(text: str) -> dict | list | None:
+    if not text:
+        return None
+    cleaned = re.sub(r"^```(?:json)?\s*", "", text.strip())
+    cleaned = re.sub(r"\s*```$", "", cleaned).strip()
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        m = re.search(r'\{.*\}', cleaned, re.DOTALL)
+        if m:
+            try:
+                return json.loads(m.group(0))
+            except json.JSONDecodeError:
+                pass
+    return None
 
-        scores = json.loads(text)
-        result = {}
-        for item in scores:
+
+# ---------------------------------------------------------------------------
+# AI priority scoring
+# ---------------------------------------------------------------------------
+
+PRIORITY_PROMPT = """\
+You are a task scheduler for an autonomous software development bot.
+Score each GitHub issue with a priority from 1 to 100 (lower = execute first).
+
+Scoring:
+ 1–15:  Production incident / crash / security / blocks other work
+16–30:  Important bug affecting core functionality
+31–50:  Normal feature or bug, clear acceptance criteria
+51–70:  Improvement, refactor, lower urgency
+71–85:  Documentation, README, minor cleanup
+86–100: Nice-to-have, cosmetic
+
+Cross-repo: treat all issues equally regardless of repo.
+Prefer issues that unblock others or are quick to complete.
+
+Return ONLY a JSON array:
+[{"id": <job_id>, "priority": <1-100>, "reason": "<one sentence>"}, ...]
+
+Issues:
+"""
+
+
+def score_issues_with_ai(issues: list[dict]) -> dict[int, tuple[int, str]]:
+    if not issues:
+        return {}
+    issue_text = json.dumps([
+        {"id": i["job_id"], "repo": i["repo"], "title": i["title"],
+         "body": (i["body"] or "")[:300], "labels": i["labels"], "model_tier": i["model_tier"]}
+        for i in issues
+    ], ensure_ascii=False, indent=2)
+    text = call_ai(PRIORITY_PROMPT + issue_text)
+    parsed = parse_json_from_ai(text)
+    if not isinstance(parsed, list):
+        return {}
+    result = {}
+    for item in parsed:
+        try:
             job_id = int(item["id"])
             priority = max(1, min(100, int(item.get("priority", 100))))
             reason = str(item.get("reason", ""))[:200]
             result[job_id] = (priority, reason)
-
-        log.info("AI scored %d issue(s)", len(result))
-        return result
-
-    except Exception as e:
-        log.warning("AI scoring failed (%s), using heuristic fallback", e)
-        return {}
+        except (KeyError, ValueError):
+            pass
+    log.info("AI scored %d issue(s)", len(result))
+    return result
 
 
-def heuristic_priority(title: str, body: str, model_tier: str, labels: list[str]) -> tuple[int, str]:
-    """Fallback when AI scoring is unavailable."""
-    title_lower = title.lower()
-    body_lower = (body or "").lower()
-
-    if any(w in title_lower for w in ("crash", "critical", "urgent", "production", "security", "data loss", "broken")):
-        return 15, "heuristic: critical keyword in title"
-    if any(w in title_lower for w in ("bug", "fix", "error", "fail", "regression", "broken")):
+def heuristic_priority(title: str, model_tier: str) -> tuple[int, str]:
+    t = title.lower()
+    if any(w in t for w in ("crash", "critical", "urgent", "security", "data loss")):
+        return 15, "heuristic: critical keyword"
+    if any(w in t for w in ("bug", "fix", "error", "fail", "regression")):
         return 35, "heuristic: bug/fix keyword"
     if model_tier == "docs":
         return 75, "heuristic: docs label"
     if model_tier == "hard":
-        return 55, "heuristic: hard label (complex task)"
-    return 60, "heuristic: default normal task"
+        return 55, "heuristic: hard label"
+    return 60, "heuristic: normal task"
+
+
+def assign_priorities(conn: sqlite3.Connection, new_jobs: list[dict]):
+    if not new_jobs:
+        return
+    if len(new_jobs) == 1:
+        job = new_jobs[0]
+        priority, reason = heuristic_priority(job["title"], job["model_tier"])
+        conn.execute(
+            "UPDATE jobs SET priority=?, priority_reason=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+            (priority, reason, job["job_id"]),
+        )
+        conn.commit()
+        log.info("Priority job %d → %d (%s)", job["job_id"], priority, reason)
+        return
+    scores = score_issues_with_ai(new_jobs)
+    for job in new_jobs:
+        job_id = job["job_id"]
+        priority, reason = scores.get(job_id) or heuristic_priority(job["title"], job["model_tier"])
+        conn.execute(
+            "UPDATE jobs SET priority=?, priority_reason=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+            (priority, reason, job_id),
+        )
+        log.info("Priority %s#%d → %d: %s", job["repo"], job["issue_number"], priority, reason)
+    conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# External contributor discussion flow
+# ---------------------------------------------------------------------------
+
+INITIAL_RESPONSE_PROMPT = """\
+You are a helpful bot for an open-source project. An external contributor has opened an issue.
+
+Repository: {repo}
+Issue title: {title}
+Issue body:
+{body}
+
+Write a friendly, concise GitHub comment (in English) that:
+1. Thanks the contributor and acknowledges their proposal.
+2. Briefly summarizes your understanding of what they are proposing.
+3. Asks 1–3 focused clarifying questions if the proposal needs more context,
+   or confirms it is clear and says what additional discussion is needed before automation can proceed.
+4. Explains transparently that this project uses an automated bot, and that
+   external contributions go through a discussion review before being scheduled.
+
+Keep it under 200 words. Do not make any promises about implementation.
+Return only the comment text, no JSON wrapper.
+"""
+
+EVALUATION_PROMPT = """\
+You are a senior maintainer reviewing an external contributor's GitHub issue proposal.
+
+Repository: {repo}
+Project context: This is an automated software development bot infrastructure project.
+
+Issue title: {title}
+Issue body:
+{body}
+
+Discussion so far (comments):
+{comments}
+
+Evaluate whether this proposal should be accepted for automated implementation.
+
+Criteria:
+1. Is the proposal well-defined with clear, testable acceptance criteria?
+2. Does it align with the project's long-term interests (reliability, security, maintainability)?
+3. Is the scope reasonable (not a massive refactor without justification)?
+4. Has the contributor engaged constructively with questions?
+5. Are there any security, quality, or scope concerns?
+
+Return JSON only:
+{{
+  "decision": "approve" | "reject" | "needs_more_info",
+  "reason": "<one or two sentences explaining the decision>",
+  "response_comment": "<friendly GitHub comment to post, in English, max 150 words>"
+}}
+
+Be fair but maintain high standards. Reject proposals that are vague, out of scope, or potentially harmful.
+"""
+
+
+def generate_initial_response(repo: str, title: str, body: str) -> str:
+    prompt = INITIAL_RESPONSE_PROMPT.format(repo=repo, title=title, body=(body or "")[:800])
+    text = call_ai(prompt, max_tokens=512)
+    if text:
+        return text
+    # Fallback
+    return (
+        f"Thank you for opening this issue! 👋\n\n"
+        f"This project uses an automated development bot. External contributions go through "
+        f"a discussion review before being scheduled for implementation.\n\n"
+        f"Could you clarify:\n"
+        f"- What specific problem does this solve?\n"
+        f"- What would a successful implementation look like?\n\n"
+        f"Once we have enough context, this will be evaluated for inclusion."
+    )
+
+
+def evaluate_discussion(repo: str, title: str, body: str, comments: list[dict]) -> dict:
+    """
+    Returns {"decision": "approve"|"reject"|"needs_more_info",
+             "reason": str, "response_comment": str}
+    """
+    comments_text = "\n\n".join(
+        f"@{c.get('author', {}).get('login', '?')} ({c.get('createdAt', '')}):\n{c.get('body', '')[:400]}"
+        for c in comments[-20:]  # last 20 comments
+    ) or "(no comments yet)"
+
+    prompt = EVALUATION_PROMPT.format(
+        repo=repo, title=title,
+        body=(body or "")[:800],
+        comments=comments_text,
+    )
+    text = call_ai(prompt, max_tokens=600)
+    parsed = parse_json_from_ai(text)
+
+    if isinstance(parsed, dict) and "decision" in parsed:
+        return parsed
+
+    # Fallback: needs more info
+    return {
+        "decision": "needs_more_info",
+        "reason": "Could not evaluate automatically.",
+        "response_comment": "Thanks for the discussion so far. We need a bit more context before this can be scheduled.",
+    }
+
+
+def process_external_discussions(conn: sqlite3.Connection, new_external_ids: set[int]):
+    """
+    Advance the discussion state machine for all open external issues.
+    - New issues: post initial bot comment.
+    - Existing issues: re-evaluate if new comments appeared or interval elapsed.
+    """
+    now_ts = time.time()
+    now_str = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(now_ts))
+
+    # Fetch all open external issues (not yet approved/rejected)
+    rows = conn.execute("""
+        SELECT id, repo, issue_number, title, body,
+               discussion_state, bot_comment_id,
+               discussion_last_checked_at, discussion_comment_count
+        FROM jobs
+        WHERE author_is_member = 0
+          AND discussion_state NOT IN ('approved', 'rejected')
+          AND state NOT IN ('merged', 'blocked', 'max_retry_exceeded')
+    """).fetchall()
+
+    for row in rows:
+        job_id = row["id"]
+        repo = row["repo"]
+        issue_number = row["issue_number"]
+        title = row["title"]
+        body = row["body"] or ""
+        discussion_state = row["discussion_state"]
+
+        # --- Step 1: Post initial response for brand-new external issues ---
+        if discussion_state is None or job_id in new_external_ids:
+            log.info("External issue %s#%d — posting initial response", repo, issue_number)
+            response = generate_initial_response(repo, title, body)
+            gh_post_comment(repo, issue_number, response)
+            comments = gh_issue_comments(repo, issue_number)
+            conn.execute("""
+                UPDATE jobs
+                SET discussion_state='bot_responded',
+                    discussion_comment_count=?,
+                    discussion_last_checked_at=?,
+                    updated_at=CURRENT_TIMESTAMP
+                WHERE id=?
+            """, (len(comments), now_str, job_id))
+            conn.commit()
+            log.info("Posted initial response for %s#%d", repo, issue_number)
+            continue
+
+        # --- Step 2: Check if re-evaluation is due ---
+        last_checked = row["discussion_last_checked_at"]
+        if last_checked:
+            last_ts = time.mktime(time.strptime(last_checked, "%Y-%m-%dT%H:%M:%S"))
+            if now_ts - last_ts < DISCUSSION_REEVAL_INTERVAL:
+                log.debug("Skipping re-eval for %s#%d (checked %dh ago)",
+                          repo, issue_number, int((now_ts - last_ts) / 3600))
+                continue
+
+        # Fetch current comments
+        comments = gh_issue_comments(repo, issue_number)
+        current_count = len(comments)
+        prev_count = row["discussion_comment_count"] or 0
+
+        # Skip if no new comments and not enough time has passed (double-guard)
+        if current_count == prev_count and now_ts - last_ts < DISCUSSION_REEVAL_INTERVAL * 2:
+            conn.execute("""
+                UPDATE jobs SET discussion_last_checked_at=?, updated_at=CURRENT_TIMESTAMP WHERE id=?
+            """, (now_str, job_id))
+            conn.commit()
+            continue
+
+        # --- Step 3: AI evaluation ---
+        log.info("Evaluating discussion for external issue %s#%d (%d comments)",
+                 repo, issue_number, current_count)
+        result = evaluate_discussion(repo, title, body, comments)
+        decision = result.get("decision", "needs_more_info")
+        reason = result.get("reason", "")
+        response_comment = result.get("response_comment", "")
+
+        log.info("Discussion decision for %s#%d: %s — %s", repo, issue_number, decision, reason)
+
+        if decision == "approve":
+            # Post approval comment
+            if response_comment:
+                gh_post_comment(repo, issue_number, response_comment)
+            # Convert to normal pending job
+            conn.execute("""
+                UPDATE jobs
+                SET discussion_state='approved',
+                    author_is_member=1,
+                    state='pending', stage='queued',
+                    discussion_last_checked_at=?,
+                    discussion_comment_count=?,
+                    priority_reason='external contribution approved: ' || ?,
+                    updated_at=CURRENT_TIMESTAMP
+                WHERE id=?
+            """, (now_str, current_count, reason[:100], job_id))
+            conn.commit()
+            log.info("External issue %s#%d APPROVED — enqueued for implementation", repo, issue_number)
+
+        elif decision == "reject":
+            close_comment = response_comment or (
+                f"Thank you for your contribution. After review, we've decided not to proceed "
+                f"with this proposal at this time: {reason}\n\nFeel free to open a new issue "
+                f"if you have a different proposal."
+            )
+            gh_close_issue(repo, issue_number, close_comment)
+            conn.execute("""
+                UPDATE jobs
+                SET discussion_state='rejected',
+                    state='blocked', stage='discussion_rejected',
+                    discussion_last_checked_at=?,
+                    discussion_comment_count=?,
+                    last_error=?,
+                    updated_at=CURRENT_TIMESTAMP
+                WHERE id=?
+            """, (now_str, current_count, reason[:500], job_id))
+            conn.commit()
+            log.info("External issue %s#%d REJECTED — closed", repo, issue_number)
+
+        else:  # needs_more_info
+            if response_comment and current_count > prev_count:
+                gh_post_comment(repo, issue_number, response_comment)
+            conn.execute("""
+                UPDATE jobs
+                SET discussion_state='bot_responded',
+                    discussion_last_checked_at=?,
+                    discussion_comment_count=?,
+                    updated_at=CURRENT_TIMESTAMP
+                WHERE id=?
+            """, (now_str, current_count, job_id))
+            conn.commit()
+            log.info("External issue %s#%d needs more info — waiting", repo, issue_number)
 
 
 # ---------------------------------------------------------------------------
 # Job upsert
 # ---------------------------------------------------------------------------
 
-def upsert_job(conn: sqlite3.Connection, repo: str, issue: dict, repo_cfg: dict) -> int | None:
-    """
-    Insert or update a job. Returns job_id if newly inserted, None if updated/skipped.
-    """
+def upsert_job(conn: sqlite3.Connection, repo: str, issue: dict,
+               repo_cfg: dict, author_login: str, author_is_member: bool) -> int | None:
+    """Returns job_id if newly inserted, None if updated/skipped."""
     number = issue["number"]
     title = issue["title"]
     body = issue.get("body") or ""
@@ -397,75 +738,38 @@ def upsert_job(conn: sqlite3.Connection, repo: str, issue: dict, repo_cfg: dict)
             model_alias, effective_model,
             repo, number,
         ))
-        log.debug("Updated job for %s#%d", repo, number)
         conn.commit()
-        return None  # not new, skip scoring
+        return None
+
+    # External contributors start in discussion state; members go straight to pending
+    initial_state = "pending" if author_is_member else "discussion"
+    initial_stage = "queued" if author_is_member else "awaiting_discussion"
 
     cursor = conn.execute("""
         INSERT INTO jobs (
           repo, issue_number, title, body, labels_json,
+          author_login, author_is_member, discussion_state,
           base_branch, state, stage, priority,
           model_tier, review_tier, automerge,
           model_alias, effective_model, provider,
           max_retries, max_ci_retries, max_review_retries
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     """, (
         repo, number, title, body, json.dumps(sorted(labels)),
-        base_branch, "pending", "queued", 100,  # temporary priority
+        author_login, int(author_is_member), None,
+        base_branch, initial_state, initial_stage, 100,
         model_tier, review_tier, int(automerge),
         model_alias, effective_model, "zai-glm",
         max_retries, max_ci_retries, max_review_retries,
     ))
     conn.commit()
-    log.info("Enqueued new job: %s#%d [%s] %r", repo, number, model_tier, title[:60])
+
+    if author_is_member:
+        log.info("Enqueued [member] %s#%d [%s] %r", repo, number, model_tier, title[:60])
+    else:
+        log.info("Queued [external @%s] %s#%d for discussion: %r", author_login, repo, number, title[:60])
+
     return cursor.lastrowid
-
-
-# ---------------------------------------------------------------------------
-# Batch priority assignment
-# ---------------------------------------------------------------------------
-
-def assign_priorities(conn: sqlite3.Connection, new_jobs: list[dict]):
-    """Score all new jobs in one AI call, then update DB."""
-    if not new_jobs:
-        return
-
-    if len(new_jobs) == 1:
-        # Single job: use heuristic to avoid API call overhead
-        job = new_jobs[0]
-        priority, reason = heuristic_priority(
-            job["title"], job["body"], job["model_tier"], job["labels"]
-        )
-        conn.execute(
-            "UPDATE jobs SET priority=?, priority_reason=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
-            (priority, reason, job["job_id"]),
-        )
-        conn.commit()
-        log.info("Priority job %d → %d (%s)", job["job_id"], priority, reason)
-        return
-
-    # Multiple new jobs: batch AI scoring
-    scores = score_issues_with_ai(new_jobs)
-
-    for job in new_jobs:
-        job_id = job["job_id"]
-        if job_id in scores:
-            priority, reason = scores[job_id]
-        else:
-            # AI didn't return this job or call failed — use heuristic
-            priority, reason = heuristic_priority(
-                job["title"], job["body"], job["model_tier"], job["labels"]
-            )
-        conn.execute(
-            "UPDATE jobs SET priority=?, priority_reason=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
-            (priority, reason, job_id),
-        )
-        log.info(
-            "Priority %s#%d → %d: %s",
-            job["repo"], job["issue_number"], priority, reason,
-        )
-
-    conn.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -474,25 +778,18 @@ def assign_priorities(conn: sqlite3.Connection, new_jobs: list[dict]):
 
 def recover_expired_leases(conn: sqlite3.Connection):
     rows = conn.execute("""
-        SELECT id, repo, issue_number, lease_owner
-        FROM jobs
-        WHERE state='running'
-          AND lease_expires_at < datetime('now')
+        SELECT id, repo, issue_number, lease_owner FROM jobs
+        WHERE state='running' AND lease_expires_at < datetime('now')
     """).fetchall()
-
     for row in rows:
-        log.warning(
-            "Recovering expired lease for job %d (%s#%s, worker %s)",
-            row["id"], row["repo"], row["issue_number"], row["lease_owner"],
-        )
+        log.warning("Recovering expired lease: job %d (%s#%s, worker %s)",
+                    row["id"], row["repo"], row["issue_number"], row["lease_owner"])
         conn.execute("""
-            UPDATE jobs
-            SET state='pending', stage='lease_recovered',
+            UPDATE jobs SET state='pending', stage='lease_recovered',
                 lease_owner=NULL, lease_expires_at=NULL,
                 updated_at=CURRENT_TIMESTAMP
             WHERE id=?
         """, (row["id"],))
-
     if rows:
         conn.commit()
 
@@ -514,9 +811,9 @@ def load_repos_yml() -> list[dict]:
 def scheduler_loop():
     conn = open_db()
     log.info(
-        "Scheduler started. DB=%s, repos=%s, poll=%ss, ai_scoring=%s",
+        "Scheduler started. DB=%s repos=%s poll=%ss ai_scoring=%s",
         DB_PATH, REPOS_CONFIG_PATH, POLL_INTERVAL,
-        "enabled" if ANTHROPIC_AUTH_TOKEN else "disabled (no token)",
+        "enabled" if ANTHROPIC_AUTH_TOKEN else "disabled",
     )
 
     while True:
@@ -524,59 +821,74 @@ def scheduler_loop():
             recover_expired_leases(conn)
 
             repos = load_repos_yml()
-            new_jobs: list[dict] = []  # collect all new jobs this cycle for batch scoring
+            new_member_jobs: list[dict] = []
+            new_external_ids: set[int] = set()
 
-            if not repos:
-                log.warning("No enabled repositories in repos.yml")
-            else:
-                for repo_cfg in repos:
-                    repo = repo_cfg["repo"]
-                    label = repo_cfg.get("enqueue_label", "claude")
-                    try:
-                        issues = gh_issue_list(repo, label)
-                        log.info(
-                            "Repo %s: found %d open issue(s) with label '%s'",
-                            repo, len(issues), label,
-                        )
-                        for issue in issues:
-                            job_id = upsert_job(conn, repo, issue, repo_cfg)
-                            if job_id is not None:
-                                labels = [lbl["name"] for lbl in issue.get("labels", [])]
-                                label_set = set(labels)
-                                model_tier, _, _ = determine_tiers(label_set, repo_cfg)
-                                new_jobs.append({
-                                    "job_id": job_id,
-                                    "repo": repo,
+            for repo_cfg in repos:
+                repo = repo_cfg["repo"]
+                org = org_from_repo(repo)
+                label = repo_cfg.get("enqueue_label", "claude")
+                try:
+                    issues = gh_issue_list(repo, label)
+                    log.info("Repo %s: %d open issue(s) with label '%s'", repo, len(issues), label)
+                    for issue in issues:
+                        author_login = (issue.get("author") or {}).get("login", "")
+                        author_is_member = is_org_member(org, author_login) if author_login else True
+
+                        job_id = upsert_job(conn, repo, issue, repo_cfg, author_login, author_is_member)
+
+                        if job_id is not None:
+                            labels = [lbl["name"] for lbl in issue.get("labels", [])]
+                            label_set = set(labels)
+                            model_tier, _, _ = determine_tiers(label_set, repo_cfg)
+                            if author_is_member:
+                                new_member_jobs.append({
+                                    "job_id": job_id, "repo": repo,
                                     "issue_number": issue["number"],
                                     "title": issue["title"],
                                     "body": issue.get("body") or "",
-                                    "labels": labels,
-                                    "model_tier": model_tier,
+                                    "labels": labels, "model_tier": model_tier,
                                 })
-                    except Exception:
-                        log.exception("Error processing repo %s", repo)
+                            else:
+                                new_external_ids.add(job_id)
+                except Exception:
+                    log.exception("Error processing repo %s", repo)
 
-            # Batch-score all new jobs from this cycle in one AI call
-            if new_jobs:
-                log.info("Scoring %d new job(s) for priority...", len(new_jobs))
-                assign_priorities(conn, new_jobs)
+            # Batch-score new member jobs
+            if new_member_jobs:
+                log.info("Scoring %d new member job(s)...", len(new_member_jobs))
+                assign_priorities(conn, new_member_jobs)
 
-                # Log final queue order
-                queue = conn.execute("""
-                    SELECT repo, issue_number, priority, priority_reason, title
-                    FROM jobs
-                    WHERE state IN ('pending','fixing','remote_ci_failed','review_failed')
-                    ORDER BY priority ASC, created_at ASC
-                    LIMIT 20
-                """).fetchall()
-                if queue:
-                    log.info("Current execution queue (%d pending):", len(queue))
-                    for i, row in enumerate(queue, 1):
-                        log.info(
-                            "  %d. [p=%d] %s#%d %r — %s",
-                            i, row["priority"], row["repo"], row["issue_number"],
-                            row["title"][:50], row["priority_reason"],
-                        )
+            # Advance external discussion state machines
+            process_external_discussions(conn, new_external_ids)
+
+            # Log execution queue
+            queue = conn.execute("""
+                SELECT repo, issue_number, priority, priority_reason, title
+                FROM jobs
+                WHERE state IN ('pending','fixing','remote_ci_failed','review_failed')
+                ORDER BY priority ASC, created_at ASC LIMIT 10
+            """).fetchall()
+            if queue:
+                log.info("Execution queue (%d job(s)):", len(queue))
+                for i, row in enumerate(queue, 1):
+                    log.info("  %d. [p=%d] %s#%d %r — %s",
+                             i, row["priority"], row["repo"], row["issue_number"],
+                             row["title"][:45], row["priority_reason"])
+
+            # Log pending external discussions
+            ext = conn.execute("""
+                SELECT repo, issue_number, title, discussion_state, author_login
+                FROM jobs WHERE author_is_member=0
+                  AND discussion_state NOT IN ('approved','rejected')
+                  AND state NOT IN ('merged','blocked','max_retry_exceeded')
+            """).fetchall()
+            if ext:
+                log.info("External discussions open (%d):", len(ext))
+                for row in ext:
+                    log.info("  @%s %s#%d [%s] %r",
+                             row["author_login"], row["repo"], row["issue_number"],
+                             row["discussion_state"], row["title"][:45])
 
         except Exception:
             log.exception("Scheduler loop error")
