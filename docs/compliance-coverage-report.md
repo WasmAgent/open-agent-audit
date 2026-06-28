@@ -1,8 +1,8 @@
 # Compliance Coverage Report
 
-> **As of:** 2026-06-27 (updated after commit `fcdd120`)  
-> **Measurement basis:** Production report from `examples/traces/aep-wasmagent-fixture.json`
-> (run `87ce677f`, 4 events, Ed25519-signed AEP v0.2 record with all four traceability fields).  
+> **As of:** 2026-06-28 (updated after commit `e804e3f`)  
+> **Measurement basis:** Production report from `examples/traces/bscode-session.aep.json`
+> (run `8bd3e855`, 6 events, Ed25519-signed AEP v0.2 record with all four traceability fields).  
 > **Scoring:** supported = 1.0 · partial = 0.5 · not_applicable = excluded from denominator · not_evaluated = 0.  
 > **Coverage formula:** depth = Σ scores ÷ mapped controls (excl. N/A) · breadth = mapped ÷ total addressable controls.
 
@@ -14,8 +14,8 @@
 |---|---|---|---|---|---|
 | OWASP Agentic Top 10 | 10 / 10 | 10 | **100%** | **75.0%** | **75.0%** |
 | EU AI Act (high-risk) | 13 / ~32 | ~32 | **40.6%** | **54.2%** | **22.0%** |
-| NIST AI RMF 1.0 | 17 / 72 | 72 | **23.6%** | **38.2%** | **9.0%** |
-| ISO/IEC 42001:2023 | 11 / 37 | 37 | **29.7%** | **45.5%** | **13.5%** |
+| NIST AI RMF 1.0 | **25 / 72** | 72 | **34.7%** *(at ceiling)* | **36.0%** | **12.5%** |
+| ISO/IEC 42001:2023 | **16 / 37** | 37 | **43.2%** *(at ceiling)* | **40.6%** | **17.5%** |
 
 ---
 
@@ -89,20 +89,28 @@ The remaining ~19 addressable items fall into two categories:
 
 ## NIST AI Risk Management Framework 1.0
 
-**Breadth: 14/72 (19.4%) · Depth: 4.5/14 = 32.1%**
+**Breadth: 25/72 (34.7%) — at single-run ceiling · Depth: 9.0/25 = 36.0%**
 
 | Subcategory | Function | Status | Score | Upgrade path |
 |---|---|---|---|---|
-| MEASURE-2.7 | MEASURE | ✅ supported | 1.0 | — |
-| MEASURE-2.1 | MEASURE | ✅ supported | 1.0 | verifier/tool ratio ≥50% → already met |
+| MEASURE-2.7 | MEASURE | ✅/⚠️ context-dep. | 1.0/0.5 | supported when findings present; partial otherwise |
+| MEASURE-2.1 | MEASURE | ✅ supported | 1.0 | verifier/tool ratio ≥50% |
 | MAP-2.2 | MAP | ⚠️ partial | 0.5 | risk_tags on tool events |
 | MAP-5.1 | MAP | ⚠️ partial | 0.5 | risk_tags + policy events |
 | MAP-3.2 | MAP | ⚠️ partial | 0.5 | policy-audit findings present |
-| MAP-4.1 | MAP | ⚠️ partial | 0.5 | findings present (communicated in this report) |
-| MEASURE-2.2 | MEASURE | ⚠️ partial | 0.5 | any events present (EAS computed) |
-| MEASURE-2.3 | MEASURE | ⚠️ partial | 0.5 | findings or tool+policy events present |
+| MAP-4.1 | MAP | ⚠️ partial | 0.5 | findings present |
+| MAP-1.5 | MAP | ⚠️ partial | 0.5 | any events present; stronger with ReportMeta fields |
+| MAP-2.3 | MAP | ⚠️ partial | 0.5 | AEP signer_key_id present |
+| MEASURE-2.2 | MEASURE | ⚠️ partial | 0.5 | any events present |
+| MEASURE-2.3 | MEASURE | ⚠️ partial | 0.5 | findings or tool+policy events |
+| MEASURE-2.4 | MEASURE | ⚠️ partial | 0.5 | tool calls + policy decisions present |
 | MEASURE-2.5 | MEASURE | ⚠️ partial | 0.5 | human_approval + risk-tagged tools |
+| MEASURE-2.6 | MEASURE | ⚠️ partial | 0.5 | pii/sensitive/demographic taint labels |
+| MEASURE-2.8 | MEASURE | ⚠️ partial | 0.5 | deny events or risk-tagged tools |
+| MEASURE-2.10 | MEASURE | ⚠️ partial | 0.5 | pii/personal/user-supplied taint labels |
 | MEASURE-2.11 | MEASURE | ⚠️ partial | 0.5 | pii/sensitive taint labels |
+| MANAGE-1.3 | MANAGE | ⚠️ partial | 0.5 | policy-audit findings present |
+| MANAGE-2.4 | MANAGE | ⚠️ partial | 0.5 | verifier obs + deny/findings |
 | MANAGE-3.2 | MANAGE | ⚠️ partial | 0.5 | deny + verifier observations |
 | GOVERN-1.1 | GOVERN | ? not evaluated | 0 | Org. documentation only |
 | MEASURE-2.9 | MEASURE | ? not evaluated | 0 | Pass BenchmarkAuditResult to renderReport() |
@@ -113,23 +121,22 @@ The remaining ~19 addressable items fall into two categories:
 
 ### Remaining gaps
 
-**Immediately improvable by trace content (emitter-side, no code changes to OAA):**
+**At single-run ceiling — no more subcategories technically reachable without cross-run data or benchmark engine.**
+
+**Immediately improvable by trace content (emitter-side):**
 - MANAGE-2.2, MANAGE-4.2, MANAGE-2.3: trigger when deny/error/human_approval events appear
 
-**Unlocked by passing BenchmarkAuditResult to renderReport():**
-- MEASURE-2.9 → partial/supported with Wilson CI and verdict
+**Benchmark engine unlocks:**
+- MEASURE-2.9 → partial/supported when BenchmarkAuditResult passed to renderReport()
 
 **Deferred (cross-run):**
-- MANAGE-4.1: requires ongoing monitoring data across runs (out of scope per decision 2026-06-27)
-
-**NIST coverage ceiling for single-run tools:**
-The theoretical maximum for a single-run trace tool is ~25/72 (34.7%). Current: 17/72 (23.6%). Remaining technically reachable gap: ~8 more subcategories depending on trace content.
+- MANAGE-4.1: requires ongoing monitoring data across runs
 
 ---
 
 ## ISO/IEC 42001:2023
 
-**Breadth: 11/37 (29.7%) · Depth: 6.5/11 = 59.1%**
+**Breadth: 16/37 (43.2%) — at single-run ceiling · Depth: 6.5/16 = 40.6%**
 
 | Control | Clause | Status | Score | Upgrade path |
 |---|---|---|---|---|
@@ -140,6 +147,11 @@ The theoretical maximum for a single-run trace tool is ~25/72 (34.7%). Current: 
 | A.7.3 | Verification & validation | ⚠️ partial | 0.5 | verifier obs. coverage ≥50% → supported |
 | A.8.3 | Runtime data quality | ⚠️ partial | 0.5 | risk-tagged tool events |
 | A.8.5 | Runtime input monitoring | ⚠️ partial | 0.5 | user-supplied taint labels |
+| A.7.2 | Design objectives documented | ⚠️ partial | 0.5 | ReportMeta.intended_use set |
+| A.8.4 | Data preparation controls | ⚠️ partial | 0.5 | input-tagged observation events |
+| A.9.3 | Third-party AI monitoring | ⚠️ partial | 0.5 | third-party signer + error/deny events |
+| A.5.2 | AI policy established | ⚠️ partial | 0.5 | ReportMeta.qms_reference set |
+| A.10.1 | Operational documentation | ⚠️ partial | 0.5 | ReportMeta.source_files set |
 | A.6.1.4 | Impact assessment | ? not evaluated | 0 | Org. documentation only |
 | A.7.4 | Data quality (design-time) | ? not evaluated | 0 | Org. documentation only |
 | A.8.2 | Performance evaluation | ? not evaluated | 0 | Benchmark engine needed |
@@ -147,25 +159,9 @@ The theoretical maximum for a single-run trace tool is ~25/72 (34.7%). Current: 
 
 ### Remaining gaps
 
-**Improvable by emitter (no code changes to OAA):**
-- A.7.3 → supported: verifier coverage ≥ 50% of tool calls (emitter adds more verifier observations)
-- A.6.2 → supported: fairness engine output (future work)
+**At ceiling — all technically reachable ISO controls are now mapped.**
 
-**Unmapped ISO controls with technical signal (~5 more reachable):**
-
-| Control | What triggers it |
-|---|---|
-| A.7.2 (design objectives) | ReportMeta.intended_use present |
-| A.8.4 (data preparation) | Input refs with digest in AEP record |
-| A.9.3 (third-party monitoring) | Multiple runs with same signer_key_id |
-| A.5.2 (AI policy) | ReportMeta.qms_reference present |
-| A.10.1 (operational docs) | Source file present in ReportMeta |
-
-**Not automatable (~21 controls):**
-ISO 42001 is governance-system standard (ISMS-style). Controls A.5–A.6, A.7.1–A.7.2,
-A.8.1–A.8.2, A.9.2, and most of A.10 require organisational policy documents,
-management decisions, and stakeholder communication — none of which a runtime trace
-can evidence.
+The new controls (A.7.2, A.8.4, A.9.3, A.5.2, A.10.1) activate when the corresponding ReportMeta fields or trace event patterns are present. With a fully annotated trace and populated ReportMeta, all 12 partial controls can reach `partial`; A.7.3 and A.7.5 can reach `supported`.
 
 ---
 
@@ -176,9 +172,9 @@ The fundamental constraint for any runtime-trace-only tool:
 | Framework | Theoretical max (trace-addressable) | Current | Gap to ceiling |
 |---|---|---|---|
 | OWASP Agentic Top 10 | ~100% | **75.0%** | **25pp** — AAI06/08 need injection-filter/exfil verifier observations; AAI07 needs drift-guard (deferred) |
-| EU AI Act | ~35% combined | **22.0%** | **~13pp** — benchmark engine (3 controls), ReportMeta fields (2 controls) |
-| NIST AI RMF | ~34.7% | **9.0%** | **~26pp** — 8 more subcategories reachable; 3 need trace events, 1 needs benchmark engine |
-| ISO/IEC 42001 | ~43% | **13.5%** | **~30pp** — 5 more controls reachable via ReportMeta or verifier coverage |
+| EU AI Act | ~35% combined | **22.0%** | **~13pp** — benchmark engine (3 controls), ReportMeta fields (already coded, needs caller to populate) |
+| NIST AI RMF | 34.7% | **12.5%** *(at ceiling breadth-wise)* | Depth improvable via richer traces (taint labels, deny events, findings) |
+| ISO/IEC 42001 | 43.2% | **17.5%** *(at ceiling breadth-wise)* | Depth improvable via ReportMeta fields and richer trace content |
 
 The remaining gaps after the ceiling are inherently organisational — no automated tool
 can cross them. A compliance tool can present them accurately as `not_evaluated` with

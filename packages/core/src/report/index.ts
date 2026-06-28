@@ -1870,7 +1870,10 @@ function buildMarkdown(
       ? `${resolved.trace_start} → ${resolved.trace_end}`
       : '—';
 
-  const retentionUntil = addSixMonths(resolved.trace_end !== '' ? resolved.trace_end : generatedAt);
+  const retentionAnchor = resolved.trace_end !== ''
+    ? (resolved.trace_end > generatedAt ? resolved.trace_end : generatedAt)
+    : generatedAt;
+  const retentionUntil = addSixMonths(retentionAnchor);
 
   const lines: string[] = [];
 
@@ -2217,7 +2220,10 @@ function buildHtml(
       ? `${escapeHtml(resolved.trace_start)} &rarr; ${escapeHtml(resolved.trace_end)}`
       : '<em>—</em>';
 
-  const retentionUntil = addSixMonths(resolved.trace_end !== '' ? resolved.trace_end : generatedAt);
+  const retentionAnchor = resolved.trace_end !== ''
+    ? (resolved.trace_end > generatedAt ? resolved.trace_end : generatedAt)
+    : generatedAt;
+  const retentionUntil = addSixMonths(retentionAnchor);
 
   const css = `
     body { font-family: sans-serif; max-width: 800px; margin: 40px auto; padding: 0 20px; color: #222; }

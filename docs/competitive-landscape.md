@@ -1,7 +1,7 @@
 # Competitive Landscape — AI Agent Audit and Compliance Tools
 
 > **Research date:** 2026-06-27  
-> **OpenAgentAudit coverage numbers last updated:** 2026-06-27 (commit `281bb25`, verified against production run `87ce677f`).  
+> **OpenAgentAudit coverage numbers last updated:** 2026-06-28 (commit `e804e3f`, verified against production run `8bd3e855`).  
 > **Method:** Multi-source web research with adversarial claim verification (110 sub-agents,
 > 1 630 tool uses, 3-vote consensus per factual claim).  
 > **Scope:** Commercial and open-source tools that generate compliance reports or runtime
@@ -148,9 +148,9 @@ compliance tool.
 |---|---|---|---|---|---|
 | OTel / AEP trace ingestion | ✅ | ✅ | ❌ | partial | ❌ |
 | EU AI Act Annex IV | ✅ **13 controls** (54% depth) | ❌ | ✅ (questionnaire) | ✅ (questionnaire) | ❌ |
-| NIST AI RMF | ✅ **17 subcategories** (38% depth) | ✅ (rules) | ✅ (questionnaire) | ✅ (questionnaire) | probe target |
+| NIST AI RMF | ✅ **25 subcategories** (36% depth) — at ceiling | ✅ (rules) | ✅ (questionnaire) | ✅ (questionnaire) | probe target |
 | OWASP Agentic Top 10 | ✅ AAI01–10 (75% depth) | ✅ 10/10 | ❌ | ❌ | ❌ |
-| ISO/IEC 42001 | ✅ **11 controls** (46% depth) | ❌ | ✅ (questionnaire) | ✅ (questionnaire) | ❌ |
+| ISO/IEC 42001 | ✅ **16 controls** (41% depth) — at ceiling | ❌ | ✅ (questionnaire) | ✅ (questionnaire) | ❌ |
 | Multi-framework in one report | ✅ | ❌ | ✅ (questionnaire) | ✅ (questionnaire) | ❌ |
 | Generates Md / HTML / JSON report | ✅ | ❌ (SARIF) | ✅ | ✅ | ❌ |
 | Multi-agent delegation chain | ✅ AEP `delegation_chain` | ❌ | ❌ | ❌ | ❌ |
