@@ -1,4 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
+import { Router, useLocation } from 'wouter'
+import { Breadcrumb } from './Breadcrumb'
 
 interface SiteConfig {
   site_name: string
@@ -308,7 +310,8 @@ function buildAepMeta(aep: Record<string, unknown>) {
   return m
 }
 
-export default function App() {
+function AppInner() {
+  const [location, navigate] = useLocation()
   const [events, setEvents] = useState<RawEvent[]>([])
   const [fileName, setFileName] = useState<string | null>(null)
   const [fileText, setFileText] = useState<string>('')
@@ -358,12 +361,15 @@ export default function App() {
           const aep = JSON.parse(text) as Record<string, unknown>
           setAepMeta(buildAepMeta(aep))
         } catch { /* best-effort */ }
+        navigate('/audit')
         return
       }
       const parsed = parseJsonl(text)
       setEvents(parsed)
       if (parsed.length === 0) {
         setParseError('No valid JSON lines found in the file.')
+      } else {
+        navigate('/audit')
       }
     }
     reader.onerror = () => setParseError('Failed to read file.')
@@ -415,8 +421,11 @@ export default function App() {
         finding_count?: number
         event_count?: number
       }
-      if (data.run_id) setReportRunId(data.run_id)
-      setReportSummary({ ...(data.eas_score !== undefined && { eas_score: data.eas_score }), ...(data.eas_grade !== undefined && { eas_grade: data.eas_grade }), ...(data.finding_count !== undefined && { finding_count: data.finding_count }), ...(data.event_count !== undefined && { event_count: data.event_count }) })
+      if (data.run_id) {
+        setReportRunId(data.run_id)
+        setReportSummary({ ...(data.eas_score !== undefined && { eas_score: data.eas_score }), ...(data.eas_grade !== undefined && { eas_grade: data.eas_grade }), ...(data.finding_count !== undefined && { finding_count: data.finding_count }), ...(data.event_count !== undefined && { event_count: data.event_count }) })
+        navigate(`/runs/${data.run_id}`)
+      }
     } catch (err) {
       setReportError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -446,6 +455,7 @@ export default function App() {
               setEvents([]); setFileName(null); setFileText(''); setParseError(null);
               setIsAepRecord(false); setAepMeta(null); setReportSummary(null);
               setReportRunId(null); setReportError(null); setPage(0);
+              navigate('/')
             }}
             className="shrink-0 w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shadow-sm hover:opacity-90 transition-opacity cursor-pointer"
             aria-label="Back to home"
@@ -472,6 +482,24 @@ export default function App() {
           </div>
         </div>
       </header>
+
+      {/* Breadcrumb */}
+      <div className="border-b border-slate-100 bg-white">
+        <Breadcrumb crumbs={
+          location.startsWith('/runs/')
+            ? [
+                { label: 'Home', href: '/' },
+                { label: fileName ?? 'Audit Trace', href: '/audit' },
+                { label: `Report ${location.replace('/runs/', '').slice(0, 8)}…` },
+              ]
+            : location === '/audit'
+            ? [
+                { label: 'Home', href: '/' },
+                { label: fileName ?? 'Audit Trace' },
+              ]
+            : [{ label: 'Home' }]
+        } />
+      </div>
 
       {/* Main content */}
       <main className="flex-1 max-w-5xl mx-auto w-full px-4 sm:px-6 py-8 space-y-10">
@@ -568,10 +596,15 @@ export default function App() {
                             const aep = JSON.parse(text) as Record<string, unknown>
                             setAepMeta(buildAepMeta(aep))
                           } catch { /* best-effort */ }
+                          navigate('/audit')
                         } else {
                           const parsed = parseJsonl(text)
                           setEvents(parsed)
-                          if (parsed.length === 0) setParseError('No valid JSON lines found in the file.')
+                          if (parsed.length === 0) {
+                            setParseError('No valid JSON lines found in the file.')
+                          } else {
+                            navigate('/audit')
+                          }
                         }
                       } catch (e) {
                         setParseError(`Failed to load sample: ${e instanceof Error ? e.message : String(e)}`)
@@ -1104,5 +1137,13 @@ export default function App() {
         </div>
       </footer>
     </div>
+  )
+}
+
+export default function App() {
+  return (
+    <Router>
+      <AppInner />
+    </Router>
   )
 }
