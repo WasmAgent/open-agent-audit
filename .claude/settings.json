@@ -1,0 +1,86 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(git push *)",
+      "Bash(git commit *)",
+      "Bash(git tag *)",
+      "Bash(git reset *)",
+      "Bash(git clean *)",
+      "Bash(git checkout *)",
+      "Bash(git switch *)",
+      "Bash(git branch *)",
+      "Bash(git merge *)",
+      "Bash(git rebase *)",
+      "Bash(git worktree *)",
+
+      "Bash(gh *)",
+      "Bash(curl *)",
+      "Bash(wget *)",
+      "Bash(ssh *)",
+      "Bash(scp *)",
+      "Bash(rsync *)",
+      "Bash(nc *)",
+      "Bash(telnet *)",
+
+      "Bash(npm publish *)",
+      "Bash(bun publish *)",
+      "Bash(pnpm publish *)",
+      "Bash(yarn publish *)",
+      "Bash(npx * --yes *)",
+
+      "Bash(env)",
+      "Bash(env *)",
+      "Bash(printenv)",
+      "Bash(printenv *)",
+      "Bash(find * -delete *)",
+      "Bash(find * -exec *)",
+
+      "Read(.env)",
+      "Read(**/.env)",
+      "Read(~/.ssh/**)",
+      "Read(~/.npmrc)",
+      "Read(~/.pypirc)",
+      "Read(**/id_rsa)",
+      "Read(**/id_ed25519)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(git *)",
+            "command": "/srv/claude-bot/bin/bash-guard.sh"
+          },
+          {
+            "type": "command",
+            "if": "Bash(gh *)",
+            "command": "/srv/claude-bot/bin/bash-guard.sh"
+          },
+          {
+            "type": "command",
+            "if": "Bash(curl *)",
+            "command": "/srv/claude-bot/bin/bash-guard.sh"
+          },
+          {
+            "type": "command",
+            "if": "Bash(wget *)",
+            "command": "/srv/claude-bot/bin/bash-guard.sh"
+          },
+          {
+            "type": "command",
+            "if": "Bash(rm *)",
+            "command": "/srv/claude-bot/bin/bash-guard.sh"
+          },
+          {
+            "type": "command",
+            "if": "Bash(npx *)",
+            "command": "/srv/claude-bot/bin/bash-guard.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

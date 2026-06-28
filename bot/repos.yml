@@ -1,0 +1,58 @@
+repositories:
+  - id: open-agent-audit
+    repo: WasmAgent/open-agent-audit
+    project_name: open-agent-audit
+    base_branch: main
+    bare_repo_path: /srv/claude-bot/repos/open-agent-audit.git
+    worktree_root: /srv/claude-bot/worktrees/open-agent-audit
+    test_cmds:
+      - npm run lint
+      - npm run typecheck
+      - npm run build
+      - npm test
+    enqueue_label: claude
+    docs_label: claude-docs
+    hard_label: claude-hard
+    ultracode_label: claude-ultracode
+    deep_review_label: claude-deep-review
+    no_automerge_label: claude-no-automerge
+    automerge_default: true
+    enabled: true
+
+  - id: wasmagent-js
+    repo: WasmAgent/wasmagent-js
+    project_name: wasmagent-js
+    base_branch: main
+    bare_repo_path: /srv/claude-bot/repos/wasmagent-js.git
+    worktree_root: /srv/claude-bot/worktrees/wasmagent-js
+    test_cmds:
+      - bun test
+      - bun run build
+      - bun run lint
+    enqueue_label: claude
+    docs_label: claude-docs
+    hard_label: claude-hard
+    ultracode_label: claude-ultracode
+    deep_review_label: claude-deep-review
+    no_automerge_label: claude-no-automerge
+    automerge_default: true
+    enabled: true
+
+  - id: trace-pipeline
+    repo: WasmAgent/trace-pipeline
+    project_name: trace-pipeline
+    base_branch: main
+    bare_repo_path: /srv/claude-bot/repos/trace-pipeline.git
+    worktree_root: /srv/claude-bot/worktrees/trace-pipeline
+    test_cmds:
+      - bun test
+      - bun run build
+      - bun run lint
+    enqueue_label: claude
+    docs_label: claude-docs
+    hard_label: claude-hard
+    ultracode_label: claude-ultracode
+    deep_review_label: claude-deep-review
+    no_automerge_label: claude-no-automerge
+    automerge_default: true
+    enabled: true
