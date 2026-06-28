@@ -4,6 +4,24 @@
 
 repositories:
   # ── Full mode (bot can write code) ────────────────────────────────────────
+  - id: agent-trust-infra
+    repo: WasmAgent/agent-trust-infra
+    project_name: agent-trust-infra
+    mode: full
+    base_branch: main
+    bare_repo_path: /srv/claude-bot/repos/agent-trust-infra.git
+    worktree_root: /srv/claude-bot/worktrees/agent-trust-infra
+    test_cmds:
+      - bun test
+    enqueue_label: claude
+    docs_label: claude-docs
+    hard_label: claude-hard
+    ultracode_label: claude-ultracode
+    deep_review_label: claude-deep-review
+    no_automerge_label: claude-no-automerge
+    automerge_default: true
+    enabled: true
+
   - id: wasmagent
     repo: WasmAgent/wasmagent
     project_name: wasmagent
