@@ -1358,7 +1358,33 @@ def mark_max_retry(conn: sqlite3.Connection, job_id: int, stage: str, reason: st
 # Claim loop
 # ---------------------------------------------------------------------------
 
-def claim_job(conn: sqlite3.Connection, worker_id: str) -> sqlite3.Row | None:
+def dependencies_satisfied(conn: sqlite3.Connection, job_id: int) -> tuple[bool, list[int]]:
+    """
+    Check if all jobs this job depends on are in terminal success state (merged).
+    Returns (satisfied, [blocking_job_ids]).
+    """
+    row = conn.execute("SELECT depends_on_jobs FROM jobs WHERE id=?", (job_id,)).fetchone()
+    if not row or not row["depends_on_jobs"]:
+        return True, []
+    try:
+        dep_ids = json.loads(row["depends_on_jobs"])
+    except (json.JSONDecodeError, TypeError):
+        return True, []
+    if not dep_ids:
+        return True, []
+
+    placeholders = ",".join("?" * len(dep_ids))
+    deps = conn.execute(
+        f"SELECT id, state, issue_number, title FROM jobs WHERE id IN ({placeholders})",
+        dep_ids,
+    ).fetchall()
+
+    blocking = []
+    for dep in deps:
+        if dep["state"] != "merged":
+            blocking.append(dep["id"])
+
+    return len(blocking) == 0, blocking
     provider = "zai-glm"
 
     with conn:
@@ -1377,6 +1403,35 @@ def claim_job(conn: sqlite3.Connection, worker_id: str) -> sqlite3.Row | None:
         if not provider_gate_allows_claim(conn, provider, row["model_tier"]):
             log.debug("Provider gate blocked claim for model_tier=%s", row["model_tier"])
             return None
+
+        # Dependency gate: skip if blocking deps not yet merged
+        satisfied, blocking = dependencies_satisfied(conn, row["id"])
+        if not satisfied:
+            blocking_states = []
+            for bid in blocking:
+                dep = conn.execute("SELECT issue_number, state FROM jobs WHERE id=?", (bid,)).fetchone()
+                if dep:
+                    blocking_states.append(f"#{dep['issue_number']}({dep['state']})")
+            log.info("Job %d skipped — waiting for deps: %s", row["id"], ", ".join(blocking_states))
+            # Try the next job instead (this one will be revisited next cycle)
+            row2 = conn.execute("""
+                SELECT j.* FROM jobs j
+                WHERE j.state IN ('pending','fixing','remote_ci_failed','review_failed')
+                  AND (j.next_retry_at IS NULL OR j.next_retry_at <= datetime('now'))
+                  AND (j.lease_expires_at IS NULL OR j.lease_expires_at < datetime('now'))
+                  AND j.id != ?
+                  AND NOT EXISTS (
+                    SELECT 1 FROM jobs dep
+                    WHERE dep.id IN (
+                      SELECT value FROM json_each(j.depends_on_jobs)
+                    ) AND dep.state != 'merged'
+                  )
+                ORDER BY j.priority ASC, j.created_at ASC
+                LIMIT 1
+            """, (row["id"],)).fetchone()
+            if not row2:
+                return None
+            row = row2
 
         # Daily cap checks
         if daily_job_count(conn) >= MAX_TOTAL_JOBS_PER_DAY:

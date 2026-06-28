@@ -165,6 +165,7 @@ MIGRATIONS = [
     "ALTER TABLE jobs ADD COLUMN bot_comment_id TEXT DEFAULT NULL",
     "ALTER TABLE jobs ADD COLUMN discussion_last_checked_at TEXT DEFAULT NULL",
     "ALTER TABLE jobs ADD COLUMN discussion_comment_count INTEGER DEFAULT 0",
+    "ALTER TABLE jobs ADD COLUMN depends_on_jobs TEXT DEFAULT '[]'",
 ]
 
 
@@ -394,53 +395,85 @@ def parse_json_from_ai(text: str) -> dict | list | None:
 
 
 # ---------------------------------------------------------------------------
-# AI priority scoring
+# AI priority + dependency analysis (single batch call)
 # ---------------------------------------------------------------------------
 
-PRIORITY_PROMPT = """\
+SCORE_AND_DEPS_PROMPT = """\
 You are a task scheduler for an autonomous software development bot.
-Score each GitHub issue with a priority from 1 to 100 (lower = execute first).
+Given a list of GitHub issues (possibly from multiple repos), do two things:
 
-Scoring:
- 1–15:  Production incident / crash / security / blocks other work
-16–30:  Important bug affecting core functionality
-31–50:  Normal feature or bug, clear acceptance criteria
-51–70:  Improvement, refactor, lower urgency
-71–85:  Documentation, README, minor cleanup
-86–100: Nice-to-have, cosmetic
+1. Score each issue with a priority from 1 to 100 (lower = execute first).
+   Scoring:
+    1–15:  Production incident / crash / security / blocks other work
+   16–30:  Important bug affecting core functionality
+   31–50:  Normal feature or bug, clear acceptance criteria
+   51–70:  Improvement, refactor, lower urgency
+   71–85:  Documentation, README, minor cleanup
+   86–100: Nice-to-have, cosmetic
+   Cross-repo: treat issues equally regardless of repo.
+   Prefer issues that unblock others or complete quickly.
 
-Cross-repo: treat all issues equally regardless of repo.
-Prefer issues that unblock others or are quick to complete.
+2. Identify dependencies: if issue B cannot start until issue A is merged
+   (because B builds on A's code, schema, or output), list A's id in B's depends_on.
+   Only list DIRECT blocking dependencies (not "nice to have" ordering).
+   If there are no dependencies, use an empty array.
+   Only reference ids that appear in this list.
 
-Return ONLY a JSON array:
-[{"id": <job_id>, "priority": <1-100>, "reason": "<one sentence>"}, ...]
+Return ONLY a JSON array, no other text:
+[
+  {
+    "id": <issue id from input>,
+    "priority": <1-100>,
+    "reason": "<one sentence>",
+    "depends_on": [<id>, ...]
+  },
+  ...
+]
 
 Issues:
 """
 
 
-def score_issues_with_ai(issues: list[dict]) -> dict[int, tuple[int, str]]:
+def score_and_analyze_deps(issues: list[dict]) -> dict[int, dict]:
+    """
+    Single AI call: returns {job_id: {"priority": int, "reason": str, "depends_on": [job_id, ...]}}
+    """
     if not issues:
         return {}
     issue_text = json.dumps([
-        {"id": i["job_id"], "repo": i["repo"], "title": i["title"],
-         "body": (i["body"] or "")[:300], "labels": i["labels"], "model_tier": i["model_tier"]}
+        {
+            "id": i["job_id"],
+            "repo": i["repo"],
+            "issue_number": i["issue_number"],
+            "title": i["title"],
+            "body": (i["body"] or "")[:400],
+            "labels": i["labels"],
+            "model_tier": i["model_tier"],
+        }
         for i in issues
     ], ensure_ascii=False, indent=2)
-    text = call_ai(PRIORITY_PROMPT + issue_text)
+
+    text = call_ai(SCORE_AND_DEPS_PROMPT + issue_text, max_tokens=2048)
     parsed = parse_json_from_ai(text)
     if not isinstance(parsed, list):
         return {}
+
     result = {}
+    valid_ids = {i["job_id"] for i in issues}
     for item in parsed:
         try:
             job_id = int(item["id"])
             priority = max(1, min(100, int(item.get("priority", 100))))
             reason = str(item.get("reason", ""))[:200]
-            result[job_id] = (priority, reason)
-        except (KeyError, ValueError):
+            depends_on = [
+                int(d) for d in item.get("depends_on", [])
+                if int(d) in valid_ids and int(d) != job_id
+            ]
+            result[job_id] = {"priority": priority, "reason": reason, "depends_on": depends_on}
+        except (KeyError, ValueError, TypeError):
             pass
-    log.info("AI scored %d issue(s)", len(result))
+
+    log.info("AI scored %d issue(s) with dependency analysis", len(result))
     return result
 
 
@@ -458,28 +491,50 @@ def heuristic_priority(title: str, model_tier: str) -> tuple[int, str]:
 
 
 def assign_priorities(conn: sqlite3.Connection, new_jobs: list[dict]):
+    """Score new jobs and write priority + dependency graph to DB."""
     if not new_jobs:
         return
+
     if len(new_jobs) == 1:
         job = new_jobs[0]
         priority, reason = heuristic_priority(job["title"], job["model_tier"])
         conn.execute(
-            "UPDATE jobs SET priority=?, priority_reason=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
-            (priority, reason, job["job_id"]),
+            "UPDATE jobs SET priority=?, priority_reason=?, depends_on_jobs=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+            (priority, reason, "[]", job["job_id"]),
         )
         conn.commit()
         log.info("Priority job %d → %d (%s)", job["job_id"], priority, reason)
         return
-    scores = score_issues_with_ai(new_jobs)
+
+    scores = score_and_analyze_deps(new_jobs)
+
     for job in new_jobs:
         job_id = job["job_id"]
-        priority, reason = scores.get(job_id) or heuristic_priority(job["title"], job["model_tier"])
+        if job_id in scores:
+            s = scores[job_id]
+            priority, reason = s["priority"], s["reason"]
+            depends_on = s["depends_on"]
+        else:
+            priority, reason = heuristic_priority(job["title"], job["model_tier"])
+            depends_on = []
+
         conn.execute(
-            "UPDATE jobs SET priority=?, priority_reason=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
-            (priority, reason, job_id),
+            "UPDATE jobs SET priority=?, priority_reason=?, depends_on_jobs=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+            (priority, reason, json.dumps(depends_on), job_id),
         )
-        log.info("Priority %s#%d → %d: %s", job["repo"], job["issue_number"], priority, reason)
+        dep_str = f" depends_on={depends_on}" if depends_on else ""
+        log.info("Priority %s#%d → %d%s: %s",
+                 job["repo"], job["issue_number"], priority, dep_str, reason)
+
     conn.commit()
+
+    # Log dependency graph summary
+    deps_found = [(j["job_id"], scores[j["job_id"]]["depends_on"])
+                  for j in new_jobs if j["job_id"] in scores and scores[j["job_id"]]["depends_on"]]
+    if deps_found:
+        log.info("Dependency graph:")
+        for job_id, deps in deps_found:
+            log.info("  job %d depends on: %s", job_id, deps)
 
 
 # ---------------------------------------------------------------------------
@@ -583,6 +638,66 @@ def evaluate_discussion(repo: str, title: str, body: str, comments: list[dict]) 
         "reason": "Could not evaluate automatically.",
         "response_comment": "Thanks for the discussion so far. We need a bit more context before this can be scheduled.",
     }
+
+
+def reanalyze_existing_deps(conn: sqlite3.Connection):
+    """
+    For repos that have multiple pending jobs but no dependency data yet,
+    re-run the AI analysis to fill in depends_on_jobs.
+    Runs at most once per scheduler cycle, only if there are unanalyzed jobs.
+    """
+    # Find repos with 2+ pending jobs that haven't been dependency-analyzed
+    rows = conn.execute("""
+        SELECT repo, COUNT(*) as cnt
+        FROM jobs
+        WHERE state IN ('pending','fixing','remote_ci_failed','review_failed')
+          AND (depends_on_jobs IS NULL OR depends_on_jobs = '[]')
+          AND author_is_member = 1
+        GROUP BY repo
+        HAVING cnt >= 2
+    """).fetchall()
+
+    for repo_row in rows:
+        repo = repo_row["repo"]
+        jobs = conn.execute("""
+            SELECT id, issue_number, title, body, model_tier, labels_json
+            FROM jobs
+            WHERE repo=? AND state IN ('pending','fixing','remote_ci_failed','review_failed')
+              AND author_is_member = 1
+            ORDER BY priority ASC, created_at ASC
+            LIMIT 30
+        """, (repo,)).fetchall()
+
+        if len(jobs) < 2:
+            continue
+
+        issues = [
+            {
+                "job_id": j["id"],
+                "repo": repo,
+                "issue_number": j["issue_number"],
+                "title": j["title"],
+                "body": j["body"] or "",
+                "labels": json.loads(j["labels_json"] or "[]"),
+                "model_tier": j["model_tier"],
+            }
+            for j in jobs
+        ]
+
+        log.info("Re-analyzing dependencies for %s (%d jobs)", repo, len(issues))
+        scores = score_and_analyze_deps(issues)
+
+        for job in jobs:
+            job_id = job["id"]
+            if job_id in scores and scores[job_id]["depends_on"]:
+                depends_on = scores[job_id]["depends_on"]
+                conn.execute(
+                    "UPDATE jobs SET depends_on_jobs=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                    (json.dumps(depends_on), job_id),
+                )
+                log.info("  job %d depends on: %s", job_id, depends_on)
+
+        conn.commit()
 
 
 def process_external_discussions(conn: sqlite3.Connection, new_external_ids: set[int]):
@@ -933,17 +1048,20 @@ def scheduler_loop():
                 except Exception:
                     log.exception("Error processing repo %s", repo)
 
-            # Batch-score new member jobs
+            # Batch-score new member jobs (includes dependency analysis)
             if new_member_jobs:
-                log.info("Scoring %d new member job(s)...", len(new_member_jobs))
+                log.info("Scoring %d new member job(s) with dependency analysis...", len(new_member_jobs))
                 assign_priorities(conn, new_member_jobs)
+            else:
+                # Re-analyze existing pending jobs that lack dependency data
+                reanalyze_existing_deps(conn)
 
             # Advance external discussion state machines
             process_external_discussions(conn, new_external_ids)
 
-            # Log execution queue
+            # Log execution queue with dependency info
             queue = conn.execute("""
-                SELECT repo, issue_number, priority, priority_reason, title
+                SELECT repo, issue_number, priority, priority_reason, title, depends_on_jobs
                 FROM jobs
                 WHERE state IN ('pending','fixing','remote_ci_failed','review_failed')
                 ORDER BY priority ASC, created_at ASC LIMIT 10
@@ -951,9 +1069,11 @@ def scheduler_loop():
             if queue:
                 log.info("Execution queue (%d job(s)):", len(queue))
                 for i, row in enumerate(queue, 1):
-                    log.info("  %d. [p=%d] %s#%d %r — %s",
+                    deps = json.loads(row["depends_on_jobs"] or "[]")
+                    dep_str = f" [blocks={deps}]" if deps else ""
+                    log.info("  %d. [p=%d] %s#%d%s %r — %s",
                              i, row["priority"], row["repo"], row["issue_number"],
-                             row["title"][:45], row["priority_reason"])
+                             dep_str, row["title"][:40], row["priority_reason"])
 
             # Log pending external discussions
             ext = conn.execute("""
