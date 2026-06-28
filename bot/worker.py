@@ -325,20 +325,46 @@ def slugify(text: str) -> str:
     return text.strip("-")[:40]
 
 
+CLAUDE_OVERLAY_PATH = os.environ.get("CLAUDE_OVERLAY_PATH", "/srv/claude-bot/claude-overlay")
+
+
+def inject_claude_agents(worktree_path: str):
+    """Copy .claude/agents/ overlay into worktree if the repo doesn't already have them."""
+    overlay = Path(CLAUDE_OVERLAY_PATH)
+    if not overlay.exists():
+        return
+    dst_claude = Path(worktree_path) / ".claude"
+    dst_claude.mkdir(exist_ok=True)
+    dst_agents = dst_claude / "agents"
+    dst_agents.mkdir(exist_ok=True)
+    for src in (overlay / "agents").glob("*.md"):
+        dst = dst_agents / src.name
+        if not dst.exists():
+            import shutil
+            shutil.copy2(src, dst)
+            log.debug("Injected agent: %s", src.name)
+
+
 def create_worktree(bare_repo_path: str, worktree_path: str,
                     branch: str, base_branch: str):
     log.info("Creating worktree at %s (branch %s)", worktree_path, branch)
-    git(["fetch", "origin", base_branch, "--prune"], git_dir=bare_repo_path)
+    # Fetch into the bare repo — updates refs/heads/<branch> directly (no origin/ prefix in bare repos)
+    git(["fetch", "origin", f"{base_branch}:{base_branch}", "--force", "--prune"],
+        git_dir=bare_repo_path, check=False)
+    # Fall back to plain fetch if refspec fails (e.g. first-time with no local ref yet)
+    git(["fetch", "origin"], git_dir=bare_repo_path, check=False)
     Path(worktree_path).parent.mkdir(parents=True, exist_ok=True)
+    # In a bare repo, refs are refs/heads/<base_branch>, not refs/remotes/origin/<base_branch>
     git(
-        ["worktree", "add", "-B", branch, worktree_path, f"origin/{base_branch}"],
+        ["worktree", "add", "-B", branch, worktree_path, base_branch],
         git_dir=bare_repo_path,
     )
+    inject_claude_agents(worktree_path)
 
 
 def recover_worktree(worktree_path: str, branch: str, base_branch: str):
     log.info("Recovering worktree at %s", worktree_path)
-    git(["fetch", "origin"], cwd=worktree_path)
+    git(["fetch", "origin"], cwd=worktree_path, check=False)
     remote_exists = subprocess.run(
         ["git", "ls-remote", "--exit-code", "--heads", "origin", branch],
         capture_output=True,
@@ -349,7 +375,8 @@ def recover_worktree(worktree_path: str, branch: str, base_branch: str):
         git(["checkout", branch], cwd=worktree_path)
         git(["reset", "--hard", f"origin/{branch}"], cwd=worktree_path)
     else:
-        git(["checkout", "-B", branch, f"origin/{base_branch}"], cwd=worktree_path)
+        # Branch exists locally but not yet pushed — just ensure we're on it
+        git(["checkout", branch], cwd=worktree_path, check=False)
 
 
 def remove_worktree(worktree_path: str, bare_repo_path: str):
@@ -473,7 +500,21 @@ def run_claude(
         if "rate limit" in output.lower() or "429" in output or "quota" in output.lower():
             return False, output
 
-        return result.returncode == 0, output
+        if result.returncode != 0:
+            return False, output
+
+        # Parse JSON result — treat error_max_turns as partial success (may have made changes)
+        try:
+            data = json.loads(result.stdout)
+            subtype = data.get("subtype", "")
+            is_error = data.get("is_error", False)
+            if is_error and subtype not in ("error_max_turns",):
+                log.warning("Claude reported error subtype=%s", subtype)
+                return False, output
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+        return True, output
 
     except subprocess.TimeoutExpired:
         log.error("Claude timed out after 3000s")
@@ -529,7 +570,7 @@ def gh(args: list[str], capture: bool = True, check: bool = True) -> str | None:
         env=env,
     )
     if check and result.returncode != 0:
-        raise RuntimeError(f"gh {' '.join(args[:3])} failed: {result.stderr.strip()}")
+        raise RuntimeError(f"gh {' '.join(args[:3])} failed: {(result.stderr or '').strip()}")
     return result.stdout.strip() if capture else None
 
 
@@ -539,7 +580,7 @@ def commit_and_push(worktree_path: str, title: str, issue_number: int, branch: s
     if not diff.strip():
         raise RuntimeError("No changes staged — nothing to commit")
     git(["commit", "-m", f"fix: {title} (#{issue_number})"], cwd=worktree_path)
-    git(["push", "-u", "origin", branch, "--force-with-lease"], cwd=worktree_path)
+    git(["push", "-u", "origin", branch, "--force"], cwd=worktree_path)
     log.info("Pushed branch %s", branch)
 
 
@@ -602,17 +643,19 @@ def get_pr_head_sha(repo: str, pr_number: str) -> str:
 
 def wait_for_ci(repo: str, pr_number: str, timeout_s: int = 1200) -> bool:
     log.info("Waiting for required CI checks on PR #%s", pr_number)
-    try:
-        gh([
-            "pr", "checks", pr_number,
-            "--repo", repo,
-            "--required",
-            "--watch",
-            "--fail-fast",
-        ], capture=False, check=True)
+    env = os.environ.copy()
+    if GH_TOKEN:
+        env["GH_TOKEN"] = GH_TOKEN
+    result = subprocess.run(
+        ["gh", "pr", "checks", pr_number, "--repo", repo, "--required", "--watch", "--fail-fast"],
+        capture_output=True, text=True, timeout=timeout_s, env=env,
+    )
+    stdout = (result.stdout or "") + (result.stderr or "")
+    # "no required checks" means no CI configured — treat as pass for sandbox/early-stage repos
+    if "no required checks" in stdout.lower() or "no checks" in stdout.lower():
+        log.info("No required CI checks configured — treating as passed")
         return True
-    except RuntimeError:
-        return False
+    return result.returncode == 0
 
 
 def get_failed_ci_logs(repo: str, branch: str) -> str:
@@ -657,7 +700,21 @@ def post_ai_review_status(repo: str, head_sha: str, state: str, pr_url: str):
 def run_ai_review(worktree_path: str, base_branch: str, title: str,
                   issue_number: int, model_alias: str, effort: str,
                   review_tier: str, repo_cfg: dict, job: sqlite3.Row) -> dict | None:
-    base_sha = git(["merge-base", f"origin/{base_branch}", "HEAD"], cwd=worktree_path)
+    # Fetch to ensure origin refs are present in the worktree
+    git(["fetch", "origin"], cwd=worktree_path, check=False)
+    # Try origin/<base_branch> first; fall back to local <base_branch>
+    for ref in [f"origin/{base_branch}", base_branch]:
+        result = subprocess.run(
+            ["git", "merge-base", ref, "HEAD"],
+            capture_output=True, text=True, cwd=worktree_path,
+        )
+        if result.returncode == 0:
+            base_sha = result.stdout.strip()
+            break
+    else:
+        log.warning("Could not find merge-base for review — diffing entire HEAD")
+        base_sha = git(["rev-list", "--max-parents=0", "HEAD"], cwd=worktree_path)
+
     diff = git(["diff", f"{base_sha}...HEAD"], cwd=worktree_path)
     if not diff.strip():
         log.warning("Empty diff — skipping review")
@@ -689,9 +746,28 @@ def run_ai_review(worktree_path: str, base_branch: str, title: str,
     if not success:
         return None
 
-    # Try to extract JSON from output
+    # Try to extract JSON from output — handle markdown code blocks and nested objects
     try:
-        m = re.search(r'\{[^{}]*"approved"[^{}]*\}', output, re.DOTALL)
+        # First try parsing the full result field from claude JSON output
+        top = json.loads(output)
+        result_text = top.get("result", "")
+    except (json.JSONDecodeError, ValueError):
+        result_text = output
+
+    # Strip markdown code fences
+    result_text = re.sub(r"```(?:json)?\s*", "", result_text)
+
+    # Try full parse first
+    try:
+        data = json.loads(result_text.strip())
+        if "approved" in data:
+            return data
+    except (json.JSONDecodeError, ValueError):
+        pass
+
+    # Fall back to regex extraction of the outermost JSON object containing "approved"
+    try:
+        m = re.search(r'\{.*?"approved".*?\}', result_text, re.DOTALL)
         if m:
             return json.loads(m.group(0))
     except (json.JSONDecodeError, AttributeError):
@@ -715,6 +791,121 @@ def merge_pr(repo: str, pr_number: str, head_sha: str):
         "--match-head-commit", head_sha,
     ])
     log.info("Merged PR #%s", pr_number)
+
+
+# ---------------------------------------------------------------------------
+# Review + merge helper (called from both main flow and review_failed shortcut)
+# ---------------------------------------------------------------------------
+
+def _run_review_and_merge(conn, job_id, repo, base_branch, title, issue_number,
+                           model_alias, effort, review_tier, repo_cfg, job,
+                           worktree_path, pr_number, head_sha, pr_url,
+                           automerge, review_retries, max_review, bare_repo_path):
+    while review_retries <= max_review:
+        review = run_ai_review(
+            worktree_path=worktree_path,
+            base_branch=base_branch,
+            title=title,
+            issue_number=issue_number,
+            model_alias=model_alias,
+            effort=effort,
+            review_tier=review_tier,
+            repo_cfg=repo_cfg,
+            job=job,
+        )
+
+        if review is None:
+            review_retries += 1
+            conn.execute("UPDATE jobs SET review_retry_count=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                         (review_retries, job_id))
+            conn.commit()
+            if review_retries > max_review:
+                mark_max_retry(conn, job_id, "review", "Review returned no parseable JSON")
+                return
+            time.sleep(30)
+            continue
+
+        conn.execute("""
+            UPDATE jobs SET last_review_json=?, reviewed_head_sha=?, updated_at=CURRENT_TIMESTAMP WHERE id=?
+        """, (json.dumps(review), head_sha, job_id))
+        conn.commit()
+
+        approved = review.get("approved", False)
+        try:
+            post_ai_review_status(repo, head_sha, "success" if approved else "failure", pr_url)
+        except Exception as e:
+            log.warning("Could not post ai-review status: %s", e)
+
+        if approved:
+            break
+
+        review_retries += 1
+        conn.execute("UPDATE jobs SET review_retry_count=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                     (review_retries, job_id))
+        conn.commit()
+        if review_retries > max_review:
+            conn.execute("""
+                UPDATE jobs SET state='review_failed', stage='review_failed',
+                    last_error=?, updated_at=CURRENT_TIMESTAMP WHERE id=?
+            """, (json.dumps(review.get("findings", [])), job_id))
+            conn.commit()
+            log.warning("AI review blocking: %s", review.get("summary"))
+            return
+
+        findings_text = json.dumps(review.get("findings", []), indent=2)
+        fix_prompt = (
+            f"The AI reviewer found issues with this PR.\n\nFindings:\n{findings_text}\n\n"
+            f"Summary: {review.get('summary', '')}\n\n"
+            f"Address the findings without weakening tests or expanding scope.\nDo not run git or gh.\n"
+        )
+        run_claude(prompt=fix_prompt, worktree_path=worktree_path, model_alias=model_alias,
+                   effort=effort, agent="implementer", max_turns=20, repo_cfg=repo_cfg, job=job)
+        git(["add", "-A"], cwd=worktree_path)
+        diff_check = git(["diff", "--cached", "--stat"], cwd=worktree_path)
+        if diff_check.strip():
+            git(["commit", "-m", f"fix: address review findings (#{issue_number})"], cwd=worktree_path)
+            git(["push", "-u", "origin", job["branch"] or f"claude/issue-{issue_number}", "--force"],
+                cwd=worktree_path)
+            head_sha = get_pr_head_sha(repo, pr_number)
+            conn.execute("UPDATE jobs SET pr_head_sha=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                         (head_sha, job_id))
+            conn.commit()
+
+    # Merge
+    if not automerge:
+        conn.execute("""
+            UPDATE jobs SET state='ready_to_merge', stage='no_automerge',
+                finished_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE id=?
+        """, (job_id,))
+        conn.commit()
+        log.info("Job %d: PR #%s ready, automerge disabled", job_id, pr_number)
+        return
+
+    conn.execute("UPDATE jobs SET state='merging', stage='merging', updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                 (job_id,))
+    conn.commit()
+    try:
+        merge_pr(repo, pr_number, head_sha)
+    except RuntimeError as e:
+        log.error("Merge failed: %s", e)
+        conn.execute("UPDATE jobs SET state='review_failed', last_error=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                     (str(e), job_id))
+        conn.commit()
+        return
+
+    conn.execute("""
+        UPDATE jobs SET state='merged', stage='merged',
+            finished_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE id=?
+    """, (job_id,))
+    conn.commit()
+    record_provider_success(conn, "zai-glm")
+    log.info("Job %d merged: %s#%d", job_id, repo, issue_number)
+    try:
+        remove_worktree(worktree_path, bare_repo_path)
+        conn.execute("UPDATE jobs SET worktree_path=NULL, updated_at=CURRENT_TIMESTAMP WHERE id=?", (job_id,))
+        conn.commit()
+    except Exception:
+        log.warning("Could not remove worktree %s", worktree_path)
 
 
 # ---------------------------------------------------------------------------
@@ -763,6 +954,31 @@ def execute_job(conn: sqlite3.Connection, job: sqlite3.Row):
         WHERE id=?
     """, (job_id,))
     conn.commit()
+
+    # --- Shortcut: if PR already exists and only review failed, skip to review ---
+    if job["state"] == "review_failed" and job["pr_number"] and job["pr_head_sha"]:
+        pr_number = str(job["pr_number"])
+        head_sha = job["pr_head_sha"]
+        worktree_path = job["worktree_path"] or worktree_path
+        log.info("Resuming from review_failed: PR #%s head=%s", pr_number, head_sha[:8])
+        # Ensure worktree exists for diff
+        if not Path(worktree_path).exists():
+            try:
+                create_worktree(bare_repo_path, worktree_path, branch, base_branch)
+                write_claude_local_permissions(worktree_path, test_cmds)
+            except Exception as e:
+                log.warning("Could not recreate worktree for review: %s", e)
+        conn.execute("UPDATE jobs SET state='reviewing', stage='reviewing', updated_at=CURRENT_TIMESTAMP WHERE id=?", (job_id,))
+        conn.commit()
+        pr_url = gh(["pr", "view", pr_number, "--repo", repo, "--json", "url", "-q", ".url"], check=False) or ""
+        # Jump directly to review loop (Step 7)
+        review_retries = job["review_retry_count"]
+        max_review = job["max_review_retries"]
+        _run_review_and_merge(conn, job_id, repo, base_branch, title, issue_number,
+                              model_alias, effort, review_tier, repo_cfg, job,
+                              worktree_path, pr_number, head_sha, pr_url, automerge,
+                              review_retries, max_review, bare_repo_path)
+        return
 
     # --- Step 1: prepare worktree ---
     try:
@@ -968,123 +1184,18 @@ def execute_job(conn: sqlite3.Connection, job: sqlite3.Row):
                      (head_sha, job_id))
         conn.commit()
 
-    # --- Step 7: AI review ---
+    # --- Step 7 + 8: AI review and merge ---
     conn.execute("UPDATE jobs SET state='reviewing', stage='reviewing', updated_at=CURRENT_TIMESTAMP WHERE id=?",
                  (job_id,))
     conn.commit()
+    pr_url = gh(["pr", "view", pr_number, "--repo", repo, "--json", "url", "-q", ".url"], check=False) or ""
+    _run_review_and_merge(conn, job_id, repo, base_branch, title, issue_number,
+                          model_alias, effort, review_tier, repo_cfg, job,
+                          worktree_path, pr_number, head_sha, pr_url, automerge,
+                          review_retries=0, max_review=job["max_review_retries"],
+                          bare_repo_path=bare_repo_path)
 
-    pr_url = gh(["pr", "view", pr_number, "--repo", repo, "--json", "url", "-q", ".url"])
-    review_retries = 0
-    max_review = job["max_review_retries"]
 
-    while review_retries <= max_review:
-        review = run_ai_review(
-            worktree_path=worktree_path,
-            base_branch=base_branch,
-            title=title,
-            issue_number=issue_number,
-            model_alias=model_alias,
-            effort=effort,
-            review_tier=review_tier,
-            repo_cfg=repo_cfg,
-            job=job,
-        )
-
-        if review is None:
-            # Provider error during review
-            review_retries += 1
-            if review_retries > max_review:
-                mark_max_retry(conn, job_id, "review", "Review failed after max retries")
-                return
-            time.sleep(30)
-            continue
-
-        conn.execute("""
-            UPDATE jobs SET last_review_json=?, reviewed_head_sha=?,
-                updated_at=CURRENT_TIMESTAMP WHERE id=?
-        """, (json.dumps(review), head_sha, job_id))
-        conn.commit()
-
-        approved = review.get("approved", False)
-        post_ai_review_status(repo, head_sha, "success" if approved else "failure", pr_url or "")
-
-        if approved:
-            break
-
-        review_retries += 1
-        if review_retries > max_review:
-            conn.execute("""
-                UPDATE jobs SET state='review_failed', stage='review_failed',
-                    last_error=?, updated_at=CURRENT_TIMESTAMP WHERE id=?
-            """, (json.dumps(review.get("findings", [])), job_id))
-            conn.commit()
-            log.warning("AI review blocking: %s", review.get("summary"))
-            return
-
-        # Ask Claude to address findings
-        findings_text = json.dumps(review.get("findings", []), indent=2)
-        fix_prompt = (
-            f"The AI reviewer found issues with this PR.\n\n"
-            f"Findings:\n{findings_text}\n\n"
-            f"Summary: {review.get('summary', '')}\n\n"
-            f"Address the findings without weakening tests or expanding scope.\n"
-            f"Do not run git or gh.\n"
-        )
-        run_claude(
-            prompt=fix_prompt,
-            worktree_path=worktree_path,
-            model_alias=model_alias,
-            effort=effort,
-            agent="implementer",
-            max_turns=20,
-            repo_cfg=repo_cfg,
-            job=job,
-        )
-        commit_and_push(worktree_path, f"{title} (review-fix-{review_retries})", issue_number, branch)
-        head_sha = get_pr_head_sha(repo, pr_number)
-        conn.execute("UPDATE jobs SET pr_head_sha=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
-                     (head_sha, job_id))
-        conn.commit()
-
-    # --- Step 8: merge ---
-    if not automerge:
-        conn.execute("""
-            UPDATE jobs SET state='ready_to_merge', stage='no_automerge',
-                finished_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE id=?
-        """, (job_id,))
-        conn.commit()
-        log.info("Job %d: PR #%s ready, automerge disabled by label", job_id, pr_number)
-        return
-
-    conn.execute("UPDATE jobs SET state='merging', stage='merging', updated_at=CURRENT_TIMESTAMP WHERE id=?",
-                 (job_id,))
-    conn.commit()
-
-    try:
-        merge_pr(repo, pr_number, head_sha)
-    except RuntimeError as e:
-        log.error("Merge failed: %s", e)
-        conn.execute("""
-            UPDATE jobs SET state='review_failed', last_error=?, updated_at=CURRENT_TIMESTAMP WHERE id=?
-        """, (str(e), job_id))
-        conn.commit()
-        return
-
-    conn.execute("""
-        UPDATE jobs SET state='merged', stage='merged',
-            finished_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE id=?
-    """, (job_id,))
-    conn.commit()
-    record_provider_success(conn, "zai-glm")
-    log.info("Job %d merged: %s#%d", job_id, repo, issue_number)
-
-    # Clean up worktree
-    try:
-        remove_worktree(worktree_path, bare_repo_path)
-        conn.execute("UPDATE jobs SET worktree_path=NULL, updated_at=CURRENT_TIMESTAMP WHERE id=?", (job_id,))
-        conn.commit()
-    except Exception:
-        log.warning("Could not remove worktree %s", worktree_path)
 
 
 # ---------------------------------------------------------------------------
@@ -1095,6 +1206,7 @@ def mark_failed(conn: sqlite3.Connection, job_id: int, error: str):
     conn.execute("""
         UPDATE jobs SET state='pending', stage='failed_retry',
             retry_count=retry_count+1, last_error=?,
+            worktree_path=NULL,
             lease_owner=NULL, lease_expires_at=NULL,
             updated_at=CURRENT_TIMESTAMP
         WHERE id=?

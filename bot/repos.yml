@@ -38,6 +38,25 @@ repositories:
     automerge_default: true
     enabled: true
 
+  - id: claude-bot-sandbox
+    repo: WasmAgent/claude-bot-sandbox
+    project_name: claude-bot-sandbox
+    base_branch: main
+    bare_repo_path: /srv/claude-bot/repos/claude-bot-sandbox.git
+    worktree_root: /srv/claude-bot/worktrees/claude-bot-sandbox
+    test_cmds:
+      - npm test
+      - npm run lint
+      - npm run build
+    enqueue_label: claude
+    docs_label: claude-docs
+    hard_label: claude-hard
+    ultracode_label: claude-ultracode
+    deep_review_label: claude-deep-review
+    no_automerge_label: claude-no-automerge
+    automerge_default: true
+    enabled: true
+
   - id: trace-pipeline
     repo: WasmAgent/trace-pipeline
     project_name: trace-pipeline
