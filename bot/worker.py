@@ -1385,6 +1385,9 @@ def dependencies_satisfied(conn: sqlite3.Connection, job_id: int) -> tuple[bool,
             blocking.append(dep["id"])
 
     return len(blocking) == 0, blocking
+
+
+def claim_job(conn: sqlite3.Connection, worker_id: str) -> sqlite3.Row | None:
     provider = "zai-glm"
 
     with conn:
