@@ -1,6 +1,10 @@
 import { useState, useCallback, useEffect } from 'react'
-import { Router, useLocation } from 'wouter'
-import { Breadcrumb } from './Breadcrumb'
+import { Router, Route, Switch, useLocation, useParams } from 'wouter'
+import { AuditProvider, useAudit } from './AuditContext'
+import { Breadcrumb, type Crumb } from './Breadcrumb'
+import { parseJsonl, isAepJson, buildAepMeta } from './utils'
+
+// ---------- Site config ----------
 
 interface SiteConfig {
   site_name: string
@@ -13,6 +17,8 @@ const DEFAULT_CONFIG: SiteConfig = {
   site_tagline: 'Evidence-grade audit for enterprise AI agents',
   powered_by: 'OpenAgentAudit',
 }
+
+// ---------- Types ----------
 
 interface RawEvent {
   schema_version?: string
@@ -33,36 +39,7 @@ interface RawEvent {
 
 const PAGE_SIZE = 50
 
-function parseJsonl(text: string): RawEvent[] {
-  return text
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .map((line) => {
-      try {
-        return JSON.parse(line) as RawEvent
-      } catch {
-        return null
-      }
-    })
-    .filter((e): e is RawEvent => e !== null)
-}
-
-/** Returns true when the text is a single AEP JSON object (schema_version aep/v0.x). */
-function isAepJson(text: string): boolean {
-  try {
-    const obj = JSON.parse(text) as Record<string, unknown>
-    return (
-      obj !== null &&
-      typeof obj === 'object' &&
-      !Array.isArray(obj) &&
-      typeof obj['schema_version'] === 'string' &&
-      (obj['schema_version'] as string).startsWith('aep/')
-    )
-  } catch {
-    return false
-  }
-}
+// ---------- Helper functions ----------
 
 interface TypeStyle {
   chip: string
@@ -297,98 +274,76 @@ function WarningIcon({ className }: { className?: string }) {
   )
 }
 
-// ---------- Main component ----------
+// ---------- Page components ----------
 
-/** Build an AEP metadata object, omitting undefined fields (required by exactOptionalPropertyTypes). */
-function buildAepMeta(aep: Record<string, unknown>) {
-  const m: { run_id?: string; model_id?: string; model_provider?: string; actions?: number; schema_version?: string } = {}
-  if (typeof aep['run_id'] === 'string') m.run_id = aep['run_id']
-  if (typeof aep['model_id'] === 'string') m.model_id = aep['model_id']
-  if (typeof aep['model_provider'] === 'string') m.model_provider = aep['model_provider']
-  if (Array.isArray(aep['actions'])) m.actions = (aep['actions'] as unknown[]).length
-  if (typeof aep['schema_version'] === 'string') m.schema_version = aep['schema_version']
-  return m
-}
+function HomePage() {
+  const [, navigate] = useLocation()
+  const {
+    events,
+    setEvents,
+    fileName,
+    setFileName,
+    setFileText,
+    parseError,
+    setParseError,
+    isAepRecord,
+    setIsAepRecord,
+    setAepMeta,
+    setReportSummary,
+    setReportRunId,
+    setReportError,
+  } = useAudit()
 
-function AppInner() {
-  const [location, navigate] = useLocation()
-  const [events, setEvents] = useState<RawEvent[]>([])
-  const [fileName, setFileName] = useState<string | null>(null)
-  const [fileText, setFileText] = useState<string>('')
-  const [parseError, setParseError] = useState<string | null>(null)
-  const [isAepRecord, setIsAepRecord] = useState(false)
-  const [aepMeta, setAepMeta] = useState<{ run_id?: string; model_id?: string; model_provider?: string; actions?: number; schema_version?: string } | null>(null)
-  const [reportSummary, setReportSummary] = useState<{ eas_score?: number; eas_grade?: string; finding_count?: number; event_count?: number } | null>(null)
   const [dragging, setDragging] = useState(false)
-  const [page, setPage] = useState(0)
-  const [reportGenerating, setReportGenerating] = useState(false)
-  const [reportRunId, setReportRunId] = useState<string | null>(null)
-  const [reportError, setReportError] = useState<string | null>(null)
-  const [config, setConfig] = useState<SiteConfig>(DEFAULT_CONFIG)
+  const hasEvents = events.length > 0
 
+  // If data already loaded (e.g. back navigation), redirect to /audit
   useEffect(() => {
-    fetch('/api/v1/config')
-      .then((r) => r.json())
-      .then((d) => setConfig(d as SiteConfig))
-      .catch(() => { /* keep default */ })
-  }, [])
-
-  // Reset all state when navigating back to home
-  useEffect(() => {
-    if (location === '/') {
-      setEvents([])
-      setFileName(null)
-      setFileText('')
-      setParseError(null)
-      setIsAepRecord(false)
-      setAepMeta(null)
-      setReportRunId(null)
-      setReportError(null)
-      setReportSummary(null)
-      setPage(0)
+    if (hasEvents || isAepRecord) {
+      navigate('/audit')
     }
-  }, [location])
+  }, [hasEvents, isAepRecord, navigate])
 
-  const handleFile = useCallback((file: File) => {
-    if (!file.name.endsWith('.jsonl') && !file.name.endsWith('.json')) {
-      setParseError('Please select a .jsonl or .json file.')
-      return
-    }
-    setParseError(null)
-    setFileName(file.name)
-    setIsAepRecord(false)
-    setAepMeta(null)
-    setReportSummary(null)
-    const reader = new FileReader()
-    reader.onload = (e) => {
-      const text = e.target?.result as string
-      setFileText(text)
-      setPage(0)
-      setReportRunId(null)
-      setReportError(null)
-      // Detect AEP JSON (single object with schema_version: "aep/v0.x")
-      if (isAepJson(text)) {
-        setIsAepRecord(true)
-        setEvents([])
-        // Parse AEP metadata for display before report is generated
-        try {
-          const aep = JSON.parse(text) as Record<string, unknown>
-          setAepMeta(buildAepMeta(aep))
-        } catch { /* best-effort */ }
-        navigate('/audit')
+  const handleFile = useCallback(
+    (file: File) => {
+      if (!file.name.endsWith('.jsonl') && !file.name.endsWith('.json')) {
+        setParseError('Please select a .jsonl or .json file.')
         return
       }
-      const parsed = parseJsonl(text)
-      setEvents(parsed)
-      if (parsed.length === 0) {
-        setParseError('No valid JSON lines found in the file.')
-      } else {
-        navigate('/audit')
+      setParseError(null)
+      setFileName(file.name)
+      setIsAepRecord(false)
+      setAepMeta(null)
+      setReportSummary(null)
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        const text = e.target?.result as string
+        setFileText(text)
+        setReportRunId(null)
+        setReportError(null)
+        if (isAepJson(text)) {
+          setIsAepRecord(true)
+          setEvents([])
+          try {
+            const aep = JSON.parse(text) as Record<string, unknown>
+            setAepMeta(buildAepMeta(aep))
+          } catch { /* best-effort */ }
+          navigate('/audit')
+          return
+        }
+        const parsed = parseJsonl(text)
+        setEvents(parsed)
+        if (parsed.length === 0) {
+          setParseError('No valid JSON lines found in the file.')
+        } else {
+          navigate('/audit')
+        }
       }
-    }
-    reader.onerror = () => setParseError('Failed to read file.')
-    reader.readAsText(file)
-  }, [])
+      reader.onerror = () => setParseError('Failed to read file.')
+      reader.readAsText(file)
+    },
+    [setEvents, setFileName, setFileText, setParseError, setIsAepRecord, setAepMeta, setReportSummary, setReportRunId, setReportError, navigate],
+  )
 
   const onInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -408,6 +363,314 @@ function AppInner() {
   }
 
   const onDragLeave = () => setDragging(false)
+
+  const loadSample = async (file: string) => {
+    const url = `https://raw.githubusercontent.com/WasmAgent/open-agent-audit/main/examples/traces/${file}`
+    try {
+      const res = await fetch(url)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const text = await res.text()
+      setParseError(null)
+      setFileName(file)
+      setIsAepRecord(false)
+      setAepMeta(null)
+      setReportSummary(null)
+      setFileText(text)
+      setReportRunId(null)
+      setReportError(null)
+      if (isAepJson(text)) {
+        setIsAepRecord(true)
+        setEvents([])
+        try {
+          const aep = JSON.parse(text) as Record<string, unknown>
+          setAepMeta(buildAepMeta(aep))
+        } catch { /* best-effort */ }
+        navigate('/audit')
+      } else {
+        const parsed = parseJsonl(text)
+        setEvents(parsed)
+        if (parsed.length === 0) {
+          setParseError('No valid JSON lines found in the file.')
+        } else {
+          navigate('/audit')
+        }
+      }
+    } catch (e) {
+      setParseError(`Failed to load sample: ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+
+  const samples = [
+    { label: 'wasmagent-js (Example)', file: 'wasmagent-js-runtime.aep.json' },
+    { label: 'bscode (Example)', file: 'bscode-session.aep.json' },
+  ]
+
+  return (
+    <div className="space-y-10">
+      {/* Upload section */}
+      <section>
+        <div className="flex items-center gap-2 mb-4">
+          <div className="w-7 h-7 rounded-lg bg-indigo-100 flex items-center justify-center">
+            <UploadIcon className="w-4 h-4 text-indigo-600" />
+          </div>
+          <h2 className="text-base font-semibold text-slate-800">Upload Audit Trace</h2>
+        </div>
+
+        {/* Drop zone */}
+        <div
+          className={[
+            'border-2 border-dashed rounded-2xl p-10 text-center cursor-pointer transition-all duration-200',
+            dragging
+              ? 'border-indigo-500 bg-indigo-50 scale-[1.01]'
+              : 'border-slate-300 bg-white hover:border-indigo-400 hover:bg-slate-50/60',
+          ].join(' ')}
+          onDrop={onDrop}
+          onDragOver={onDragOver}
+          onDragLeave={onDragLeave}
+        >
+          <div className="flex flex-col items-center gap-4">
+            <UploadIcon
+              className={[
+                'w-12 h-12 transition-all duration-300',
+                dragging ? 'text-indigo-500 animate-pulse' : 'text-slate-300',
+              ].join(' ')}
+            />
+            <div>
+              <p className="text-slate-700 font-medium text-sm sm:text-base">
+                {fileName ? (
+                  <span className="text-indigo-600 font-semibold">{fileName}</span>
+                ) : (
+                  <>Drop a{' '}
+                    <span className="font-mono text-slate-500">.jsonl</span>
+                    {' '}file here, or click to select</>
+                )}
+              </p>
+              <p className="text-xs text-slate-400 mt-1">
+                JSONL format — one CanonicalEvent per line
+              </p>
+            </div>
+            <label className="cursor-pointer">
+              <span className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-gradient-to-r from-indigo-500 to-indigo-600 text-white text-sm font-semibold shadow-sm hover:from-indigo-600 hover:to-indigo-700 active:scale-95 transition-all duration-150">
+                <UploadIcon className="w-4 h-4" />
+                Choose file
+              </span>
+              <input
+                type="file"
+                accept=".jsonl,.json"
+                className="sr-only"
+                onChange={onInputChange}
+              />
+            </label>
+          </div>
+        </div>
+
+        {/* Sample traces */}
+        {!fileName && (
+          <div className="mt-3 text-center">
+            <p className="text-xs text-slate-400 mb-2">No file yet? Try an example:</p>
+            <div className="flex flex-wrap justify-center gap-2">
+              {samples.map(({ label, file }) => (
+                <button
+                  key={file}
+                  onClick={() => void loadSample(file)}
+                  className="px-3 py-1.5 rounded-full text-xs font-medium bg-indigo-50 border border-indigo-200 text-indigo-600 hover:bg-indigo-100 transition-colors"
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Parse error */}
+        {parseError && (
+          <div className="mt-3 flex items-start gap-2 px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-700">
+            <WarningIcon className="w-4 h-4 shrink-0 mt-0.5" />
+            <span>{parseError}</span>
+          </div>
+        )}
+      </section>
+
+      {/* Hero */}
+      <section className="pt-6 pb-2 flex flex-col items-center text-center gap-5">
+        <div className="w-20 h-20 rounded-3xl bg-indigo-50 border border-indigo-100 flex items-center justify-center">
+          <ShieldIcon className="w-10 h-10 text-indigo-500" />
+        </div>
+        <div>
+          <h2 className="text-2xl font-bold text-slate-800 mb-2">
+            AI Agent Audit &amp; Compliance Platform
+          </h2>
+          <p className="text-slate-500 text-sm max-w-md mx-auto leading-relaxed">
+            Upload a JSONL audit trace to inspect agent events, score evidence
+            quality, and generate audit reports accepted under{' '}
+            <strong className="text-slate-700">EU AI Act Art.&nbsp;26(6)</strong>.
+          </p>
+        </div>
+        <div className="flex flex-wrap justify-center gap-2">
+          {[
+            { dot: 'bg-blue-500', label: 'Tool call tracing' },
+            { dot: 'bg-amber-500', label: 'Policy decisions' },
+            { dot: 'bg-emerald-500', label: 'Human approvals' },
+            { dot: 'bg-indigo-500', label: 'Model outputs' },
+            { dot: 'bg-red-500', label: 'Error capture' },
+          ].map((f) => (
+            <span
+              key={f.label}
+              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white border border-slate-200 text-xs text-slate-600 shadow-sm"
+            >
+              <span className={`w-2 h-2 rounded-full ${f.dot}`} />
+              {f.label}
+            </span>
+          ))}
+        </div>
+      </section>
+
+      {/* How to use */}
+      <section aria-labelledby="howto-heading">
+        <h2
+          id="howto-heading"
+          className="text-base font-semibold text-slate-800 mb-4 flex items-center gap-2"
+        >
+          <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-600 text-xs font-bold flex items-center justify-center">?</span>
+          How to use
+        </h2>
+        <ol className="grid sm:grid-cols-3 gap-4 list-none">
+          {[
+            {
+              step: '1',
+              title: 'Generate a trace',
+              body: 'Instrument your AI agent with the OpenAgentAudit SDK or any compatible adapter (AEP v0.2, bscode). Each agent action is logged as a CanonicalEvent.',
+              color: 'bg-blue-50 border-blue-100 text-blue-600',
+            },
+            {
+              step: '2',
+              title: 'Upload the .jsonl file',
+              body: 'Drag and drop (or click "Choose file") to load the JSONL trace. Events are parsed locally — no raw data leaves your browser.',
+              color: 'bg-indigo-50 border-indigo-100 text-indigo-600',
+            },
+            {
+              step: '3',
+              title: 'Generate &amp; export report',
+              body: 'Click "Generate Report" to compute an Evidence Admission Score (EAS). Download as HTML, PDF, CSV, JSON, or Markdown.',
+              color: 'bg-violet-50 border-violet-100 text-violet-600',
+            },
+          ].map(({ step, title, body, color }) => (
+            <li key={step} className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm flex flex-col gap-3">
+              <span className={`w-8 h-8 rounded-xl border flex items-center justify-center text-sm font-bold shrink-0 ${color}`}>
+                {step}
+              </span>
+              <div>
+                <div className="font-semibold text-slate-800 text-sm mb-1" dangerouslySetInnerHTML={{ __html: title }} />
+                <p className="text-xs text-slate-500 leading-relaxed">{body}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
+      </section>
+
+      {/* Compliance frameworks */}
+      <section aria-labelledby="compliance-heading">
+        <h2 id="compliance-heading" className="text-base font-semibold text-slate-800 mb-4 flex items-center gap-2">
+          <span className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+            </svg>
+          </span>
+          Compliance coverage
+        </h2>
+        <div className="grid sm:grid-cols-2 gap-4">
+          {[
+            {
+              badge: 'EU AI Act',
+              badgeColor: 'bg-blue-50 text-blue-700 border-blue-200',
+              title: 'EU AI Act — Art. 26(6) Log Retention',
+              body: 'Reports include a signed log retention notice meeting the mandatory record-keeping requirements for high-risk AI system deployers under the EU AI Act.',
+              keywords: ['EUAIA', 'high-risk AI', 'Art. 26', 'log retention', 'GPAI'],
+            },
+            {
+              badge: 'ISO 42001',
+              badgeColor: 'bg-violet-50 text-violet-700 border-violet-200',
+              title: 'ISO/IEC 42001 — AI Management System',
+              body: 'Audit trails produced by OpenAgentAudit support the evidence requirements for ISO 42001 AI management system certification audits.',
+              keywords: ['AI governance', 'AIMS', 'risk management', 'auditability'],
+            },
+            {
+              badge: 'NIST AI RMF',
+              badgeColor: 'bg-amber-50 text-amber-700 border-amber-200',
+              title: 'NIST AI RMF — Govern & Measure',
+              body: 'The Evidence Admission Score (EAS) maps to NIST AI RMF Govern and Measure functions, providing quantified evidence of AI system oversight.',
+              keywords: ['NIST', 'AI risk', 'trustworthy AI', 'measurement'],
+            },
+            {
+              badge: 'SOC 2 / Internal',
+              badgeColor: 'bg-slate-100 text-slate-600 border-slate-200',
+              title: 'SOC 2 & Internal Audit',
+              body: 'Export findings as CSV or JSON to feed into your existing GRC platform, internal audit workflow, or security information system.',
+              keywords: ['SOC 2', 'GRC', 'internal audit', 'security', 'AI transparency'],
+            },
+          ].map(({ badge, badgeColor, title, body, keywords }) => (
+            <div key={badge} className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm flex flex-col gap-3">
+              <div className="flex items-center gap-2">
+                <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full border ${badgeColor}`}>{badge}</span>
+              </div>
+              <div>
+                <div className="font-semibold text-slate-800 text-sm mb-1">{title}</div>
+                <p className="text-xs text-slate-500 leading-relaxed">{body}</p>
+              </div>
+              <div className="flex flex-wrap gap-1.5 mt-auto">
+                {keywords.map((kw) => (
+                  <span key={kw} className="text-[10px] px-2 py-0.5 rounded-full bg-slate-50 border border-slate-200 text-slate-400">{kw}</span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function AuditPage() {
+  const [, navigate] = useLocation()
+  const {
+    events,
+    fileName,
+    fileText,
+    parseError,
+    isAepRecord,
+    aepMeta,
+    reportSummary,
+    reportRunId,
+    reportError,
+    reportGenerating,
+    setReportRunId,
+    setReportError,
+    setReportGenerating,
+    setReportSummary,
+    reset,
+  } = useAudit()
+
+  const [page, setPage] = useState(0)
+
+  const hasEvents = events.length > 0
+  const firstEvent = events[0]
+  const typeCounts = countByType(events)
+  const totalPages = Math.ceil(events.length / PAGE_SIZE)
+  const pageEvents = events.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+
+  // Redirect to home if no data is loaded
+  useEffect(() => {
+    if (!hasEvents && !isAepRecord && !parseError) {
+      navigate('/')
+    }
+  }, [hasEvents, isAepRecord, parseError, navigate])
+
+  // Navigate to report page when a report run ID is set
+  useEffect(() => {
+    if (reportRunId) {
+      navigate(`/runs/${reportRunId}`)
+    }
+  }, [reportRunId, navigate])
 
   const generateReport = async () => {
     if (!fileText) return
@@ -435,10 +698,14 @@ function AppInner() {
         finding_count?: number
         event_count?: number
       }
+      setReportSummary({
+        ...(data.eas_score !== undefined && { eas_score: data.eas_score }),
+        ...(data.eas_grade !== undefined && { eas_grade: data.eas_grade }),
+        ...(data.finding_count !== undefined && { finding_count: data.finding_count }),
+        ...(data.event_count !== undefined && { event_count: data.event_count }),
+      })
       if (data.run_id) {
         setReportRunId(data.run_id)
-        setReportSummary({ ...(data.eas_score !== undefined && { eas_score: data.eas_score }), ...(data.eas_grade !== undefined && { eas_grade: data.eas_grade }), ...(data.finding_count !== undefined && { finding_count: data.finding_count }), ...(data.event_count !== undefined && { event_count: data.event_count }) })
-        navigate(`/runs/${data.run_id}`)
       }
     } catch (err) {
       setReportError(err instanceof Error ? err.message : String(err))
@@ -447,47 +714,416 @@ function AppInner() {
     }
   }
 
-  const firstEvent = events[0]
-  const typeCounts = countByType(events)
-  const totalPages = Math.ceil(events.length / PAGE_SIZE)
-  const pageEvents = events.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
-  const hasEvents = events.length > 0
-  const isEmptyState = !hasEvents && !parseError && !fileName && !isAepRecord
+  return (
+    <div className="space-y-10">
+      <section>
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-lg bg-indigo-100 flex items-center justify-center">
+              <DocumentIcon className="w-4 h-4 text-indigo-600" />
+            </div>
+            <h2 className="text-base font-semibold text-slate-800">Audit Summary</h2>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => { reset(); navigate('/') }}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white border border-slate-200 text-slate-500 text-xs font-medium hover:border-slate-300 hover:bg-slate-50 transition-all duration-150"
+            >
+              New file
+            </button>
+            <button
+              onClick={() => void generateReport()}
+              disabled={reportGenerating}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-indigo-500 to-indigo-600 text-white text-sm font-semibold shadow-sm hover:from-indigo-600 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 transition-all duration-150"
+            >
+              {reportGenerating ? (
+                <>
+                  <Spinner className="h-4 w-4" />
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <DocumentIcon className="h-4 w-4" />
+                  Generate Report
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+
+        {reportError && (
+          <div className="mb-4 flex items-start gap-2 px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-700">
+            <WarningIcon className="w-4 h-4 shrink-0 mt-0.5" />
+            <span>{reportError}</span>
+          </div>
+        )}
+
+        {parseError && (
+          <div className="mb-4 flex items-start gap-2 px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-700">
+            <WarningIcon className="w-4 h-4 shrink-0 mt-0.5" />
+            <span>{parseError}</span>
+          </div>
+        )}
+
+        {isAepRecord && !parseError && (
+          <div className="mb-4 flex items-start gap-2 px-4 py-3 rounded-xl bg-indigo-50 border border-indigo-200 text-sm text-indigo-700">
+            <ShieldIcon className="w-4 h-4 shrink-0 mt-0.5" />
+            <span>
+              <strong>AEP evidence record detected</strong> — this file will be converted to canonical events server-side when you generate the report. Event preview is not available for AEP JSON files.
+            </span>
+          </div>
+        )}
+
+        {isAepRecord ? (
+          <div className="rounded-2xl border border-indigo-200 bg-gradient-to-br from-indigo-50 to-violet-50 p-5">
+            {reportSummary ? (
+              <div>
+                <div className="flex items-center gap-2 mb-4">
+                  <CheckCircleIcon className="w-5 h-5 text-emerald-500 shrink-0" />
+                  <span className="font-semibold text-slate-800 text-sm">Report generated for <span className="font-mono text-indigo-600">{fileName}</span></span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="bg-white rounded-xl border border-slate-200 p-3 text-center shadow-sm">
+                    <div className="text-[10px] uppercase tracking-widest text-slate-400 mb-1">EAS Score</div>
+                    <div className="text-2xl font-bold text-indigo-600">{reportSummary.eas_score ?? '—'}</div>
+                    <div className="text-xs text-slate-500 mt-0.5">Grade {reportSummary.eas_grade ?? '—'}</div>
+                  </div>
+                  <div className="bg-white rounded-xl border border-slate-200 p-3 text-center shadow-sm">
+                    <div className="text-[10px] uppercase tracking-widest text-slate-400 mb-1">Events</div>
+                    <div className="text-2xl font-bold text-slate-700">{reportSummary.event_count ?? '—'}</div>
+                  </div>
+                  <div className="bg-white rounded-xl border border-slate-200 p-3 text-center shadow-sm">
+                    <div className="text-[10px] uppercase tracking-widest text-slate-400 mb-1">Findings</div>
+                    <div className={`text-2xl font-bold ${(reportSummary.finding_count ?? 0) > 0 ? 'text-amber-500' : 'text-emerald-500'}`}>{reportSummary.finding_count ?? 0}</div>
+                  </div>
+                  <div className="bg-white rounded-xl border border-slate-200 p-3 text-center shadow-sm">
+                    <div className="text-[10px] uppercase tracking-widest text-slate-400 mb-1">Model</div>
+                    <div className="text-xs font-semibold text-slate-700 mt-1 truncate">{aepMeta?.model_id ?? '—'}</div>
+                    <div className="text-[10px] text-slate-400">{aepMeta?.model_provider ?? ''}</div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <div className="flex items-center gap-2 mb-4">
+                  <ShieldIcon className="w-5 h-5 text-indigo-400 shrink-0" />
+                  <span className="font-semibold text-slate-800 text-sm">AEP record loaded: <span className="font-mono text-indigo-600">{fileName}</span></span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="bg-white/70 rounded-xl border border-indigo-100 p-3 shadow-sm">
+                    <div className="text-[10px] uppercase tracking-widest text-slate-400 mb-1">Run ID</div>
+                    <div className="text-xs font-mono text-slate-700 truncate">{aepMeta?.run_id ?? '—'}</div>
+                  </div>
+                  <div className="bg-white/70 rounded-xl border border-indigo-100 p-3 shadow-sm">
+                    <div className="text-[10px] uppercase tracking-widest text-slate-400 mb-1">Model</div>
+                    <div className="text-xs font-semibold text-slate-700 truncate">{aepMeta?.model_id ?? '—'}</div>
+                    <div className="text-[10px] text-slate-400">{aepMeta?.model_provider ?? ''}</div>
+                  </div>
+                  <div className="bg-white/70 rounded-xl border border-indigo-100 p-3 shadow-sm">
+                    <div className="text-[10px] uppercase tracking-widest text-slate-400 mb-1">Actions</div>
+                    <div className="text-xl font-bold text-slate-700">{aepMeta?.actions ?? '—'}</div>
+                  </div>
+                  <div className="bg-white/70 rounded-xl border border-indigo-100 p-3 shadow-sm">
+                    <div className="text-[10px] uppercase tracking-widest text-slate-400 mb-1">Schema</div>
+                    <div className="text-xs font-mono text-indigo-600">{aepMeta?.schema_version ?? '—'}</div>
+                  </div>
+                </div>
+                <p className="text-xs text-slate-400 mt-3 text-center">Click <strong className="text-slate-600">Generate Report</strong> to run the full audit pipeline.</p>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <SummaryCard label="Total Events" value={events.length} />
+            <SummaryCard label="Run ID" value={firstEvent?.run_id ?? '—'} />
+            <SummaryCard label="Agent ID" value={firstEvent?.agent_id ?? '—'} />
+            <SummaryCard label="Model ID" value={firstEvent?.model_id ?? '—'} />
+          </div>
+        )}
+
+        {hasEvents && (
+          <div className="mt-4 bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+            <div className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-4">
+              Event Type Breakdown
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {Object.entries(typeCounts)
+                .sort((a, b) => b[1] - a[1])
+                .map(([type, count]) => {
+                  const s = typeStyle(type)
+                  return (
+                    <span
+                      key={type}
+                      className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium ${s.chip} shadow-sm`}
+                    >
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${s.dot}`} />
+                      <span>{type}</span>
+                      <span className={`px-1.5 py-0.5 rounded-full font-bold text-[10px] ${s.chip} opacity-90`}>
+                        {count}
+                      </span>
+                    </span>
+                  )
+                })}
+            </div>
+          </div>
+        )}
+      </section>
+
+      {hasEvents && (
+        <section>
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-baseline gap-2">
+              <h2 className="text-base font-semibold text-slate-800">Events</h2>
+              {totalPages > 1 && (
+                <span className="text-sm text-slate-400">
+                  page {page + 1} of {totalPages}
+                </span>
+              )}
+            </div>
+            {totalPages > 1 && (
+              <div className="flex items-center gap-1.5">
+                <button
+                  className="px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:border-indigo-300 disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-150"
+                  disabled={page === 0}
+                  onClick={() => setPage((p) => p - 1)}
+                >
+                  Previous
+                </button>
+                <span className="px-2 text-xs text-slate-400">{page + 1} / {totalPages}</span>
+                <button
+                  className="px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:border-indigo-300 disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-150"
+                  disabled={page >= totalPages - 1}
+                  onClick={() => setPage((p) => p + 1)}
+                >
+                  Next
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-slate-100 text-sm">
+                <thead className="bg-slate-50 sticky top-0">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-widest w-44">Event ID</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-widest">Type</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-widest">Actor</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-widest w-44">Timestamp</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-widest">Details</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {pageEvents.map((ev, idx) => (
+                    <tr
+                      key={ev.event_id ?? idx}
+                      className="hover:bg-slate-50/60 transition-colors duration-100"
+                    >
+                      <td className="px-4 py-3 font-mono text-xs text-slate-400 truncate max-w-[11rem]">{ev.event_id ?? '—'}</td>
+                      <td className="px-4 py-3"><TypeBadge type={ev.type} /></td>
+                      <td className="px-4 py-3 text-sm text-slate-700">{ev.actor ?? '—'}</td>
+                      <td className="px-4 py-3 font-mono text-xs text-slate-400 whitespace-nowrap">
+                        {ev.timestamp
+                          ? new Date(ev.timestamp).toISOString().replace('T', ' ').replace('Z', ' UTC')
+                          : '—'}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-slate-500 truncate max-w-xs">{eventDetails(ev)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-2 mt-4">
+              <button
+                className="px-4 py-2 text-xs font-medium rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:border-indigo-300 disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-150"
+                disabled={page === 0}
+                onClick={() => setPage((p) => p - 1)}
+              >
+                Previous
+              </button>
+              <span className="px-3 py-2 text-xs text-slate-500 bg-white border border-slate-200 rounded-lg">
+                {page + 1} / {totalPages}
+              </span>
+              <button
+                className="px-4 py-2 text-xs font-medium rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:border-indigo-300 disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-150"
+                disabled={page >= totalPages - 1}
+                onClick={() => setPage((p) => p + 1)}
+              >
+                Next
+              </button>
+            </div>
+          )}
+        </section>
+      )}
+    </div>
+  )
+}
+
+function ReportPage() {
+  const params = useParams<{ runId: string }>()
+  const runId = params.runId
+  const { fileName, aepMeta, reportSummary, reset } = useAudit()
+  const [, navigate] = useLocation()
+
+  return (
+    <div className="space-y-10">
+      <section>
+        <div className="rounded-2xl bg-gradient-to-br from-indigo-50 to-violet-50 border border-indigo-200 p-5">
+          <div className="flex items-center gap-2.5 mb-5">
+            <CheckCircleIcon className="h-5 w-5 text-emerald-600 shrink-0" />
+            <span className="font-semibold text-slate-900">Audit Report Ready</span>
+            <span className="ml-auto text-xs text-slate-400 font-mono bg-white/70 px-2 py-0.5 rounded">
+              {runId.slice(0, 8)}...
+            </span>
+          </div>
+
+          {reportSummary && (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+              <div className="bg-white rounded-xl border border-slate-200 p-3 text-center shadow-sm">
+                <div className="text-[10px] uppercase tracking-widest text-slate-400 mb-1">EAS Score</div>
+                <div className="text-2xl font-bold text-indigo-600">{reportSummary.eas_score ?? '—'}</div>
+                <div className="text-xs text-slate-500 mt-0.5">Grade {reportSummary.eas_grade ?? '—'}</div>
+              </div>
+              <div className="bg-white rounded-xl border border-slate-200 p-3 text-center shadow-sm">
+                <div className="text-[10px] uppercase tracking-widest text-slate-400 mb-1">Events</div>
+                <div className="text-2xl font-bold text-slate-700">{reportSummary.event_count ?? '—'}</div>
+              </div>
+              <div className="bg-white rounded-xl border border-slate-200 p-3 text-center shadow-sm">
+                <div className="text-[10px] uppercase tracking-widest text-slate-400 mb-1">Findings</div>
+                <div className={`text-2xl font-bold ${(reportSummary.finding_count ?? 0) > 0 ? 'text-amber-500' : 'text-emerald-500'}`}>
+                  {reportSummary.finding_count ?? 0}
+                </div>
+              </div>
+              <div className="bg-white rounded-xl border border-slate-200 p-3 text-center shadow-sm">
+                <div className="text-[10px] uppercase tracking-widest text-slate-400 mb-1">Model</div>
+                <div className="text-xs font-semibold text-slate-700 mt-1 truncate">{aepMeta?.model_id ?? (fileName ?? '—')}</div>
+                <div className="text-[10px] text-slate-400">{aepMeta?.model_provider ?? ''}</div>
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <a
+              href={`/api/v1/runs/${runId}/report?format=html`}
+              target="_blank"
+              rel="noreferrer"
+              className="col-span-2 flex flex-col items-center justify-center gap-2 py-5 px-4 rounded-2xl bg-gradient-to-br from-indigo-500 to-indigo-600 text-white hover:from-indigo-600 hover:to-violet-600 active:scale-[0.98] transition-all duration-150 shadow-md"
+            >
+              <DocumentIcon className="h-8 w-8" />
+              <span className="font-bold text-sm">Full Report</span>
+              <span className="text-xs opacity-80">View · Print · Save PDF</span>
+            </a>
+
+            <a
+              href={`/api/v1/runs/${runId}/report?format=csv`}
+              target="_blank"
+              rel="noreferrer"
+              className="flex flex-col items-center justify-center gap-2 py-5 px-4 rounded-2xl bg-white border border-slate-200 text-slate-700 hover:border-emerald-300 hover:bg-emerald-50/30 active:scale-[0.98] transition-all duration-150 shadow-sm"
+            >
+              <svg className="h-7 w-7 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 10h18M3 14h18M10 3v18M6 3h12a3 3 0 013 3v12a3 3 0 01-3 3H6a3 3 0 01-3-3V6a3 3 0 013-3z"/>
+              </svg>
+              <span className="font-semibold text-sm">CSV</span>
+              <span className="text-xs text-slate-400">Findings</span>
+            </a>
+
+            <a
+              href={`/api/v1/runs/${runId}/report?format=json`}
+              target="_blank"
+              rel="noreferrer"
+              className="flex flex-col items-center justify-center gap-2 py-5 px-4 rounded-2xl bg-white border border-slate-200 text-slate-700 hover:border-orange-300 hover:bg-orange-50/30 active:scale-[0.98] transition-all duration-150 shadow-sm"
+            >
+              <svg className="h-7 w-7 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/>
+              </svg>
+              <span className="font-semibold text-sm">JSON</span>
+              <span className="text-xs text-slate-400">Machine-readable</span>
+            </a>
+
+            <a
+              href={`/api/v1/runs/${runId}/report?format=md`}
+              target="_blank"
+              rel="noreferrer"
+              className="col-span-2 sm:col-span-4 flex items-center justify-center gap-2 py-3 px-4 rounded-2xl bg-white border border-slate-200 text-slate-700 hover:border-slate-400 hover:bg-slate-50 active:scale-[0.98] transition-all duration-150 shadow-sm"
+            >
+              <svg className="h-5 w-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"/>
+              </svg>
+              <span className="font-semibold text-sm">Markdown</span>
+              <span className="text-xs text-slate-400">Plain text · Version control friendly</span>
+            </a>
+          </div>
+        </div>
+
+        <div className="mt-4 text-center">
+          <button
+            onClick={() => { reset(); navigate('/') }}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white border border-slate-200 text-slate-600 text-sm font-medium hover:border-indigo-300 hover:bg-indigo-50/30 transition-all duration-150"
+          >
+            Audit another file
+          </button>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+// ---------- App shell ----------
+
+function AppShell() {
+  const { fileName, isAepRecord, reset } = useAudit()
+  const [config, setConfig] = useState<SiteConfig>(DEFAULT_CONFIG)
+  const [location, navigate] = useLocation()
+
+  useEffect(() => {
+    fetch('/api/v1/config')
+      .then((r) => r.json())
+      .then((d) => setConfig(d as SiteConfig))
+      .catch(() => { /* keep default */ })
+  }, [])
+
+  const crumbs: Crumb[] = (() => {
+    if (location === '/') {
+      return [{ label: 'Home' }]
+    }
+    if (location === '/audit') {
+      return [
+        { label: 'Home', href: '/' },
+        { label: fileName ? `Audit Trace — ${fileName}` : 'Audit Trace' },
+      ]
+    }
+    if (location.startsWith('/runs/')) {
+      return [
+        { label: 'Home', href: '/' },
+        { label: fileName ? `Audit Trace — ${fileName}` : 'Audit Trace', href: '/audit' },
+        { label: 'Report' },
+      ]
+    }
+    return [{ label: 'Home' }]
+  })()
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
-
-      {/* Top accent gradient bar */}
       <div className="h-[3px] w-full bg-gradient-to-r from-violet-500 to-indigo-600 shrink-0" />
 
-      {/* Header */}
       <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-sm border-b border-slate-200 shadow-sm">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex items-center gap-3">
-          {/* Logo mark — click to reset to homepage */}
           <button
-            onClick={() => {
-              setEvents([]); setFileName(null); setFileText(''); setParseError(null);
-              setIsAepRecord(false); setAepMeta(null); setReportSummary(null);
-              setReportRunId(null); setReportError(null); setPage(0);
-              navigate('/')
-            }}
+            onClick={() => { reset(); navigate('/') }}
             className="shrink-0 w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shadow-sm hover:opacity-90 transition-opacity cursor-pointer"
             aria-label="Back to home"
           >
             <ShieldIcon className="w-5 h-5 text-white" />
           </button>
 
-          {/* Site name + tagline */}
           <div className="flex items-baseline gap-2.5 min-w-0">
-            <h1 className="text-lg font-bold text-slate-900 shrink-0">
-              {config.site_name}
-            </h1>
-            <span className="hidden sm:block text-sm text-slate-500 truncate">
-              {config.site_tagline}
-            </span>
+            <h1 className="text-lg font-bold text-slate-900 shrink-0">{config.site_name}</h1>
+            <span className="hidden sm:block text-sm text-slate-500 truncate">{config.site_tagline}</span>
           </div>
 
-          {/* Powered-by pill */}
           <div className="ml-auto shrink-0">
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-50 border border-indigo-100 text-xs font-medium text-indigo-600 whitespace-nowrap">
               <span className="text-slate-400 font-normal hidden sm:inline">Powered by</span>
@@ -497,626 +1133,16 @@ function AppInner() {
         </div>
       </header>
 
-      {/* Breadcrumb */}
-      <div className="border-b border-slate-100 bg-white">
-        <Breadcrumb crumbs={
-          location.startsWith('/runs/')
-            ? [
-                { label: 'Home', href: '/' },
-                { label: fileName ?? 'Audit Trace', href: '/audit' },
-                { label: `Report ${location.replace('/runs/', '').slice(0, 8)}…` },
-              ]
-            : location === '/audit'
-            ? [
-                { label: 'Home', href: '/' },
-                { label: fileName ?? 'Audit Trace' },
-              ]
-            : [{ label: 'Home' }]
-        } />
-      </div>
+      <Breadcrumb crumbs={crumbs} />
 
-      {/* Main content */}
       <main className="flex-1 max-w-5xl mx-auto w-full px-4 sm:px-6 py-8 space-y-10">
-
-        {/* Upload section */}
-        <section>
-          <div className="flex items-center gap-2 mb-4">
-            <div className="w-7 h-7 rounded-lg bg-indigo-100 flex items-center justify-center">
-              <UploadIcon className="w-4 h-4 text-indigo-600" />
-            </div>
-            <h2 className="text-base font-semibold text-slate-800">Upload Audit Trace</h2>
-          </div>
-
-          {/* Drop zone */}
-          <div
-            className={[
-              'border-2 border-dashed rounded-2xl p-10 text-center cursor-pointer transition-all duration-200',
-              dragging
-                ? 'border-indigo-500 bg-indigo-50 scale-[1.01]'
-                : 'border-slate-300 bg-white hover:border-indigo-400 hover:bg-slate-50/60',
-            ].join(' ')}
-            onDrop={onDrop}
-            onDragOver={onDragOver}
-            onDragLeave={onDragLeave}
-          >
-            <div className="flex flex-col items-center gap-4">
-              <UploadIcon
-                className={[
-                  'w-12 h-12 transition-all duration-300',
-                  dragging
-                    ? 'text-indigo-500 animate-pulse'
-                    : 'text-slate-300',
-                ].join(' ')}
-              />
-              <div>
-                <p className="text-slate-700 font-medium text-sm sm:text-base">
-                  {fileName ? (
-                    <span className="text-indigo-600 font-semibold">{fileName}</span>
-                  ) : (
-                    <>Drop a{' '}
-                      <span className="font-mono text-slate-500">.jsonl</span>
-                      {' '}file here, or click to select</>
-                  )}
-                </p>
-                <p className="text-xs text-slate-400 mt-1">
-                  JSONL format — one CanonicalEvent per line
-                </p>
-              </div>
-              <label className="cursor-pointer">
-                <span className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-gradient-to-r from-indigo-500 to-indigo-600 text-white text-sm font-semibold shadow-sm hover:from-indigo-600 hover:to-indigo-700 active:scale-95 transition-all duration-150">
-                  <UploadIcon className="w-4 h-4" />
-                  Choose file
-                </span>
-                <input
-                  type="file"
-                  accept=".jsonl,.json"
-                  className="sr-only"
-                  onChange={onInputChange}
-                />
-              </label>
-            </div>
-          </div>
-
-          {/* Sample traces — load directly */}
-          {!fileName && (
-            <div className="mt-3 text-center">
-              <p className="text-xs text-slate-400 mb-2">No file yet? Try an example:</p>
-              <div className="flex flex-wrap justify-center gap-2">
-                {[
-                  { label: 'wasmagent-js (Example)', file: 'wasmagent-js-runtime.aep.json' },
-                  { label: 'bscode (Example)', file: 'bscode-session.aep.json' },
-                ].map(({ label, file }) => (
-                  <button
-                    key={file}
-                    onClick={async () => {
-                      const url = `https://raw.githubusercontent.com/WasmAgent/open-agent-audit/main/examples/traces/${file}`
-                      try {
-                        const res = await fetch(url)
-                        if (!res.ok) throw new Error(`HTTP ${res.status}`)
-                        const text = await res.text()
-                        setParseError(null)
-                        setFileName(file)
-                        setIsAepRecord(false)
-                        setAepMeta(null)
-                        setReportSummary(null)
-                        setFileText(text)
-                        setPage(0)
-                        setReportRunId(null)
-                        setReportError(null)
-                        if (isAepJson(text)) {
-                          setIsAepRecord(true)
-                          setEvents([])
-                          try {
-                            const aep = JSON.parse(text) as Record<string, unknown>
-                            setAepMeta(buildAepMeta(aep))
-                          } catch { /* best-effort */ }
-                          navigate('/audit')
-                        } else {
-                          const parsed = parseJsonl(text)
-                          setEvents(parsed)
-                          if (parsed.length === 0) {
-                            setParseError('No valid JSON lines found in the file.')
-                          } else {
-                            navigate('/audit')
-                          }
-                        }
-                      } catch (e) {
-                        setParseError(`Failed to load sample: ${e instanceof Error ? e.message : String(e)}`)
-                      }
-                    }}
-                    className="px-3 py-1.5 rounded-full text-xs font-medium bg-indigo-50 border border-indigo-200 text-indigo-600 hover:bg-indigo-100 transition-colors"
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Parse error */}
-          {parseError && (
-            <div className="mt-3 flex items-start gap-2 px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-700">
-              <WarningIcon className="w-4 h-4 shrink-0 mt-0.5" />
-              <span>{parseError}</span>
-            </div>
-          )}
-
-          {/* AEP JSON info banner */}
-          {isAepRecord && !parseError && (
-            <div className="mt-3 flex items-start gap-2 px-4 py-3 rounded-xl bg-indigo-50 border border-indigo-200 text-sm text-indigo-700">
-              <ShieldIcon className="w-4 h-4 shrink-0 mt-0.5" />
-              <span>
-                <strong>AEP evidence record detected</strong> — this file will be converted to canonical events server-side when you generate the report. Event preview is not available for AEP JSON files.
-              </span>
-            </div>
-          )}
-        </section>
-
-        {/* Empty state — hero + how-to + compliance */}
-        {isEmptyState && (
-          <>
-            {/* Hero */}
-            <section className="pt-6 pb-2 flex flex-col items-center text-center gap-5">
-              <div className="w-20 h-20 rounded-3xl bg-indigo-50 border border-indigo-100 flex items-center justify-center">
-                <ShieldIcon className="w-10 h-10 text-indigo-500" />
-              </div>
-              <div>
-                <h2 className="text-2xl font-bold text-slate-800 mb-2">
-                  AI Agent Audit &amp; Compliance Platform
-                </h2>
-                <p className="text-slate-500 text-sm max-w-md mx-auto leading-relaxed">
-                  Upload a JSONL audit trace to inspect agent events, score evidence
-                  quality, and generate audit reports accepted under{' '}
-                  <strong className="text-slate-700">EU AI Act Art.&nbsp;26(6)</strong>.
-                </p>
-              </div>
-              <div className="flex flex-wrap justify-center gap-2">
-                {[
-                  { dot: 'bg-blue-500', label: 'Tool call tracing' },
-                  { dot: 'bg-amber-500', label: 'Policy decisions' },
-                  { dot: 'bg-emerald-500', label: 'Human approvals' },
-                  { dot: 'bg-indigo-500', label: 'Model outputs' },
-                  { dot: 'bg-red-500', label: 'Error capture' },
-                ].map((f) => (
-                  <span
-                    key={f.label}
-                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white border border-slate-200 text-xs text-slate-600 shadow-sm"
-                  >
-                    <span className={`w-2 h-2 rounded-full ${f.dot}`} />
-                    {f.label}
-                  </span>
-                ))}
-              </div>
-            </section>
-
-            {/* How to use — 3 steps */}
-            <section aria-labelledby="howto-heading">
-              <h2 id="howto-heading" className="text-base font-semibold text-slate-800 mb-4 flex items-center gap-2">
-                <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-600 text-xs font-bold flex items-center justify-center">?</span>
-                How to use
-              </h2>
-              <ol className="grid sm:grid-cols-3 gap-4 list-none">
-                {[
-                  {
-                    step: '1',
-                    title: 'Generate a trace',
-                    body: 'Instrument your AI agent with the OpenAgentAudit SDK or any compatible adapter (AEP v0.2, bscode). Each agent action is logged as a CanonicalEvent.',
-                    color: 'bg-blue-50 border-blue-100 text-blue-600',
-                  },
-                  {
-                    step: '2',
-                    title: 'Upload the .jsonl file',
-                    body: 'Drag and drop (or click "Choose file") to load the JSONL trace. Events are parsed locally — no raw data leaves your browser.',
-                    color: 'bg-indigo-50 border-indigo-100 text-indigo-600',
-                  },
-                  {
-                    step: '3',
-                    title: 'Generate &amp; export report',
-                    body: 'Click "Generate Report" to compute an Evidence Admission Score (EAS). Download as HTML, PDF, CSV, JSON, or Markdown.',
-                    color: 'bg-violet-50 border-violet-100 text-violet-600',
-                  },
-                ].map(({ step, title, body, color }) => (
-                  <li key={step} className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm flex flex-col gap-3">
-                    <span className={`w-8 h-8 rounded-xl border flex items-center justify-center text-sm font-bold shrink-0 ${color}`}>
-                      {step}
-                    </span>
-                    <div>
-                      <div className="font-semibold text-slate-800 text-sm mb-1" dangerouslySetInnerHTML={{ __html: title }} />
-                      <p className="text-xs text-slate-500 leading-relaxed">{body}</p>
-                    </div>
-                  </li>
-                ))}
-              </ol>
-            </section>
-
-            {/* Compliance frameworks */}
-            <section aria-labelledby="compliance-heading">
-              <h2 id="compliance-heading" className="text-base font-semibold text-slate-800 mb-4 flex items-center gap-2">
-                <span className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                  </svg>
-                </span>
-                Compliance coverage
-              </h2>
-              <div className="grid sm:grid-cols-2 gap-4">
-                {[
-                  {
-                    badge: 'EU AI Act',
-                    badgeColor: 'bg-blue-50 text-blue-700 border-blue-200',
-                    title: 'EU AI Act — Art. 26(6) Log Retention',
-                    body: 'Reports include a signed log retention notice meeting the mandatory record-keeping requirements for high-risk AI system deployers under the EU AI Act.',
-                    keywords: ['EUAIA', 'high-risk AI', 'Art. 26', 'log retention', 'GPAI'],
-                  },
-                  {
-                    badge: 'ISO 42001',
-                    badgeColor: 'bg-violet-50 text-violet-700 border-violet-200',
-                    title: 'ISO/IEC 42001 — AI Management System',
-                    body: 'Audit trails produced by OpenAgentAudit support the evidence requirements for ISO 42001 AI management system certification audits.',
-                    keywords: ['AI governance', 'AIMS', 'risk management', 'auditability'],
-                  },
-                  {
-                    badge: 'NIST AI RMF',
-                    badgeColor: 'bg-amber-50 text-amber-700 border-amber-200',
-                    title: 'NIST AI RMF — Govern & Measure',
-                    body: 'The Evidence Admission Score (EAS) maps to NIST AI RMF Govern and Measure functions, providing quantified evidence of AI system oversight.',
-                    keywords: ['NIST', 'AI risk', 'trustworthy AI', 'measurement'],
-                  },
-                  {
-                    badge: 'SOC 2 / Internal',
-                    badgeColor: 'bg-slate-100 text-slate-600 border-slate-200',
-                    title: 'SOC 2 & Internal Audit',
-                    body: 'Export findings as CSV or JSON to feed into your existing GRC platform, internal audit workflow, or security information system.',
-                    keywords: ['SOC 2', 'GRC', 'internal audit', 'security', 'AI transparency'],
-                  },
-                ].map(({ badge, badgeColor, title, body, keywords }) => (
-                  <div key={badge} className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm flex flex-col gap-3">
-                    <div className="flex items-center gap-2">
-                      <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full border ${badgeColor}`}>{badge}</span>
-                    </div>
-                    <div>
-                      <div className="font-semibold text-slate-800 text-sm mb-1">{title}</div>
-                      <p className="text-xs text-slate-500 leading-relaxed">{body}</p>
-                    </div>
-                    <div className="flex flex-wrap gap-1.5 mt-auto">
-                      {keywords.map((kw) => (
-                        <span key={kw} className="text-[10px] px-2 py-0.5 rounded-full bg-slate-50 border border-slate-200 text-slate-400">{kw}</span>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-          </>
-        )}
-
-        {/* Summary section */}
-        {(hasEvents || isAepRecord) && (
-          <section>
-            {/* Heading row */}
-            <div className="flex items-center justify-between mb-5">
-              <div className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-lg bg-indigo-100 flex items-center justify-center">
-                  <DocumentIcon className="w-4 h-4 text-indigo-600" />
-                </div>
-                <h2 className="text-base font-semibold text-slate-800">Audit Summary</h2>
-              </div>
-              <button
-                onClick={generateReport}
-                disabled={reportGenerating}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-indigo-500 to-indigo-600 text-white text-sm font-semibold shadow-sm hover:from-indigo-600 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 transition-all duration-150"
-              >
-                {reportGenerating ? (
-                  <>
-                    <Spinner className="h-4 w-4" />
-                    Generating...
-                  </>
-                ) : (
-                  <>
-                    <DocumentIcon className="h-4 w-4" />
-                    Generate Report
-                  </>
-                )}
-              </button>
-            </div>
-
-            {/* Report error */}
-            {reportError && (
-              <div className="mb-4 flex items-start gap-2 px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-700">
-                <WarningIcon className="w-4 h-4 shrink-0 mt-0.5" />
-                <span>{reportError}</span>
-              </div>
-            )}
-
-            {/* Report ready banner */}
-            {reportRunId && (
-              <div className="mb-6 rounded-2xl bg-gradient-to-br from-indigo-50 to-violet-50 border border-indigo-200 p-5">
-                <div className="flex items-center gap-2.5 mb-5">
-                  <CheckCircleIcon className="h-5 w-5 text-emerald-600 shrink-0" />
-                  <span className="font-semibold text-slate-900">Audit Report Ready</span>
-                  <span className="ml-auto text-xs text-slate-400 font-mono bg-white/70 px-2 py-0.5 rounded">
-                    {reportRunId.slice(0, 8)}...
-                  </span>
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  {/* Full report — spans 2 cols */}
-                  <a
-                    href={`/api/v1/runs/${reportRunId}/report?format=html`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="col-span-2 flex flex-col items-center justify-center gap-2 py-5 px-4 rounded-2xl bg-gradient-to-br from-indigo-500 to-indigo-600 text-white hover:from-indigo-600 hover:to-violet-600 active:scale-[0.98] transition-all duration-150 shadow-md"
-                  >
-                    <DocumentIcon className="h-8 w-8" />
-                    <span className="font-bold text-sm">Full Report</span>
-                    <span className="text-xs opacity-80">View · Print · Save PDF</span>
-                  </a>
-
-                  {/* CSV */}
-                  <a
-                    href={`/api/v1/runs/${reportRunId}/report?format=csv`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex flex-col items-center justify-center gap-2 py-5 px-4 rounded-2xl bg-white border border-slate-200 text-slate-700 hover:border-emerald-300 hover:bg-emerald-50/30 active:scale-[0.98] transition-all duration-150 shadow-sm"
-                  >
-                    <svg className="h-7 w-7 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 10h18M3 14h18M10 3v18M6 3h12a3 3 0 013 3v12a3 3 0 01-3 3H6a3 3 0 01-3-3V6a3 3 0 013-3z"/>
-                    </svg>
-                    <span className="font-semibold text-sm">CSV</span>
-                    <span className="text-xs text-slate-400">Findings</span>
-                  </a>
-
-                  {/* JSON */}
-                  <a
-                    href={`/api/v1/runs/${reportRunId}/report?format=json`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex flex-col items-center justify-center gap-2 py-5 px-4 rounded-2xl bg-white border border-slate-200 text-slate-700 hover:border-orange-300 hover:bg-orange-50/30 active:scale-[0.98] transition-all duration-150 shadow-sm"
-                  >
-                    <svg className="h-7 w-7 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/>
-                    </svg>
-                    <span className="font-semibold text-sm">JSON</span>
-                    <span className="text-xs text-slate-400">Machine-readable</span>
-                  </a>
-
-                  {/* Markdown — full row on mobile, last col sm+ */}
-                  <a
-                    href={`/api/v1/runs/${reportRunId}/report?format=md`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="col-span-2 sm:col-span-4 flex items-center justify-center gap-2 py-3 px-4 rounded-2xl bg-white border border-slate-200 text-slate-700 hover:border-slate-400 hover:bg-slate-50 active:scale-[0.98] transition-all duration-150 shadow-sm"
-                  >
-                    <svg className="h-5 w-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"/>
-                    </svg>
-                    <span className="font-semibold text-sm">Markdown</span>
-                    <span className="text-xs text-slate-400">Plain text · Version control friendly</span>
-                  </a>
-                </div>
-              </div>
-            )}
-
-            {/* AEP card — shows metadata before report, summary after */}
-            {isAepRecord ? (
-              <div className="rounded-2xl border border-indigo-200 bg-gradient-to-br from-indigo-50 to-violet-50 p-5">
-                {reportSummary ? (
-                  /* Post-report: show EAS score + key stats */
-                  <div>
-                    <div className="flex items-center gap-2 mb-4">
-                      <CheckCircleIcon className="w-5 h-5 text-emerald-500 shrink-0" />
-                      <span className="font-semibold text-slate-800 text-sm">Report generated for <span className="font-mono text-indigo-600">{fileName}</span></span>
-                    </div>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                      <div className="bg-white rounded-xl border border-slate-200 p-3 text-center shadow-sm">
-                        <div className="text-[10px] uppercase tracking-widest text-slate-400 mb-1">EAS Score</div>
-                        <div className="text-2xl font-bold text-indigo-600">{reportSummary.eas_score ?? '—'}</div>
-                        <div className="text-xs text-slate-500 mt-0.5">Grade {reportSummary.eas_grade ?? '—'}</div>
-                      </div>
-                      <div className="bg-white rounded-xl border border-slate-200 p-3 text-center shadow-sm">
-                        <div className="text-[10px] uppercase tracking-widest text-slate-400 mb-1">Events</div>
-                        <div className="text-2xl font-bold text-slate-700">{reportSummary.event_count ?? '—'}</div>
-                      </div>
-                      <div className="bg-white rounded-xl border border-slate-200 p-3 text-center shadow-sm">
-                        <div className="text-[10px] uppercase tracking-widest text-slate-400 mb-1">Findings</div>
-                        <div className={`text-2xl font-bold ${(reportSummary.finding_count ?? 0) > 0 ? 'text-amber-500' : 'text-emerald-500'}`}>{reportSummary.finding_count ?? 0}</div>
-                      </div>
-                      <div className="bg-white rounded-xl border border-slate-200 p-3 text-center shadow-sm">
-                        <div className="text-[10px] uppercase tracking-widest text-slate-400 mb-1">Model</div>
-                        <div className="text-xs font-semibold text-slate-700 mt-1 truncate">{aepMeta?.model_id ?? '—'}</div>
-                        <div className="text-[10px] text-slate-400">{aepMeta?.model_provider ?? ''}</div>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  /* Pre-report: show AEP metadata */
-                  <div>
-                    <div className="flex items-center gap-2 mb-4">
-                      <ShieldIcon className="w-5 h-5 text-indigo-400 shrink-0" />
-                      <span className="font-semibold text-slate-800 text-sm">AEP record loaded: <span className="font-mono text-indigo-600">{fileName}</span></span>
-                    </div>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                      <div className="bg-white/70 rounded-xl border border-indigo-100 p-3 shadow-sm">
-                        <div className="text-[10px] uppercase tracking-widest text-slate-400 mb-1">Run ID</div>
-                        <div className="text-xs font-mono text-slate-700 truncate">{aepMeta?.run_id ?? '—'}</div>
-                      </div>
-                      <div className="bg-white/70 rounded-xl border border-indigo-100 p-3 shadow-sm">
-                        <div className="text-[10px] uppercase tracking-widest text-slate-400 mb-1">Model</div>
-                        <div className="text-xs font-semibold text-slate-700 truncate">{aepMeta?.model_id ?? '—'}</div>
-                        <div className="text-[10px] text-slate-400">{aepMeta?.model_provider ?? ''}</div>
-                      </div>
-                      <div className="bg-white/70 rounded-xl border border-indigo-100 p-3 shadow-sm">
-                        <div className="text-[10px] uppercase tracking-widest text-slate-400 mb-1">Actions</div>
-                        <div className="text-xl font-bold text-slate-700">{aepMeta?.actions ?? '—'}</div>
-                      </div>
-                      <div className="bg-white/70 rounded-xl border border-indigo-100 p-3 shadow-sm">
-                        <div className="text-[10px] uppercase tracking-widest text-slate-400 mb-1">Schema</div>
-                        <div className="text-xs font-mono text-indigo-600">{aepMeta?.schema_version ?? '—'}</div>
-                      </div>
-                    </div>
-                    <p className="text-xs text-slate-400 mt-3 text-center">Click <strong className="text-slate-600">Generate Report</strong> to run the full audit pipeline.</p>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                <SummaryCard label="Total Events" value={events.length} />
-                <SummaryCard label="Run ID" value={firstEvent?.run_id ?? '—'} />
-                <SummaryCard label="Agent ID" value={firstEvent?.agent_id ?? '—'} />
-                <SummaryCard label="Model ID" value={firstEvent?.model_id ?? '—'} />
-              </div>
-            )}
-
-            {/* Event type breakdown — only when there are local events */}
-            {hasEvents && (
-            <div className="mt-4 bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-              <div className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-4">
-                Event Type Breakdown
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {Object.entries(typeCounts)
-                  .sort((a, b) => b[1] - a[1])
-                  .map(([type, count]) => {
-                    const s = typeStyle(type)
-                    return (
-                      <span
-                        key={type}
-                        className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium ${s.chip} shadow-sm`}
-                      >
-                        <span className={`w-2 h-2 rounded-full shrink-0 ${s.dot}`} />
-                        <span>{type}</span>
-                        <span
-                          className={`px-1.5 py-0.5 rounded-full font-bold text-[10px] ${s.chip} opacity-90`}
-                        >
-                          {count}
-                        </span>
-                      </span>
-                    )
-                  })}
-              </div>
-            </div>
-            )}
-          </section>
-        )}
-
-        {/* Events table */}
-        {hasEvents && (
-          <section>
-            {/* Section heading with pagination */}
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-baseline gap-2">
-                <h2 className="text-base font-semibold text-slate-800">Events</h2>
-                {totalPages > 1 && (
-                  <span className="text-sm text-slate-400">
-                    page {page + 1} of {totalPages}
-                  </span>
-                )}
-              </div>
-              {totalPages > 1 && (
-                <div className="flex items-center gap-1.5">
-                  <button
-                    className="px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:border-indigo-300 disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-150"
-                    disabled={page === 0}
-                    onClick={() => setPage((p) => p - 1)}
-                  >
-                    Previous
-                  </button>
-                  <span className="px-2 text-xs text-slate-400">
-                    {page + 1} / {totalPages}
-                  </span>
-                  <button
-                    className="px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:border-indigo-300 disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-150"
-                    disabled={page >= totalPages - 1}
-                    onClick={() => setPage((p) => p + 1)}
-                  >
-                    Next
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* Table card */}
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-slate-100 text-sm">
-                  <thead className="bg-slate-50 sticky top-0">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-widest w-44">
-                        Event ID
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-widest">
-                        Type
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-widest">
-                        Actor
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-widest w-44">
-                        Timestamp
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-widest">
-                        Details
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {pageEvents.map((ev, idx) => (
-                      <tr
-                        key={ev.event_id ?? idx}
-                        className="hover:bg-slate-50/60 transition-colors duration-100"
-                      >
-                        <td className="px-4 py-3 font-mono text-xs text-slate-400 truncate max-w-[11rem]">
-                          {ev.event_id ?? '—'}
-                        </td>
-                        <td className="px-4 py-3">
-                          <TypeBadge type={ev.type} />
-                        </td>
-                        <td className="px-4 py-3 text-sm text-slate-700">
-                          {ev.actor ?? '—'}
-                        </td>
-                        <td className="px-4 py-3 font-mono text-xs text-slate-400 whitespace-nowrap">
-                          {ev.timestamp
-                            ? new Date(ev.timestamp)
-                                .toISOString()
-                                .replace('T', ' ')
-                                .replace('Z', ' UTC')
-                            : '—'}
-                        </td>
-                        <td className="px-4 py-3 text-xs text-slate-500 truncate max-w-xs">
-                          {eventDetails(ev)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Bottom pagination */}
-            {totalPages > 1 && (
-              <div className="flex items-center justify-center gap-2 mt-4">
-                <button
-                  className="px-4 py-2 text-xs font-medium rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:border-indigo-300 disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-150"
-                  disabled={page === 0}
-                  onClick={() => setPage((p) => p - 1)}
-                >
-                  Previous
-                </button>
-                <span className="px-3 py-2 text-xs text-slate-500 bg-white border border-slate-200 rounded-lg">
-                  {page + 1} / {totalPages}
-                </span>
-                <button
-                  className="px-4 py-2 text-xs font-medium rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:border-indigo-300 disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-150"
-                  disabled={page >= totalPages - 1}
-                  onClick={() => setPage((p) => p + 1)}
-                >
-                  Next
-                </button>
-              </div>
-            )}
-          </section>
-        )}
+        <Switch>
+          <Route path="/" component={HomePage} />
+          <Route path="/audit" component={AuditPage} />
+          <Route path="/runs/:runId" component={ReportPage} />
+        </Switch>
       </main>
 
-      {/* Footer */}
       <footer className="border-t border-slate-100 bg-white mt-auto">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-400">
           <span>
@@ -1156,8 +1182,10 @@ function AppInner() {
 
 export default function App() {
   return (
-    <Router>
-      <AppInner />
-    </Router>
+    <AuditProvider>
+      <Router>
+        <AppShell />
+      </Router>
+    </AuditProvider>
   )
 }
