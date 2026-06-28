@@ -513,7 +513,7 @@ async function writeRunToD1(
             evidence_ids, standard_mappings, recommendation, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).bind(
-        f.finding_id,
+        `${run_id}:${f.finding_id}`,
         run_id,
         tenant_id,
         f.severity,
