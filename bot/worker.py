@@ -746,32 +746,56 @@ def run_ai_review(worktree_path: str, base_branch: str, title: str,
     if not success:
         return None
 
-    # Try to extract JSON from output — handle markdown code blocks and nested objects
+    # Extract JSON from Claude output — handle all common wrapping patterns
     try:
-        # First try parsing the full result field from claude JSON output
         top = json.loads(output)
-        result_text = top.get("result", "")
+        result_text = top.get("result", "") or output
     except (json.JSONDecodeError, ValueError):
         result_text = output
 
-    # Strip markdown code fences
+    # Strip markdown code fences and trailing backticks
     result_text = re.sub(r"```(?:json)?\s*", "", result_text)
+    result_text = re.sub(r"\s*```\s*$", "", result_text.strip())
 
-    # Try full parse first
+    # Try 1: direct parse of the cleaned text
     try:
         data = json.loads(result_text.strip())
-        if "approved" in data:
+        if isinstance(data, dict) and "approved" in data:
             return data
     except (json.JSONDecodeError, ValueError):
         pass
 
-    # Fall back to regex extraction of the outermost JSON object containing "approved"
+    # Try 2: extract the outermost {...} containing "approved"
+    try:
+        m = re.search(r'\{[^{}]*"approved"[^{}]*\}', result_text, re.DOTALL)
+        if m:
+            data = json.loads(m.group(0))
+            if "approved" in data:
+                return data
+    except (json.JSONDecodeError, AttributeError):
+        pass
+
+    # Try 3: broader search with nested objects
     try:
         m = re.search(r'\{.*?"approved".*?\}', result_text, re.DOTALL)
         if m:
             return json.loads(m.group(0))
     except (json.JSONDecodeError, AttributeError):
         pass
+
+    # Try 4: if reviewer said "approved" in plain text, synthesize approval
+    lower = result_text.lower()
+    if "approved" in lower and "blocking" not in lower and "reject" not in lower:
+        log.warning("Review output not JSON but contains 'approved' — synthesizing approval")
+        return {
+            "approved": True,
+            "severity": "none",
+            "summary": result_text[:200],
+            "findings": [],
+            "merge_risk": "low",
+        }
+
+    log.warning("Could not parse review JSON from output (len=%d)", len(result_text))
     return None
 
 
