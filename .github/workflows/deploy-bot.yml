@@ -12,6 +12,7 @@ on:
       - "bot/**"
       - ".claude/agents/**"
       - ".claude/settings.json"
+  workflow_dispatch:
 
 permissions:
   contents: read
