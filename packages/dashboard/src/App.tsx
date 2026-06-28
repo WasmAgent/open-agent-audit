@@ -1113,10 +1113,10 @@ function AppShell() {
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex items-center gap-3">
           <button
             onClick={() => { reset(); navigate('/') }}
-            className="shrink-0 w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shadow-sm hover:opacity-90 transition-opacity cursor-pointer"
+            className="shrink-0 w-9 h-9 rounded-xl overflow-hidden hover:opacity-90 transition-opacity cursor-pointer"
             aria-label="Back to home"
           >
-            <ShieldIcon className="w-5 h-5 text-white" />
+            <img src="/favicon.svg" alt="Trustavo" className="w-9 h-9 object-cover" />
           </button>
 
           <div className="flex items-baseline gap-2.5 min-w-0">
