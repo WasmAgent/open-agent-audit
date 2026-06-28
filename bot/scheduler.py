@@ -118,7 +118,6 @@ CREATE INDEX IF NOT EXISTS idx_jobs_issue      ON jobs(repo, issue_number);
 CREATE INDEX IF NOT EXISTS idx_jobs_claim      ON jobs(state, priority, created_at, next_retry_at);
 CREATE INDEX IF NOT EXISTS idx_jobs_lease      ON jobs(state, lease_expires_at);
 CREATE INDEX IF NOT EXISTS idx_jobs_provider   ON jobs(provider, model_tier, state);
-CREATE INDEX IF NOT EXISTS idx_jobs_discussion ON jobs(author_is_member, discussion_state, discussion_last_checked_at);
 
 CREATE TABLE IF NOT EXISTS provider_account_state (
   provider TEXT PRIMARY KEY,
@@ -180,6 +179,12 @@ def open_db() -> sqlite3.Connection:
             conn.commit()
         except sqlite3.OperationalError:
             pass
+    # Create discussion index after columns are guaranteed to exist
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_jobs_discussion
+        ON jobs(author_is_member, discussion_state, discussion_last_checked_at)
+    """)
+    conn.commit()
     return conn
 
 
@@ -644,23 +649,45 @@ def process_external_discussions(conn: sqlite3.Connection, new_external_ids: set
         log.info("Discussion decision for %s#%d: %s — %s", repo, issue_number, decision, reason)
 
         if decision == "approve":
-            # Post approval comment
             if response_comment:
                 gh_post_comment(repo, issue_number, response_comment)
-            # Convert to normal pending job
-            conn.execute("""
-                UPDATE jobs
-                SET discussion_state='approved',
-                    author_is_member=1,
-                    state='pending', stage='queued',
-                    discussion_last_checked_at=?,
-                    discussion_comment_count=?,
-                    priority_reason='external contribution approved: ' || ?,
-                    updated_at=CURRENT_TIMESTAMP
-                WHERE id=?
-            """, (now_str, current_count, reason[:100], job_id))
+
+            # Check if this repo allows code changes
+            repo_mode = conn.execute(
+                "SELECT labels_json FROM jobs WHERE id=?", (job_id,)
+            ).fetchone()
+            # Look up mode from repos.yml via a fresh load (cheap, small file)
+            repos_cfg = load_repos_yml()
+            repo_mode_val = next(
+                (r.get("mode", "full") for r in repos_cfg if r["repo"] == repo), "full"
+            )
+
+            if repo_mode_val == "discuss_only":
+                # Approved but no code changes allowed — just mark resolved
+                gh_post_comment(repo, issue_number,
+                    "✅ This proposal has been reviewed and approved in principle. "
+                    "A team member will schedule implementation manually.")
+                conn.execute("""
+                    UPDATE jobs SET discussion_state='approved',
+                        state='blocked', stage='discuss_only_approved',
+                        discussion_last_checked_at=?, discussion_comment_count=?,
+                        updated_at=CURRENT_TIMESTAMP
+                    WHERE id=?
+                """, (now_str, current_count, job_id))
+            else:
+                conn.execute("""
+                    UPDATE jobs
+                    SET discussion_state='approved',
+                        author_is_member=1,
+                        state='pending', stage='queued',
+                        discussion_last_checked_at=?,
+                        discussion_comment_count=?,
+                        priority_reason='external contribution approved: ' || ?,
+                        updated_at=CURRENT_TIMESTAMP
+                    WHERE id=?
+                """, (now_str, current_count, reason[:100], job_id))
             conn.commit()
-            log.info("External issue %s#%d APPROVED — enqueued for implementation", repo, issue_number)
+            log.info("External issue %s#%d APPROVED (mode=%s)", repo, issue_number, repo_mode_val)
 
         elif decision == "reject":
             close_comment = response_comment or (
@@ -709,6 +736,7 @@ def upsert_job(conn: sqlite3.Connection, repo: str, issue: dict,
     body = issue.get("body") or ""
     labels = {lbl["name"] for lbl in issue.get("labels", [])}
     base_branch = repo_cfg.get("base_branch", "main")
+    repo_mode = repo_cfg.get("mode", "full")  # full | discuss_only
 
     model_tier, review_tier, automerge = determine_tiers(labels, repo_cfg)
     model_alias, effective_model = model_for_tier(model_tier)
@@ -741,9 +769,22 @@ def upsert_job(conn: sqlite3.Connection, repo: str, issue: dict,
         conn.commit()
         return None
 
-    # External contributors start in discussion state; members go straight to pending
-    initial_state = "pending" if author_is_member else "discussion"
-    initial_stage = "queued" if author_is_member else "awaiting_discussion"
+    # discuss_only repos: always go to discussion regardless of membership
+    if repo_mode == "discuss_only":
+        initial_state = "discussion"
+        initial_stage = "awaiting_discussion"
+        effective_is_member = False  # force discussion path
+        log.info("Queued [discuss_only] %s#%d: %r", repo, number, title[:60])
+    elif author_is_member:
+        initial_state = "pending"
+        initial_stage = "queued"
+        effective_is_member = True
+        log.info("Enqueued [member] %s#%d [%s] %r", repo, number, model_tier, title[:60])
+    else:
+        initial_state = "discussion"
+        initial_stage = "awaiting_discussion"
+        effective_is_member = False
+        log.info("Queued [external @%s] %s#%d for discussion: %r", author_login, repo, number, title[:60])
 
     cursor = conn.execute("""
         INSERT INTO jobs (
@@ -756,19 +797,13 @@ def upsert_job(conn: sqlite3.Connection, repo: str, issue: dict,
         ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     """, (
         repo, number, title, body, json.dumps(sorted(labels)),
-        author_login, int(author_is_member), None,
+        author_login, int(effective_is_member), None,
         base_branch, initial_state, initial_stage, 100,
         model_tier, review_tier, int(automerge),
         model_alias, effective_model, "zai-glm",
         max_retries, max_ci_retries, max_review_retries,
     ))
     conn.commit()
-
-    if author_is_member:
-        log.info("Enqueued [member] %s#%d [%s] %r", repo, number, model_tier, title[:60])
-    else:
-        log.info("Queued [external @%s] %s#%d for discussion: %r", author_login, repo, number, title[:60])
-
     return cursor.lastrowid
 
 
