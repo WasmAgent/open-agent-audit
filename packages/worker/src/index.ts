@@ -196,6 +196,23 @@ async function handlePostRun(request: Request, env: WorkerEnv): Promise<Response
   const maxMb = parseInt(env.MAX_UPLOAD_MB, 10) || 100;
   const maxBytes = maxMb * 1024 * 1024;
 
+  // Rate-limit check via TenantLimiter Durable Object
+  const tenant_id = request.headers.get('x-tenant-id') ?? 'default';
+  const doId = env.TENANT_LIMITER.idFromName(tenant_id);
+  const limiterStub = env.TENANT_LIMITER.get(doId);
+  const limiterResp = await limiterStub.fetch('https://do/check', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tenant_id }),
+  });
+  const { allowed } = await limiterResp.json<{ allowed: boolean; remaining: number; reset_at: number; count: number }>();
+  if (!allowed) {
+    const errResp = corsError('Rate limit exceeded', 429, env);
+    const headers = new Headers(errResp.headers);
+    headers.set('Retry-After', '60');
+    return new Response(errResp.body, { status: 429, headers });
+  }
+
   const contentType = request.headers.get('content-type') ?? '';
   let jsonlContent: string;
 
@@ -218,7 +235,6 @@ async function handlePostRun(request: Request, env: WorkerEnv): Promise<Response
   }
 
   const run_id = crypto.randomUUID();
-  const tenant_id = request.headers.get('x-tenant-id') ?? 'default';
   const r2Key = `runs/${run_id}/raw.jsonl`;
 
   // Store raw trace

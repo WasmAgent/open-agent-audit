@@ -334,3 +334,140 @@ describe('validate', () => {
     expect(result.crypto_summary.hashes_content_verified).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Adversarial fixtures — CONSTRAINTS.md §8
+// ---------------------------------------------------------------------------
+
+describe('adversarial fixtures', () => {
+  // forged signature: signature_algorithm set but signature missing
+  test('forged signature — signature_algorithm 存在但 signature 缺失', async () => {
+    const event = makeEvent({
+      event_id: 'forged-1',
+      evidence: {
+        hash: 'abc123',
+        signature_algorithm: 'ed25519',
+        // signature intentionally absent
+      },
+    });
+    const result = await validate([event]);
+    const sigErrors = result.errors.filter((e) => e.path === 'evidence.signature');
+    expect(sigErrors.length).toBeGreaterThan(0);
+    expect(sigErrors[0]!.event_id).toBe('forged-1');
+  });
+
+  // forged signature: signature_algorithm set but signature is empty string
+  test('forged signature — signature_algorithm 存在但 signature 为空字符串', async () => {
+    const event = makeEvent({
+      event_id: 'forged-2',
+      evidence: {
+        hash: 'abc123',
+        signature_algorithm: 'ed25519',
+        signature: '',
+      },
+    });
+    const result = await validate([event]);
+    const sigErrors = result.errors.filter((e) => e.path === 'evidence.signature');
+    expect(sigErrors.length).toBeGreaterThan(0);
+    expect(sigErrors[0]!.event_id).toBe('forged-2');
+  });
+
+  // replay attack: same event_id appears twice
+  test('replay attack — 同一 event_id 出现两次', async () => {
+    const sharedId = 'replay-evt-001';
+    const e1 = makeEvent({ event_id: sharedId });
+    const e2 = makeEvent({ event_id: sharedId });
+    const result = await validate([e1, e2]);
+    const dupErrors = result.errors.filter(
+      (e) => e.message.toLowerCase().includes('duplicate') && e.event_id === sharedId,
+    );
+    expect(dupErrors.length).toBeGreaterThan(0);
+  });
+
+  // replay attack: bulk — 5 different event_ids each appearing 3 times (15 events total)
+  test('replay attack — 5 个不同 event_id 各重放 3 次，共 15 个事件', async () => {
+    const ids = ['r1', 'r2', 'r3', 'r4', 'r5'];
+    const events = ids.flatMap((id) => [
+      makeEvent({ event_id: id }),
+      makeEvent({ event_id: id }),
+      makeEvent({ event_id: id }),
+    ]);
+    const result = await validate(events);
+    // Each of 5 ids has 2 duplicates => at least 10 duplicate errors
+    const dupErrors = result.errors.filter((e) =>
+      e.message.toLowerCase().includes('duplicate'),
+    );
+    expect(dupErrors.length).toBeGreaterThanOrEqual(10);
+  });
+
+  // schema-violating: invalid event type
+  test('schema-violating event — type 为无效值', async () => {
+    const event = makeEvent({
+      type: 'invalid_event_type' as unknown as 'observation',
+    });
+    const result = await validate([event]);
+    const typeErrors = result.errors.filter((e) => e.path === 'type');
+    expect(typeErrors.length).toBeGreaterThan(0);
+  });
+});
+
+describe('adversarial fixtures', () => {
+  // 1. Forged signature — signature_algorithm present but signature missing
+  test('forged signature — signature_algorithm present but signature missing', async () => {
+    const event = makeEvent({
+      evidence: { hash: 'abc', signature_algorithm: 'ed25519' },
+    });
+    const result = await validate([event]);
+    const sigErrors = result.errors.filter((e) => e.path === 'evidence.signature');
+    expect(sigErrors.length).toBeGreaterThan(0);
+  });
+
+  // 2. Forged signature — signature_algorithm present but signature is empty string
+  test('forged signature — signature_algorithm present but signature is empty string', async () => {
+    const event = makeEvent({
+      evidence: { hash: 'abc', signature_algorithm: 'ed25519', signature: '' },
+    });
+    const result = await validate([event]);
+    const sigErrors = result.errors.filter((e) => e.path === 'evidence.signature');
+    expect(sigErrors.length).toBeGreaterThan(0);
+  });
+
+  // 3. Replay attack — same event_id appears twice
+  test('replay attack — same event_id appears twice', async () => {
+    const sharedId = 'replay-evt-001';
+    const e1 = makeEvent({ event_id: sharedId });
+    const e2 = makeEvent({ event_id: sharedId });
+    const result = await validate([e1, e2]);
+    const dupErrors = result.errors.filter(
+      (e) => e.message.toLowerCase().includes('duplicate') && e.event_id === sharedId,
+    );
+    expect(dupErrors.length).toBeGreaterThan(0);
+    expect(dupErrors[0]!.event_id).toBe(sharedId);
+  });
+
+  // 4. Replay attack — 5 distinct event_ids, each repeated 3 times (15 events total)
+  test('replay attack — 5 distinct ids each appearing 3 times produces >= 10 errors', async () => {
+    const ids = ['replay-a', 'replay-b', 'replay-c', 'replay-d', 'replay-e'];
+    const events: ReturnType<typeof makeEvent>[] = [];
+    for (const id of ids) {
+      for (let rep = 0; rep < 3; rep++) {
+        events.push(makeEvent({ event_id: id }));
+      }
+    }
+    expect(events).toHaveLength(15);
+    const result = await validate(events);
+    // Each of the 5 ids has 2 duplicate occurrences (2nd and 3rd), so at least 10 duplicate errors
+    const dupErrors = result.errors.filter((e) =>
+      e.message.toLowerCase().includes('duplicate'),
+    );
+    expect(dupErrors.length).toBeGreaterThanOrEqual(10);
+  });
+
+  // 5. Schema-violating event — type is an invalid value
+  test('schema-violating event — type is invalid value produces error on type path', async () => {
+    const event = makeEvent({ type: 'invalid_type' as unknown as 'observation' });
+    const result = await validate([event]);
+    const typeErrors = result.errors.filter((e) => e.path === 'type');
+    expect(typeErrors.length).toBeGreaterThan(0);
+  });
+});

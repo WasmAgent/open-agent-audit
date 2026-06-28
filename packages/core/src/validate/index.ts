@@ -206,6 +206,18 @@ export async function validate(
       });
     }
 
+    // forged signature detection: signature_algorithm present but signature missing or empty
+    if (
+      event.evidence?.signature_algorithm !== undefined &&
+      (event.evidence.signature === undefined || event.evidence.signature === '')
+    ) {
+      errors.push({
+        event_id,
+        path: 'evidence.signature',
+        message: `signature_algorithm '${event.evidence.signature_algorithm}' is set but signature is missing or empty`,
+      });
+    }
+
     // type-specific field presence checks
     if (event.type === 'tool_call') {
       if (!event.tool) {
