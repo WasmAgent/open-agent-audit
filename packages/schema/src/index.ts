@@ -1,12 +1,9 @@
 /**
  * @openagentaudit/schema — Canonical evidence schema types.
  *
- * Status: alpha skeleton. Authoritative schema documents live in
- * `../../schemas/v0.1/*.schema.json`. This package re-exports TypeScript
- * types that mirror the JSON schemas and helpers for runtime validation.
- *
- * Implementation is blocked on the Phase 2 freeze gate. See
- * `docs/schema-versioning.md`.
+ * Authoritative schema documents live in `../../schemas/v0.1/*.schema.json`.
+ * This package re-exports TypeScript types that mirror the JSON schemas and
+ * helpers for runtime validation.
  */
 
 import { z } from 'zod';

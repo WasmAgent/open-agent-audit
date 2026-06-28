@@ -10,7 +10,7 @@ This package MUST NOT use Node.js APIs. See [`CONSTRAINTS.md`](../../CONSTRAINTS
 | Module | Purpose | Status |
 |---|---|---|
 | `validate` | Schema integrity, hash chain, duplicate detection | **implemented** |
-| `scoring` | Evidence Admission Score (EAS) + Agent Risk Score (ARS) | **implemented** |
+| `scoring` | Evidence Admission Score (EAS) + Agent Risk Score (ARS) | **implemented** — EAS and ARS are distinct scores; see below |
 | `inventory` | Tool / capability / data inventory from trace | **implemented** |
 | `policy-audit` | Rule engine against regulatory profiles (6 rules) | **implemented** |
 | `report` | Markdown / HTML / JSON / CSV renderer with 4-framework compliance mapping | **implemented** |
@@ -30,6 +30,31 @@ EAS = 0.20 * trace_completeness
 ```
 
 Grade: A ≥ 90, B ≥ 75, C ≥ 60, D ≥ 40, F < 40.
+
+EAS measures **evidence quality** — how strong is the audit trail as evidence?
+A well-behaved agent with a poor trace gets a low EAS.
+
+## ARS formula
+
+ARS (Agent Risk Score) measures **behavioral risk signals** observed in the trace —
+independent of evidence quality.
+
+```
+ARS = 100 − (policy_deny_penalty + high_risk_tool_penalty
+            + error_penalty + unapproved_high_risk_penalty
+            + chain_break_penalty)
+```
+
+| Signal | Max penalty |
+|---|---|
+| Policy denials (5 pts each) | 30 |
+| High-risk / destructive tool calls (3 pts each) | 20 |
+| Errors (3 pts each) | 15 |
+| Human-required actions without approval (10 pts each) | 25 |
+| Evidence chain break | 20 |
+
+ARS 100 = no observed behavioral risk. ARS 0 = maximum observed risk.
+A misbehaving agent with a perfect trace gets a high EAS and a low ARS.
 
 See [`docs/evidence-admission-score.md`](../../docs/evidence-admission-score.md) for component definitions.
 

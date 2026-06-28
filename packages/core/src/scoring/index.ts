@@ -1,4 +1,4 @@
-/** @openagentaudit/core/scoring — Evidence Admission Score (EAS) implementation. */
+/** @openagentaudit/core/scoring — Evidence Admission Score (EAS) and Agent Risk Score (ARS). */
 import type { CanonicalEvent, RiskScore } from '@openagentaudit/schema';
 
 type Grade = 'A' | 'B' | 'C' | 'D' | 'F';
@@ -177,6 +177,73 @@ function computeContaminationRiskInverted(contaminationResult?: { contamination_
   return Math.max(0, 100 - contaminationResult.contamination_score);
 }
 
+/**
+ * Agent Risk Score (ARS): measures behavioral risk indicators from the trace.
+ *
+ * Unlike EAS (which measures evidence quality), ARS measures whether the
+ * agent's observed behavior carries risk signals: policy denials, high-risk
+ * tool usage, approval bypasses, errors, and chain breaks.
+ *
+ * Returns a 0–100 score where 100 = lowest observed risk.
+ */
+function computeAgentRiskScore(events: CanonicalEvent[]): number {
+  if (events.length === 0) return 100;
+
+  let penalty = 0;
+
+  // Count risk indicators
+  const denyCount = events.filter(
+    (ev) => ev.type === 'policy_decision' && ev.policy?.decision === 'deny',
+  ).length;
+
+  const highRiskToolCount = events.filter(
+    (ev) =>
+      ev.type === 'tool_call' &&
+      ev.tool?.risk_tags !== undefined &&
+      ev.tool.risk_tags.some((t) => t === 'high_risk' || t === 'mutation' || t === 'destructive'),
+  ).length;
+
+  const errorCount = events.filter((ev) => ev.type === 'error').length;
+
+  // High-risk tool calls with no preceding human_approval in the run
+  const runsWithApproval = new Set<string>();
+  for (const ev of events) {
+    if (ev.type === 'human_approval') runsWithApproval.add(ev.run_id);
+  }
+  const highRiskUnapproved = events.filter(
+    (ev) =>
+      ev.type === 'tool_call' &&
+      ev.tool?.risk_tags !== undefined &&
+      ev.tool.risk_tags.some((t) => t === 'human_required') &&
+      !runsWithApproval.has(ev.run_id),
+  ).length;
+
+  // Check for hash chain breaks (evidence tampering indicator)
+  const chainEvents = events.filter(
+    (ev) => ev.evidence?.hash !== undefined || ev.evidence?.prev_hash !== undefined,
+  );
+  let chainBroken = false;
+  for (let i = 1; i < chainEvents.length; i++) {
+    const prev = chainEvents[i - 1];
+    const curr = chainEvents[i];
+    if (curr?.evidence?.prev_hash !== undefined && prev?.evidence?.hash !== undefined) {
+      if (curr.evidence.prev_hash !== prev.evidence.hash) {
+        chainBroken = true;
+        break;
+      }
+    }
+  }
+
+  // Penalties (additive, capped at 100)
+  penalty += Math.min(30, denyCount * 5);           // policy denials: up to 30
+  penalty += Math.min(20, highRiskToolCount * 3);   // high-risk tools: up to 20
+  penalty += Math.min(15, errorCount * 3);           // errors: up to 15
+  penalty += Math.min(25, highRiskUnapproved * 10); // unapproved high-risk: up to 25
+  if (chainBroken) penalty += 20;                   // chain break: 20
+
+  return Math.max(0, 100 - penalty);
+}
+
 export async function computeRiskScore(
   events: CanonicalEvent[],
   runId?: string,
@@ -200,6 +267,7 @@ export async function computeRiskScore(
     0.1 * contamination_risk_inverted;
 
   const easRounded = Math.round(eas);
+  const arsRounded = computeAgentRiskScore(events);
 
   return {
     schema_version: 'open-agent-audit/v0.1',
@@ -209,7 +277,7 @@ export async function computeRiskScore(
       score: easRounded,
       grade: toGrade(easRounded),
     },
-    agent_risk_score: { score: easRounded },
+    agent_risk_score: { score: arsRounded },
     components: {
       trace_completeness,
       provenance_integrity,

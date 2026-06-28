@@ -106,3 +106,8 @@ aggregate score.
 EAS measures **evidence quality**, not **agent behavior quality**. A
 well-behaved agent with a poor trace gets a low EAS; a misbehaving agent
 with a perfect trace gets a high EAS. Both signals are necessary.
+
+Use the **Agent Risk Score (ARS)** — also produced by `computeRiskScore()` —
+to assess observed behavioral risk: policy denials, high-risk tool calls,
+approval bypasses, errors, and evidence chain breaks. EAS and ARS are
+complementary; neither alone is sufficient for a complete audit picture.

@@ -502,8 +502,9 @@ function HomePage() {
           </h2>
           <p className="text-slate-500 text-sm max-w-md mx-auto leading-relaxed">
             Upload a JSONL audit trace to inspect agent events, score evidence
-            quality, and generate audit reports accepted under{' '}
-            <strong className="text-slate-700">EU AI Act Art.&nbsp;26(6)</strong>.
+            quality, and generate evidence-linked technical reports that may
+            support selected documentation and oversight workflows under relevant
+            AI governance frameworks. Not legal advice.
           </p>
         </div>
         <div className="flex flex-wrap justify-center gap-2">
@@ -583,22 +584,22 @@ function HomePage() {
             {
               badge: 'EU AI Act',
               badgeColor: 'bg-blue-50 text-blue-700 border-blue-200',
-              title: 'EU AI Act — Art. 26(6) Log Retention',
-              body: 'Reports include a signed log retention notice meeting the mandatory record-keeping requirements for high-risk AI system deployers under the EU AI Act.',
+              title: 'EU AI Act — Technical Documentation',
+              body: 'Reports generate evidence-linked technical records that may support selected logging, traceability, and oversight documentation workflows relevant to EU AI Act obligations. Not legal advice.',
               keywords: ['EUAIA', 'high-risk AI', 'Art. 26', 'log retention', 'GPAI'],
             },
             {
               badge: 'ISO 42001',
               badgeColor: 'bg-violet-50 text-violet-700 border-violet-200',
               title: 'ISO/IEC 42001 — AI Management System',
-              body: 'Audit trails produced by OpenAgentAudit support the evidence requirements for ISO 42001 AI management system certification audits.',
+              body: 'Audit trails produced by OpenAgentAudit may support selected evidence requirements in ISO 42001 AI management system review processes. Not a certification tool.',
               keywords: ['AI governance', 'AIMS', 'risk management', 'auditability'],
             },
             {
               badge: 'NIST AI RMF',
               badgeColor: 'bg-amber-50 text-amber-700 border-amber-200',
               title: 'NIST AI RMF — Govern & Measure',
-              body: 'The Evidence Admission Score (EAS) maps to NIST AI RMF Govern and Measure functions, providing quantified evidence of AI system oversight.',
+              body: 'The Evidence Admission Score (EAS) maps to NIST AI RMF Govern and Measure functions, providing quantified technical evidence of AI system oversight coverage.',
               keywords: ['NIST', 'AI risk', 'trustworthy AI', 'measurement'],
             },
             {
