@@ -15,8 +15,8 @@ This package MUST NOT use Node.js APIs. See [`CONSTRAINTS.md`](../../CONSTRAINTS
 | `policy-audit` | Rule engine against regulatory profiles (6 rules) | **implemented** |
 | `report` | Markdown / HTML / JSON / CSV renderer with 4-framework compliance mapping | **implemented** |
 | `benchmark-audit` | Paired McNemar + Wilson CI (paired mode) or aggregate comparison (aggregate mode) | **implemented** (not wired into compliance mapping by default — pass `BenchmarkAuditResult` to `renderReport()` to unlock 3 controls) |
-| `contamination` | MinHash / LSH train-test overlap detection | skeleton |
-| `drift-guard` | Statistical drift between time windows | skeleton |
+| `contamination` | MinHash / LSH train-test overlap detection | **implemented** — pass `ContaminationResult` to `computeRiskScore()` to use real score; without it the component defaults to neutral (100) |
+| `drift-guard` | Statistical drift between time windows | **implemented** |
 
 ## EAS formula
 
@@ -63,11 +63,38 @@ Without benchmark data these controls default to `not_evaluated`.
 import { validate, computeRiskScore } from '@openagentaudit/core';
 import { renderReport } from '@openagentaudit/core/report';
 
-const { total, errors, warnings } = await validate(events);
+const { total, errors, warnings, crypto_summary } = await validate(events);
 const score = await computeRiskScore(events);
 
 const bundle = await renderReport(events, findings, score);
 // bundle.markdown, bundle.html, bundle.json, bundle.csv
+```
+
+### Validate with Ed25519 signature verification
+
+Pass an `Ed25519KeyRegistry` (`Map<string, CryptoKey>`) to verify Ed25519 signatures on events
+that carry `evidence.signature` + `evidence.signer_key_id`. Without a registry, signatures are
+counted but not verified.
+
+```ts
+import { validate } from '@openagentaudit/core';
+import type { Ed25519KeyRegistry } from '@openagentaudit/core';
+
+const key = await crypto.subtle.importKey('raw', pubKeyBytes, 'Ed25519', false, ['verify']);
+const registry: Ed25519KeyRegistry = new Map([['my-key-id', key]]);
+
+const result = await validate(events, registry);
+// result.crypto_summary.signatures_verified  — number verified OK
+// result.crypto_summary.signatures_failed    — number with bad signature (also in errors[])
+// result.crypto_summary.hashes_content_verified — SHA-256 recomputed and matched
+// result.crypto_summary.hashes_content_mismatch — hash stored ≠ recomputed (warning)
+```
+
+Pass `crypto_summary` into `ReportMeta` to render a Cryptographic Verification badge in the report:
+
+```ts
+const meta = { ..., crypto_summary: result.crypto_summary };
+const bundle = await renderReport(events, findings, score, inv, meta);
 ```
 
 ### Report with benchmark data (unlocks 3 compliance controls)

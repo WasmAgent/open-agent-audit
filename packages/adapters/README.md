@@ -14,9 +14,9 @@ See [`docs/adapter-contract.md`](../../docs/adapter-contract.md) for the full co
 | `aep-v0.2` | `@wasmagent/aep` AEPRecord (aep/v0.2) | `src/aep-v0_2.ts` | **implemented** |
 | `bscode-rollout-v1` | bscode RolloutWireRecord | `src/bscode.ts` | **implemented** |
 | `compliance-eval-record-v0.1` | `@wasmagent/compliance` records | `src/compliance-eval-record.ts` | skeleton |
-| `otel-genai-v0.1` | OpenTelemetry GenAI spans | `src/otel.ts` | skeleton |
-| `langfuse-export-v0.1` | Langfuse trace export | `src/langfuse.ts` | skeleton |
-| `langsmith-export-v0.1` | LangSmith trace export | `src/langsmith.ts` | skeleton |
+| `otel-genai-v0.1` | OpenTelemetry GenAI spans | `src/otel.ts` | **implemented** |
+| `langfuse-export-v0.1` | Langfuse trace export | `src/langfuse.ts` | **implemented** |
+| `langsmith-export-v0.1` | LangSmith trace export | `src/langsmith.ts` | **implemented** |
 
 ## Usage
 

@@ -6,6 +6,9 @@
 
 [![CI](https://github.com/WasmAgent/open-agent-audit/actions/workflows/ci.yml/badge.svg)](https://github.com/WasmAgent/open-agent-audit/actions/workflows/ci.yml)
 [![Deploy](https://github.com/WasmAgent/open-agent-audit/actions/workflows/deploy.yml/badge.svg)](https://github.com/WasmAgent/open-agent-audit/actions/workflows/deploy.yml)
+[![npm @openagentaudit/schema](https://img.shields.io/npm/v/%40openagentaudit%2Fschema?label=%40openagentaudit%2Fschema)](https://www.npmjs.com/package/@openagentaudit/schema)
+[![npm @openagentaudit/core](https://img.shields.io/npm/v/%40openagentaudit%2Fcore?label=%40openagentaudit%2Fcore)](https://www.npmjs.com/package/@openagentaudit/core)
+[![npm @openagentaudit/adapters](https://img.shields.io/npm/v/%40openagentaudit%2Fadapters?label=%40openagentaudit%2Fadapters)](https://www.npmjs.com/package/@openagentaudit/adapters)
 
 > Open evidence format and Cloudflare-native audit toolkit for enterprise AI agents.
 >
