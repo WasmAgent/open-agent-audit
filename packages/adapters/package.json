@@ -3,11 +3,18 @@
   "version": "0.1.0",
   "description": "Source-format adapters: AEP, ComplianceEvalRecord, bscode, OTel, Langfuse, LangSmith",
   "license": "Apache-2.0",
-  "private": true,
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "files": ["dist"],
+  "exports": {
+    ".": "./dist/index.js",
+    "./aep-v0_2": "./dist/aep-v0_2.js",
+    "./bscode": "./dist/bscode.js",
+    "./otel": "./dist/otel.js",
+    "./langfuse": "./dist/langfuse.js",
+    "./langsmith": "./dist/langsmith.js"
+  },
+  "files": ["dist", "README.md"],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",

@@ -8,10 +8,8 @@
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
   "ignore": [
-    "@openagentaudit/core",
-    "@openagentaudit/adapters",
-    "@openagentaudit/cli",
     "@openagentaudit/worker",
+    "@openagentaudit/cli",
     "@openagentaudit/dashboard"
   ]
 }

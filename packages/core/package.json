@@ -3,7 +3,6 @@
   "version": "0.1.0",
   "description": "OpenAgentAudit audit engines: validate, inventory, policy-audit, benchmark-audit, contamination, drift-guard, scoring, report",
   "license": "Apache-2.0",
-  "private": true,
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -11,9 +10,17 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
-    }
+    },
+    "./benchmark-audit": "./dist/benchmark-audit/index.js",
+    "./contamination": "./dist/contamination/index.js",
+    "./drift-guard": "./dist/drift-guard/index.js",
+    "./inventory": "./dist/inventory/index.js",
+    "./policy-audit": "./dist/policy-audit/index.js",
+    "./report": "./dist/report/index.js",
+    "./scoring": "./dist/scoring/index.js",
+    "./validate": "./dist/validate/index.js"
   },
-  "files": ["dist"],
+  "files": ["dist", "README.md"],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",

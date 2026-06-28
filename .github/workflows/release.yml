@@ -1,0 +1,42 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build publishable packages
+        run: |
+          npx tsc -p packages/schema/tsconfig.json
+          npx tsc -p packages/core/tsconfig.json
+          npx tsc -p packages/adapters/tsconfig.json
+
+      - name: Create Release Pull Request or Publish
+        uses: changesets/action@v1
+        with:
+          publish: npx changeset publish
+          title: "chore: release packages"
+          commit: "chore: version packages"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
