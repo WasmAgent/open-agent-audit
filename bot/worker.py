@@ -471,7 +471,7 @@ def run_claude(
         "--effort", effort,
         "--permission-mode", "dontAsk",
         "--tools", "Read,Edit,Write,Glob,Grep,Bash",
-        "--allowedTools", "Read,Edit,Write,Glob,Grep",
+        "--allowedTools", "Read,Edit,Write,Glob,Grep,Bash",
         "--disallowedTools", "mcp__*",
         "--strict-mcp-config", "--mcp-config", MCP_CONFIG_PATH,
         "--max-turns", str(max_turns),
