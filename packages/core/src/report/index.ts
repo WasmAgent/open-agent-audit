@@ -60,6 +60,8 @@ export interface ReportMeta {
     hashes_content_verified: number;
     hashes_content_mismatch: number;
     events_with_signature: number;
+    signatures_verified: number;
+    signatures_failed: number;
   };
 }
 
@@ -1992,6 +1994,11 @@ function buildMarkdown(
   lines.push(`| Policy Coverage | ${pcScore}/100 | ${policyDecisions} policy decision(s) against ${toolCalls} tool call(s) — ${toolCalls > 0 ? Math.round((policyDecisions / toolCalls) * 100) : 'N/A'}% coverage |`);
   lines.push(`| Human Oversight Evidence | ${hoScore}/100 | Human approval records for actions tagged high_risk or human_required |`);
   lines.push(`| Contamination Risk | ${crScore}/100 | Training/test data overlap risk (100 = no contamination detected) |`);
+  if (!score.contamination_evaluated) {
+    lines.push('');
+    lines.push('> **Note:** The Contamination Risk component reflects a neutral score (no training event set was provided). To evaluate real contamination, pass a `ContaminationResult` to `computeRiskScore()`.');
+    lines.push('');
+  }
   lines.push(
     `| **Total EAS** | **${evidence_admission_score.score}/100 (Grade ${evidence_admission_score.grade})** | Weighted average — see docs/evidence-admission-score.md |`,
   );
@@ -1999,8 +2006,12 @@ function buildMarkdown(
     const mismatchNote = cryptoSummary.hashes_content_mismatch > 0
       ? ` — ⚠️ ${cryptoSummary.hashes_content_mismatch} hash mismatch(es) detected`
       : '';
+    const sigTotal = cryptoSummary.signatures_verified + cryptoSummary.signatures_failed;
+    const sigNote = sigTotal === 0 && cryptoSummary.events_with_signature > 0
+      ? 'no key registry'
+      : `${cryptoSummary.signatures_verified}/${cryptoSummary.events_with_signature} signatures verified`;
     lines.push(
-      `| Cryptographic Verification | ${cryptoSummary.hashes_content_verified}/${cryptoSummary.events_with_hash} events hash-verified${mismatchNote} | ${cryptoSummary.events_with_signature} signature(s) present |`,
+      `| Cryptographic Verification | ${cryptoSummary.hashes_content_verified}/${cryptoSummary.events_with_hash} events hash-verified${mismatchNote} | ${cryptoSummary.events_with_signature} signature(s) present — ${sigNote} |`,
     );
   }
   lines.push('');
@@ -2427,6 +2438,11 @@ function buildHtml(
   parts.push(`<tr><td>Policy Coverage</td><td>${pcScoreH}/100</td><td>${policyDecisionsH} policy decision(s) against ${toolCallsH} tool call(s) — ${toolCallsH > 0 ? Math.round((policyDecisionsH / toolCallsH) * 100) : 'N/A'}% coverage</td></tr>`);
   parts.push(`<tr><td>Human Oversight Evidence</td><td>${hoScoreH}/100</td><td>Human approval records for actions tagged high_risk or human_required</td></tr>`);
   parts.push(`<tr><td>Contamination Risk</td><td>${crScoreH}/100</td><td>Training/test data overlap risk (100 = no contamination detected)</td></tr>`);
+  if (!score.contamination_evaluated) {
+    parts.push('</tbody></table>');
+    parts.push('<p class="oaa-note"><strong>Note:</strong> The Contamination Risk component reflects a neutral score (no training event set was provided). To evaluate real contamination, pass a <code>ContaminationResult</code> to <code>computeRiskScore()</code>.</p>');
+    parts.push('<table><thead><tr><th>Component</th><th>Score</th><th>What this means</th></tr></thead><tbody>');
+  }
   parts.push(
     `<tr><td><strong>Total EAS</strong></td><td><strong>${evidence_admission_score.score}/100 ` +
     `(Grade <span style="${gradeStyle}">${grade}</span>)</strong></td><td>Weighted average — 20% each for first three, 15% oversight + policy, 10% contamination</td></tr>`,
@@ -2435,10 +2451,14 @@ function buildHtml(
     const mismatchNote = cryptoSummary.hashes_content_mismatch > 0
       ? ` — <span style="color:orange;font-weight:bold">&#9888; ${cryptoSummary.hashes_content_mismatch} hash mismatch(es) detected</span>`
       : '';
+    const sigTotalH = cryptoSummary.signatures_verified + cryptoSummary.signatures_failed;
+    const sigNoteH = sigTotalH === 0 && cryptoSummary.events_with_signature > 0
+      ? 'no key registry'
+      : `${cryptoSummary.signatures_verified}/${cryptoSummary.events_with_signature} signatures verified`;
     parts.push(
       `<tr><td>Cryptographic Verification</td>` +
       `<td>${cryptoSummary.hashes_content_verified}/${cryptoSummary.events_with_hash} events hash-verified${mismatchNote}</td>` +
-      `<td>${cryptoSummary.events_with_signature} signature(s) present</td></tr>`,
+      `<td>${cryptoSummary.events_with_signature} signature(s) present — ${sigNoteH}</td></tr>`,
     );
   }
   parts.push('</tbody>');

@@ -138,6 +138,7 @@ export interface RiskScore {
   agent_risk_score: { score: number };
   components: Record<string, number>;
   rubric_version?: string;
+  contamination_evaluated: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -281,6 +282,7 @@ export const RiskScoreSchema = z.object({
   }),
   components: z.record(z.string(), z.number()),
   rubric_version: z.string().optional(),
+  contamination_evaluated: z.boolean().default(false),
 });
 
 // ---------------------------------------------------------------------------

@@ -12,8 +12,12 @@ export interface ValidationResult {
     hashes_content_verified: number;
     hashes_content_mismatch: number;
     events_with_signature: number;
+    signatures_verified: number;
+    signatures_failed: number;
   };
 }
+
+export type Ed25519KeyRegistry = Map<string, CryptoKey>;
 
 const SPEC_VERSION = 'open-agent-audit/v0.1';
 
@@ -61,7 +65,61 @@ async function computeEventHash(event: CanonicalEvent): Promise<string> {
   return hex;
 }
 
-export async function validate(events: CanonicalEvent[]): Promise<ValidationResult> {
+async function verifyEd25519Signature(
+  event: CanonicalEvent,
+  keyRegistry: Ed25519KeyRegistry,
+): Promise<'verified' | 'failed' | 'no_key' | 'skipped'> {
+  const sig = event.evidence?.signature;
+  const alg = event.evidence?.signature_algorithm;
+  const keyId = event.evidence?.signer_key_id;
+
+  if (!sig || alg !== 'ed25519') return 'skipped';
+  if (!keyId) return 'no_key';
+
+  const key = keyRegistry.get(keyId);
+  if (!key) return 'no_key';
+
+  try {
+    // signature is hex or base64 — try hex first, then base64
+    let sigBytes: Uint8Array<ArrayBuffer>;
+    if (/^[0-9a-fA-F]{128}$/.test(sig)) {
+      // 64-byte Ed25519 signature as 128 hex chars
+      const buf = new ArrayBuffer(64);
+      sigBytes = new Uint8Array(buf);
+      const pairs = sig.match(/.{2}/g)!;
+      for (let i = 0; i < pairs.length; i++) sigBytes[i] = parseInt(pairs[i]!, 16);
+    } else {
+      // assume base64
+      const binary = atob(sig);
+      const buf = new ArrayBuffer(binary.length);
+      sigBytes = new Uint8Array(buf);
+      for (let i = 0; i < binary.length; i++) sigBytes[i] = binary.charCodeAt(i);
+    }
+
+    // The signed message is the same canonical JSON used for hash computation
+    const forSigning: Record<string, unknown> = {};
+    const signingKeys: Array<keyof CanonicalEvent> = [
+      'schema_version', 'run_id', 'event_id', 'timestamp', 'type', 'actor',
+      'agent_id', 'model_id', 'session_id', 'tool', 'policy', 'human',
+      'error', 'model_output', 'observation',
+    ];
+    for (const k of signingKeys) {
+      if (event[k] !== undefined) forSigning[k] = event[k];
+    }
+    const canonical = JSON.stringify(forSigning, Object.keys(forSigning).sort());
+    const message = new TextEncoder().encode(canonical);
+
+    const valid = await crypto.subtle.verify('Ed25519', key, sigBytes, message);
+    return valid ? 'verified' : 'failed';
+  } catch {
+    return 'failed';
+  }
+}
+
+export async function validate(
+  events: CanonicalEvent[],
+  keyRegistry?: Ed25519KeyRegistry,
+): Promise<ValidationResult> {
   const errors: Array<{ event_id: string; path: string; message: string }> = [];
   const warnings: Array<{ event_id: string; path: string; message: string }> = [];
 
@@ -288,6 +346,33 @@ export async function validate(events: CanonicalEvent[]): Promise<ValidationResu
   const hashes_content_verified = events_with_hash - hashes_content_mismatch;
   const events_with_signature = events.filter(e => e.evidence?.signature !== undefined).length;
 
+  // Ed25519 signature verification (only when keyRegistry is provided)
+  let signatures_verified = 0;
+  let signatures_failed = 0;
+
+  if (keyRegistry !== undefined) {
+    for (const e of events) {
+      if (e.evidence?.signature === undefined) continue;
+      const result = await verifyEd25519Signature(e, keyRegistry);
+      if (result === 'verified') {
+        signatures_verified++;
+      } else if (result === 'failed') {
+        signatures_failed++;
+        errors.push({
+          event_id: e.event_id ?? '',
+          path: 'evidence.signature',
+          message: `Ed25519 signature verification FAILED for event '${e.event_id}' (key_id: '${e.evidence.signer_key_id ?? 'none'}').`,
+        });
+      } else if (result === 'no_key') {
+        warnings.push({
+          event_id: e.event_id ?? '',
+          path: 'evidence.signer_key_id',
+          message: `No key found in registry for signer_key_id '${e.evidence.signer_key_id ?? 'none'}' — signature not verified.`,
+        });
+      }
+    }
+  }
+
   return {
     total: events.length,
     errors,
@@ -297,6 +382,8 @@ export async function validate(events: CanonicalEvent[]): Promise<ValidationResu
       hashes_content_verified,
       hashes_content_mismatch,
       events_with_signature,
+      signatures_verified,
+      signatures_failed,
     },
   };
 }

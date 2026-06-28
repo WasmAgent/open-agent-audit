@@ -218,5 +218,6 @@ export async function computeRiskScore(
       human_oversight_evidence,
       contamination_risk_inverted,
     },
+    contamination_evaluated: contaminationResult !== undefined,
   };
 }
