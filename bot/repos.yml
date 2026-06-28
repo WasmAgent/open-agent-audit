@@ -1,21 +1,17 @@
 # mode controls what the bot can do with this repo:
-#   full         — monitor + AI discussion + implement code + PR + merge  (default)
+#   full         — monitor + AI discussion + implement code + PR + merge
 #   discuss_only — monitor + AI discussion only, NO code changes or PRs
 
 repositories:
-  # ── Bot infrastructure ─────────────────────────────────────────────────────
-  - id: open-agent-audit
-    repo: WasmAgent/open-agent-audit
-    project_name: open-agent-audit
+  # ── Full mode (bot can write code) ────────────────────────────────────────
+  - id: wasmagent
+    repo: WasmAgent/wasmagent
+    project_name: wasmagent
     mode: full
     base_branch: main
-    bare_repo_path: /srv/claude-bot/repos/open-agent-audit.git
-    worktree_root: /srv/claude-bot/worktrees/open-agent-audit
-    test_cmds:
-      - npm run lint
-      - npm run typecheck
-      - npm run build
-      - npm test
+    bare_repo_path: /srv/claude-bot/repos/wasmagent.git
+    worktree_root: /srv/claude-bot/worktrees/wasmagent
+    test_cmds: []
     enqueue_label: claude
     docs_label: claude-docs
     hard_label: claude-hard
@@ -23,93 +19,65 @@ repositories:
     deep_review_label: claude-deep-review
     no_automerge_label: claude-no-automerge
     automerge_default: true
+    enabled: true
+
+  - id: dot-github
+    repo: WasmAgent/.github
+    project_name: dot-github
+    mode: full
+    base_branch: main
+    bare_repo_path: /srv/claude-bot/repos/dot-github.git
+    worktree_root: /srv/claude-bot/worktrees/dot-github
+    test_cmds: []
+    enqueue_label: claude
+    docs_label: claude-docs
+    hard_label: claude-hard
+    ultracode_label: claude-ultracode
+    deep_review_label: claude-deep-review
+    no_automerge_label: claude-no-automerge
+    automerge_default: true
+    enabled: true
+
+  # ── Discuss-only (monitor + AI discussion, no code changes) ───────────────
+  - id: open-agent-audit
+    repo: WasmAgent/open-agent-audit
+    project_name: open-agent-audit
+    mode: discuss_only
+    base_branch: main
+    enqueue_label: claude
+    automerge_default: false
     enabled: true
 
   - id: claude-bot-sandbox
     repo: WasmAgent/claude-bot-sandbox
     project_name: claude-bot-sandbox
-    mode: full
+    mode: discuss_only
     base_branch: main
-    bare_repo_path: /srv/claude-bot/repos/claude-bot-sandbox.git
-    worktree_root: /srv/claude-bot/worktrees/claude-bot-sandbox
-    test_cmds:
-      - npm test
-      - npm run lint
-      - npm run build
     enqueue_label: claude
-    docs_label: claude-docs
-    hard_label: claude-hard
-    ultracode_label: claude-ultracode
-    deep_review_label: claude-deep-review
-    no_automerge_label: claude-no-automerge
-    automerge_default: true
+    automerge_default: false
     enabled: true
 
-  # ── Active development repos ───────────────────────────────────────────────
   - id: wasmagent-js
     repo: WasmAgent/wasmagent-js
     project_name: wasmagent-js
-    mode: full
+    mode: discuss_only
     base_branch: main
-    bare_repo_path: /srv/claude-bot/repos/wasmagent-js.git
-    worktree_root: /srv/claude-bot/worktrees/wasmagent-js
-    test_cmds:
-      - bun run lint
-      - bun run typecheck
-      - bun run build
-      - bun test
     enqueue_label: claude
-    docs_label: claude-docs
-    hard_label: claude-hard
-    ultracode_label: claude-ultracode
-    deep_review_label: claude-deep-review
-    no_automerge_label: claude-no-automerge
-    automerge_default: true
+    automerge_default: false
     enabled: true
 
   - id: bscode
     repo: WasmAgent/bscode
     project_name: bscode
-    mode: full
+    mode: discuss_only
     base_branch: main
-    bare_repo_path: /srv/claude-bot/repos/bscode.git
-    worktree_root: /srv/claude-bot/worktrees/bscode
-    test_cmds:
-      - bun run lint
-      - bun run typecheck
-      - bun run build
-      - bun run test
     enqueue_label: claude
-    docs_label: claude-docs
-    hard_label: claude-hard
-    ultracode_label: claude-ultracode
-    deep_review_label: claude-deep-review
-    no_automerge_label: claude-no-automerge
-    automerge_default: true
+    automerge_default: false
     enabled: true
 
   - id: trace-pipeline
     repo: WasmAgent/trace-pipeline
     project_name: trace-pipeline
-    mode: full
-    base_branch: main
-    bare_repo_path: /srv/claude-bot/repos/trace-pipeline.git
-    worktree_root: /srv/claude-bot/worktrees/trace-pipeline
-    test_cmds:
-      - python3 -m pytest
-    enqueue_label: claude
-    docs_label: claude-docs
-    hard_label: claude-hard
-    ultracode_label: claude-ultracode
-    deep_review_label: claude-deep-review
-    no_automerge_label: claude-no-automerge
-    automerge_default: true
-    enabled: true
-
-  # ── Discuss-only repos (monitor + AI discussion, no code changes) ──────────
-  - id: wasmagent
-    repo: WasmAgent/wasmagent
-    project_name: wasmagent
     mode: discuss_only
     base_branch: main
     enqueue_label: claude
@@ -119,15 +87,6 @@ repositories:
   - id: wasmagent-ops
     repo: WasmAgent/wasmagent-ops
     project_name: wasmagent-ops
-    mode: discuss_only
-    base_branch: main
-    enqueue_label: claude
-    automerge_default: false
-    enabled: true
-
-  - id: dot-github
-    repo: WasmAgent/.github
-    project_name: dot-github
     mode: discuss_only
     base_branch: main
     enqueue_label: claude
