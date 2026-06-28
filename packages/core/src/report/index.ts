@@ -1288,6 +1288,132 @@ function buildComplianceMappings(
     }
   }
 
+  // MEASURE-2.4 — AI system performance within context
+  {
+    const id = 'MEASURE-2.4';
+    const label = 'AI system performance in context of use is evaluated';
+    const limitation = 'Tool inventory and policy decisions evidence the AI system operating in its deployment context; full contextual performance evaluation requires defined acceptance criteria.';
+    const contextEvIds = [...new Set([
+      ...toolCallEvents.slice(0, 3).map((e) => e.event_id),
+      ...policyDecisionEvents.slice(0, 3).map((e) => e.event_id),
+    ])];
+    if (toolCallEvents.length > 0 && policyDecisionEvents.length > 0) {
+      nistReqs.push({ id, label, status: 'partial', evidence_event_ids: contextEvIds, limitation });
+    } else {
+      nistReqs.push({ id, label, status: 'not_evaluated', evidence_event_ids: [], limitation });
+    }
+  }
+
+  // MEASURE-2.6 — AI system bias, fairness, equity evaluated
+  {
+    const id = 'MEASURE-2.6';
+    const label = 'AI system fairness and bias are evaluated and results are documented';
+    const limitation = 'Taint labels (pii, user-supplied) are a proxy for demographic sensitivity; quantitative fairness evaluation requires a dedicated fairness engine and demographic ground-truth data.';
+    const biasEvIds = toolCallEvents.filter((e) => {
+      const tags = e.tool?.risk_tags ?? [];
+      return tags.some((t) => ['pii', 'sensitive', 'personal', 'demographic', 'user-supplied'].some((k) => t.toLowerCase().includes(k)));
+    }).map((e) => e.event_id);
+    if (biasEvIds.length > 0) {
+      nistReqs.push({ id, label, status: 'partial', evidence_event_ids: biasEvIds, limitation });
+    } else {
+      nistReqs.push({ id, label, status: 'not_evaluated', evidence_event_ids: [], limitation });
+    }
+  }
+
+  // MEASURE-2.8 — risks to civil liberties identified and evaluated
+  {
+    const id = 'MEASURE-2.8';
+    const label = 'Risks to civil liberties from AI use are identified, prioritised, and documented';
+    const limitation = 'State-changing tool calls and deny decisions are proxies for civil-liberty-relevant actions; comprehensive civil liberties risk mapping requires human-authored risk register entries.';
+    const civilRiskEvIds = [...new Set([
+      ...denyPolicyEvents.map((e) => e.event_id),
+      ...toolCallEvents.filter((e) => e.tool?.risk_tags && e.tool.risk_tags.length > 0).slice(0, 3).map((e) => e.event_id),
+    ])];
+    if (denyPolicyEvents.length > 0 || civilRiskEvIds.length > 0) {
+      nistReqs.push({ id, label, status: 'partial', evidence_event_ids: civilRiskEvIds, limitation });
+    } else {
+      nistReqs.push({ id, label, status: 'not_evaluated', evidence_event_ids: [], limitation });
+    }
+  }
+
+  // MEASURE-2.10 — privacy risk to individuals identified and prioritised
+  {
+    const id = 'MEASURE-2.10';
+    const label = 'Privacy risk to individuals is identified and prioritised';
+    const limitation = 'PII and user-supplied taint labels evidence data-privacy risk handling at run time; formal privacy risk assessment requires organisational legal review.';
+    const privacyEvIds = toolCallEvents.filter((e) => {
+      const tags = e.tool?.risk_tags ?? [];
+      return tags.some((t) => ['pii', 'personal', 'sensitive', 'user-supplied'].some((k) => t.toLowerCase().includes(k)));
+    }).map((e) => e.event_id);
+    if (privacyEvIds.length > 0) {
+      nistReqs.push({ id, label, status: 'partial', evidence_event_ids: privacyEvIds, limitation });
+    } else {
+      nistReqs.push({ id, label, status: 'not_evaluated', evidence_event_ids: [], limitation });
+    }
+  }
+
+  // MANAGE-1.3 — responses to risks are documented
+  {
+    const id = 'MANAGE-1.3';
+    const label = 'Responses to identified AI risks are documented';
+    const limitation = 'Policy-audit findings with recommendations evidence documented risk responses within this report; organisational risk treatment decisions require separate documentation.';
+    const findingEvIds = evidenceFromRules([
+      'OAA-R-CAP-001', 'OAA-R-CAP-002', 'OAA-R-OVERSIGHT-001',
+      'OAA-R-POLICY-001', 'OAA-R-POLICY-002', 'OAA-R-INTEGRITY-001',
+    ]);
+    if (findings.length > 0) {
+      nistReqs.push({ id, label, status: 'partial', evidence_event_ids: [...new Set(findingEvIds)], limitation });
+    } else {
+      nistReqs.push({ id, label, status: 'not_evaluated', evidence_event_ids: [], limitation });
+    }
+  }
+
+  // MANAGE-2.4 — risk treatment effectiveness assessed
+  {
+    const id = 'MANAGE-2.4';
+    const label = 'Risk treatment effectiveness is assessed and results documented';
+    const limitation = 'Verifier observations evidence runtime policy enforcement; effectiveness of risk treatment decisions requires before/after comparison across runs.';
+    const verifierObs = observationEvents.filter(
+      (e) => e.observation?.source !== undefined && e.observation.source.startsWith('verifier:'),
+    );
+    if (verifierObs.length > 0 && (denyPolicyEvents.length > 0 || findings.length > 0)) {
+      nistReqs.push({ id, label, status: 'partial', evidence_event_ids: [...new Set([...verifierObs.map((e) => e.event_id), ...denyPolicyEvents.slice(0, 2).map((e) => e.event_id)])], limitation });
+    } else {
+      nistReqs.push({ id, label, status: 'not_evaluated', evidence_event_ids: [], limitation });
+    }
+  }
+
+  // MAP-1.5 — organisational context documented for AI deployment
+  {
+    const id = 'MAP-1.5';
+    const label = 'Organisational context for AI system use is established and documented';
+    const limitation = 'ReportMeta fields (intended_use, deployment_context, source_files) document the deployment context; formal organisational AI use policy requires governance documentation.';
+    const hasDeploymentContext = (meta?.intended_use !== undefined && meta.intended_use.trim() !== '') ||
+      (meta?.deployment_context !== undefined && meta.deployment_context.trim() !== '');
+    if (hasDeploymentContext) {
+      nistReqs.push({ id, label, status: 'partial', evidence_event_ids: events.slice(0, 3).map((e) => e.event_id), limitation });
+    } else if (events.length > 0) {
+      nistReqs.push({ id, label, status: 'partial', evidence_event_ids: events.slice(0, 3).map((e) => e.event_id), limitation: 'Runtime trace documents AI system operation. Populate ReportMeta.intended_use and deployment_context for stronger evidence.' });
+    } else {
+      nistReqs.push({ id, label, status: 'not_evaluated', evidence_event_ids: [], limitation });
+    }
+  }
+
+  // MAP-2.3 — AI system scientific and technical approaches documented
+  {
+    const id = 'MAP-2.3';
+    const label = 'Scientific and technical approaches used in AI system are documented';
+    const limitation = 'AEP run-provenance fields (repo_commit, runtime_version, policy_bundle_digest) document the technical version in use; scientific methodology documentation requires design-time artifacts.';
+    const hasProvenance = events.some(
+      (e) => e.evidence?.signer_key_id !== undefined && e.evidence.signer_key_id !== 'none'
+    );
+    if (hasProvenance) {
+      nistReqs.push({ id, label, status: 'partial', evidence_event_ids: events.filter((e) => e.evidence?.signer_key_id !== undefined && e.evidence.signer_key_id !== 'none').slice(0, 5).map((e) => e.event_id), limitation });
+    } else {
+      nistReqs.push({ id, label, status: 'not_evaluated', evidence_event_ids: [], limitation });
+    }
+  }
+
   // MANAGE-4.1 — not_evaluated (requires ongoing monitoring data)
   nistReqs.push({
     id: 'MANAGE-4.1',
@@ -1467,6 +1593,49 @@ function buildComplianceMappings(
           return { status: 'not_evaluated' as const, evidence_event_ids: [], limitation: 'No events present in this trace.' };
         }
       })()),
+    },
+    {
+      id: 'A.7.2',
+      label: 'AI system design objectives documented',
+      ...(meta?.intended_use !== undefined && meta.intended_use.trim() !== ''
+        ? { status: 'partial' as const, evidence_event_ids: toolCallEvents.slice(0, 3).map((e) => e.event_id), limitation: 'ReportMeta.intended_use provides design-intent documentation. Formal design objectives (architecture rationale, constraint decisions) remain organisational artifacts.' }
+        : { status: 'not_evaluated' as const, evidence_event_ids: [], limitation: 'Populate ReportMeta.intended_use to partially satisfy A.7.2 design objectives evidence.' }),
+    },
+    {
+      id: 'A.8.4',
+      label: 'Data preparation and preprocessing controls',
+      ...((() => {
+        // AEP input_refs with digests evidence data preparation pipeline integrity
+        const inputRefsInTrace = events.filter(
+          (e) => e.type === 'observation' && e.observation?.source !== undefined &&
+                 (e.observation.source.includes('input') || e.observation.source.includes('data'))
+        );
+        if (inputRefsInTrace.length > 0) {
+          return { status: 'partial' as const, evidence_event_ids: inputRefsInTrace.map((e) => e.event_id), limitation: 'Input observations evidence runtime data handling; formal data preprocessing provenance requires design-time pipeline documentation.' };
+        }
+        return { status: 'not_evaluated' as const, evidence_event_ids: [], limitation: 'No data preparation signals detected. Add input-tagged observation events to evidence data preprocessing.' };
+      })()),
+    },
+    {
+      id: 'A.9.3',
+      label: 'Monitoring of third-party AI systems in operation',
+      ...(a91EvIds.length > 0 && (errorEvents.length > 0 || denyPolicyEvents.length > 0)
+        ? { status: 'partial' as const, evidence_event_ids: [...new Set([...a91EvIds.slice(0, 3), ...errorEvents.slice(0, 2).map((e) => e.event_id), ...denyPolicyEvents.slice(0, 2).map((e) => e.event_id)])], limitation: 'Signer key IDs identify the third-party component; error/deny events evidence active monitoring. Contractual SLA monitoring requires organisational documentation.' }
+        : { status: 'not_evaluated' as const, evidence_event_ids: [], limitation: 'Requires both third-party signer identity and monitoring signal events (error or deny).' }),
+    },
+    {
+      id: 'A.5.2',
+      label: 'AI policy established and communicated',
+      ...(meta?.qms_reference !== undefined && meta.qms_reference.trim() !== ''
+        ? { status: 'partial' as const, evidence_event_ids: [], limitation: 'ReportMeta.qms_reference documents the AI policy framework. Policy communication to stakeholders requires organisational verification.' }
+        : { status: 'not_evaluated' as const, evidence_event_ids: [], limitation: 'Populate ReportMeta.qms_reference to partially satisfy A.5.2 AI policy documentation.' }),
+    },
+    {
+      id: 'A.10.1',
+      label: 'Operational documentation of AI system',
+      ...(meta?.source_files !== undefined && (meta.source_files as string[]).length > 0
+        ? { status: 'partial' as const, evidence_event_ids: events.slice(0, 3).map((e) => e.event_id), limitation: 'Source file name and audit trace document the operational run. Comprehensive operational documentation (deployment runbooks, incident procedures) requires organisational artifacts.' }
+        : { status: 'not_evaluated' as const, evidence_event_ids: [], limitation: 'Supply a source file name via ReportMeta.source_files or X-Source-File header to partially satisfy A.10.1.' }),
     },
   ];
 
