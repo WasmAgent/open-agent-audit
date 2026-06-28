@@ -2,6 +2,8 @@
 """
 Claude Bot Scheduler — polls GitHub for labeled issues and enqueues jobs.
 Reads monitored repos from /srv/claude-bot/repos.yml (or REPOS_CONFIG_PATH).
+After each poll cycle, newly enqueued jobs are batch-scored by glm-4.7 and
+assigned a priority (1–100, lower = higher priority) for cross-repo ordering.
 """
 
 import json
@@ -27,6 +29,9 @@ DB_PATH = os.environ.get("DB_PATH", "/srv/claude-bot/db.sqlite3")
 REPOS_CONFIG_PATH = os.environ.get("REPOS_CONFIG_PATH", "/srv/claude-bot/repos.yml")
 POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL", "120"))
 GH_TOKEN = os.environ.get("GH_TOKEN", "")
+
+ANTHROPIC_AUTH_TOKEN = os.environ.get("ANTHROPIC_AUTH_TOKEN", "")
+ANTHROPIC_BASE_URL = os.environ.get("ANTHROPIC_BASE_URL", "https://api.z.ai/api/anthropic")
 
 
 # ---------------------------------------------------------------------------
@@ -54,6 +59,7 @@ CREATE TABLE IF NOT EXISTS jobs (
   state TEXT NOT NULL DEFAULT 'pending',
   stage TEXT NOT NULL DEFAULT 'queued',
   priority INTEGER NOT NULL DEFAULT 100,
+  priority_reason TEXT DEFAULT '',
 
   model_tier TEXT NOT NULL DEFAULT 'normal',
   review_tier TEXT NOT NULL DEFAULT 'light',
@@ -93,9 +99,9 @@ CREATE TABLE IF NOT EXISTS jobs (
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_jobs_issue   ON jobs(repo, issue_number);
-CREATE INDEX IF NOT EXISTS idx_jobs_claim   ON jobs(state, priority, created_at, next_retry_at);
-CREATE INDEX IF NOT EXISTS idx_jobs_lease   ON jobs(state, lease_expires_at);
+CREATE INDEX IF NOT EXISTS idx_jobs_issue    ON jobs(repo, issue_number);
+CREATE INDEX IF NOT EXISTS idx_jobs_claim    ON jobs(state, priority, created_at, next_retry_at);
+CREATE INDEX IF NOT EXISTS idx_jobs_lease    ON jobs(state, lease_expires_at);
 CREATE INDEX IF NOT EXISTS idx_jobs_provider ON jobs(provider, model_tier, state);
 
 CREATE TABLE IF NOT EXISTS provider_account_state (
@@ -136,13 +142,22 @@ VALUES
   ('zai-glm', 'hard',   'opus',   'glm-5.2[1m]', 1);
 """
 
+# Migration: add priority_reason column if it doesn't exist yet
+MIGRATION = """
+ALTER TABLE jobs ADD COLUMN priority_reason TEXT DEFAULT '';
+"""
+
 
 def open_db() -> sqlite3.Connection:
     Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
-    conn.commit()
+    try:
+        conn.execute(MIGRATION)
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass  # column already exists
     return conn
 
 
@@ -197,7 +212,6 @@ def gh_issue_list(repo: str, label: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def determine_tiers(labels: set[str], repo_cfg: dict) -> tuple[str, str, bool]:
-    """Returns (model_tier, review_tier, automerge)."""
     model_tier = "normal"
     if repo_cfg.get("docs_label", "claude-docs") in labels:
         model_tier = "docs"
@@ -215,7 +229,6 @@ def determine_tiers(labels: set[str], repo_cfg: dict) -> tuple[str, str, bool]:
 
 
 def model_for_tier(model_tier: str) -> tuple[str, str]:
-    """Returns (model_alias, effective_model)."""
     if model_tier == "hard":
         return "opus", "glm-5.2[1m]"
     if model_tier == "docs":
@@ -224,10 +237,132 @@ def model_for_tier(model_tier: str) -> tuple[str, str]:
 
 
 # ---------------------------------------------------------------------------
+# AI priority scoring — single batch call to glm-4.7
+# ---------------------------------------------------------------------------
+
+PRIORITY_PROMPT = """You are a task scheduler for an autonomous software development bot.
+You will receive a list of GitHub issues from multiple repositories.
+Score each issue with a priority from 1 to 100 (lower = execute first).
+
+Scoring guidelines:
+- 1–15:  Production incident / crash / data loss / security vulnerability / blocks other work
+- 16–30: Important bug affecting core functionality, regression, broken CI
+- 31–50: Normal feature or bug with clear acceptance criteria, moderate complexity
+- 51–70: Improvement, refactor, or feature with lower urgency
+- 71–85: Documentation, README, comments, minor cleanup
+- 86–100: Nice-to-have, low urgency, cosmetic
+
+Cross-repo ordering: treat all issues equally regardless of repo.
+Prefer issues that unblock other issues or are quick to complete over slow complex ones.
+
+Return ONLY a JSON array, no other text:
+[
+  {"id": <issue id from input>, "priority": <1-100>, "reason": "<one sentence>"},
+  ...
+]
+
+Issues to score:
+"""
+
+
+def score_issues_with_ai(issues: list[dict]) -> dict[int, tuple[int, str]]:
+    """
+    Call glm-4.7 once to score all issues.
+    Returns {job_id: (priority, reason)}.
+    Falls back to heuristic scoring on any error.
+    """
+    if not issues:
+        return {}
+
+    # Build compact issue list for the prompt
+    issue_text = json.dumps([
+        {
+            "id": item["job_id"],
+            "repo": item["repo"],
+            "title": item["title"],
+            "body": (item["body"] or "")[:300],
+            "labels": item["labels"],
+            "model_tier": item["model_tier"],
+        }
+        for item in issues
+    ], ensure_ascii=False, indent=2)
+
+    prompt = PRIORITY_PROMPT + issue_text
+
+    try:
+        import urllib.request
+        import urllib.error
+
+        payload = json.dumps({
+            "model": "glm-4.7",
+            "max_tokens": 1024,
+            "messages": [{"role": "user", "content": prompt}],
+        }).encode()
+
+        base_url = ANTHROPIC_BASE_URL.rstrip("/")
+        req = urllib.request.Request(
+            f"{base_url}/v1/messages",
+            data=payload,
+            headers={
+                "Content-Type": "application/json",
+                "x-api-key": ANTHROPIC_AUTH_TOKEN,
+                "anthropic-version": "2023-06-01",
+            },
+            method="POST",
+        )
+
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read())
+
+        text = data["content"][0]["text"].strip()
+
+        # Strip markdown fences if present
+        if text.startswith("```"):
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+        text = text.strip()
+
+        scores = json.loads(text)
+        result = {}
+        for item in scores:
+            job_id = int(item["id"])
+            priority = max(1, min(100, int(item.get("priority", 100))))
+            reason = str(item.get("reason", ""))[:200]
+            result[job_id] = (priority, reason)
+
+        log.info("AI scored %d issue(s)", len(result))
+        return result
+
+    except Exception as e:
+        log.warning("AI scoring failed (%s), using heuristic fallback", e)
+        return {}
+
+
+def heuristic_priority(title: str, body: str, model_tier: str, labels: list[str]) -> tuple[int, str]:
+    """Fallback when AI scoring is unavailable."""
+    title_lower = title.lower()
+    body_lower = (body or "").lower()
+
+    if any(w in title_lower for w in ("crash", "critical", "urgent", "production", "security", "data loss", "broken")):
+        return 15, "heuristic: critical keyword in title"
+    if any(w in title_lower for w in ("bug", "fix", "error", "fail", "regression", "broken")):
+        return 35, "heuristic: bug/fix keyword"
+    if model_tier == "docs":
+        return 75, "heuristic: docs label"
+    if model_tier == "hard":
+        return 55, "heuristic: hard label (complex task)"
+    return 60, "heuristic: default normal task"
+
+
+# ---------------------------------------------------------------------------
 # Job upsert
 # ---------------------------------------------------------------------------
 
-def upsert_job(conn: sqlite3.Connection, repo: str, issue: dict, repo_cfg: dict):
+def upsert_job(conn: sqlite3.Connection, repo: str, issue: dict, repo_cfg: dict) -> int | None:
+    """
+    Insert or update a job. Returns job_id if newly inserted, None if updated/skipped.
+    """
     number = issue["number"]
     title = issue["title"]
     body = issue.get("body") or ""
@@ -241,15 +376,14 @@ def upsert_job(conn: sqlite3.Connection, repo: str, issue: dict, repo_cfg: dict)
     max_review_retries = 3 if model_tier == "hard" else 2
 
     existing = conn.execute(
-        "SELECT id, state FROM jobs WHERE repo=? AND issue_number=?",
+        "SELECT id, state, priority FROM jobs WHERE repo=? AND issue_number=?",
         (repo, number),
     ).fetchone()
 
     if existing:
         if existing["state"] in ("merged", "max_retry_exceeded", "provider_blocked", "blocked"):
             log.debug("Skipping issue #%d in terminal state %s", number, existing["state"])
-            return
-        # Update labels/tier in case they changed, but don't reset state.
+            return None
         conn.execute("""
             UPDATE jobs
             SET title=?, body=?, labels_json=?,
@@ -264,23 +398,72 @@ def upsert_job(conn: sqlite3.Connection, repo: str, issue: dict, repo_cfg: dict)
             repo, number,
         ))
         log.debug("Updated job for %s#%d", repo, number)
-    else:
-        conn.execute("""
-            INSERT INTO jobs (
-              repo, issue_number, title, body, labels_json,
-              base_branch, state, stage, priority,
-              model_tier, review_tier, automerge,
-              model_alias, effective_model, provider,
-              max_retries, max_ci_retries, max_review_retries
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-        """, (
-            repo, number, title, body, json.dumps(sorted(labels)),
-            base_branch, "pending", "queued", 100,
-            model_tier, review_tier, int(automerge),
-            model_alias, effective_model, "zai-glm",
-            max_retries, max_ci_retries, max_review_retries,
-        ))
-        log.info("Enqueued new job: %s#%d [%s] %r", repo, number, model_tier, title[:60])
+        conn.commit()
+        return None  # not new, skip scoring
+
+    cursor = conn.execute("""
+        INSERT INTO jobs (
+          repo, issue_number, title, body, labels_json,
+          base_branch, state, stage, priority,
+          model_tier, review_tier, automerge,
+          model_alias, effective_model, provider,
+          max_retries, max_ci_retries, max_review_retries
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    """, (
+        repo, number, title, body, json.dumps(sorted(labels)),
+        base_branch, "pending", "queued", 100,  # temporary priority
+        model_tier, review_tier, int(automerge),
+        model_alias, effective_model, "zai-glm",
+        max_retries, max_ci_retries, max_review_retries,
+    ))
+    conn.commit()
+    log.info("Enqueued new job: %s#%d [%s] %r", repo, number, model_tier, title[:60])
+    return cursor.lastrowid
+
+
+# ---------------------------------------------------------------------------
+# Batch priority assignment
+# ---------------------------------------------------------------------------
+
+def assign_priorities(conn: sqlite3.Connection, new_jobs: list[dict]):
+    """Score all new jobs in one AI call, then update DB."""
+    if not new_jobs:
+        return
+
+    if len(new_jobs) == 1:
+        # Single job: use heuristic to avoid API call overhead
+        job = new_jobs[0]
+        priority, reason = heuristic_priority(
+            job["title"], job["body"], job["model_tier"], job["labels"]
+        )
+        conn.execute(
+            "UPDATE jobs SET priority=?, priority_reason=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+            (priority, reason, job["job_id"]),
+        )
+        conn.commit()
+        log.info("Priority job %d → %d (%s)", job["job_id"], priority, reason)
+        return
+
+    # Multiple new jobs: batch AI scoring
+    scores = score_issues_with_ai(new_jobs)
+
+    for job in new_jobs:
+        job_id = job["job_id"]
+        if job_id in scores:
+            priority, reason = scores[job_id]
+        else:
+            # AI didn't return this job or call failed — use heuristic
+            priority, reason = heuristic_priority(
+                job["title"], job["body"], job["model_tier"], job["labels"]
+            )
+        conn.execute(
+            "UPDATE jobs SET priority=?, priority_reason=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+            (priority, reason, job_id),
+        )
+        log.info(
+            "Priority %s#%d → %d: %s",
+            job["repo"], job["issue_number"], priority, reason,
+        )
 
     conn.commit()
 
@@ -330,13 +513,19 @@ def load_repos_yml() -> list[dict]:
 
 def scheduler_loop():
     conn = open_db()
-    log.info("Scheduler started. DB=%s, repos=%s, poll=%ss", DB_PATH, REPOS_CONFIG_PATH, POLL_INTERVAL)
+    log.info(
+        "Scheduler started. DB=%s, repos=%s, poll=%ss, ai_scoring=%s",
+        DB_PATH, REPOS_CONFIG_PATH, POLL_INTERVAL,
+        "enabled" if ANTHROPIC_AUTH_TOKEN else "disabled (no token)",
+    )
 
     while True:
         try:
             recover_expired_leases(conn)
 
             repos = load_repos_yml()
+            new_jobs: list[dict] = []  # collect all new jobs this cycle for batch scoring
+
             if not repos:
                 log.warning("No enabled repositories in repos.yml")
             else:
@@ -345,11 +534,49 @@ def scheduler_loop():
                     label = repo_cfg.get("enqueue_label", "claude")
                     try:
                         issues = gh_issue_list(repo, label)
-                        log.info("Repo %s: found %d open issue(s) with label '%s'", repo, len(issues), label)
+                        log.info(
+                            "Repo %s: found %d open issue(s) with label '%s'",
+                            repo, len(issues), label,
+                        )
                         for issue in issues:
-                            upsert_job(conn, repo, issue, repo_cfg)
+                            job_id = upsert_job(conn, repo, issue, repo_cfg)
+                            if job_id is not None:
+                                labels = [lbl["name"] for lbl in issue.get("labels", [])]
+                                label_set = set(labels)
+                                model_tier, _, _ = determine_tiers(label_set, repo_cfg)
+                                new_jobs.append({
+                                    "job_id": job_id,
+                                    "repo": repo,
+                                    "issue_number": issue["number"],
+                                    "title": issue["title"],
+                                    "body": issue.get("body") or "",
+                                    "labels": labels,
+                                    "model_tier": model_tier,
+                                })
                     except Exception:
                         log.exception("Error processing repo %s", repo)
+
+            # Batch-score all new jobs from this cycle in one AI call
+            if new_jobs:
+                log.info("Scoring %d new job(s) for priority...", len(new_jobs))
+                assign_priorities(conn, new_jobs)
+
+                # Log final queue order
+                queue = conn.execute("""
+                    SELECT repo, issue_number, priority, priority_reason, title
+                    FROM jobs
+                    WHERE state IN ('pending','fixing','remote_ci_failed','review_failed')
+                    ORDER BY priority ASC, created_at ASC
+                    LIMIT 20
+                """).fetchall()
+                if queue:
+                    log.info("Current execution queue (%d pending):", len(queue))
+                    for i, row in enumerate(queue, 1):
+                        log.info(
+                            "  %d. [p=%d] %s#%d %r — %s",
+                            i, row["priority"], row["repo"], row["issue_number"],
+                            row["title"][:50], row["priority_reason"],
+                        )
 
         except Exception:
             log.exception("Scheduler loop error")
