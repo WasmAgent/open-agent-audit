@@ -71,27 +71,31 @@ export interface WorkerEnv {
   ISSUER_EMAIL: string;
   /** Public base URL of this deployment, e.g. "https://trustavo.com" */
   PUBLIC_URL: string;
+  /** Allowed CORS origin. Defaults to '*' if not set. */
+  CORS_ORIGIN?: string;
 }
 
 // ---------------------------------------------------------------------------
 // CORS helpers
 // ---------------------------------------------------------------------------
 
-const CORS_HEADERS: Record<string, string> = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
-};
+function corsHeaders(env: WorkerEnv): Record<string, string> {
+  return {
+    'Access-Control-Allow-Origin': env.CORS_ORIGIN ?? '*',
+    'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+  };
+}
 
-function corsJson(body: unknown, status = 200): Response {
+function corsJson(body: unknown, env: WorkerEnv, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { 'content-type': 'application/json', ...CORS_HEADERS },
+    headers: { 'content-type': 'application/json', ...corsHeaders(env) },
   });
 }
 
-function corsError(message: string, status: number): Response {
-  return corsJson({ error: message }, status);
+function corsError(message: string, status: number, env: WorkerEnv): Response {
+  return corsJson({ error: message }, env, status);
 }
 
 // ---------------------------------------------------------------------------
@@ -117,7 +121,7 @@ async function handleGetRuns(env: WorkerEnv): Promise<Response> {
      ORDER BY created_at DESC
      LIMIT 50`,
   ).all();
-  return corsJson({ runs: result.results });
+  return corsJson({ runs: result.results }, env);
 }
 
 async function handleGetRun(runId: string, env: WorkerEnv): Promise<Response> {
@@ -127,9 +131,9 @@ async function handleGetRun(runId: string, env: WorkerEnv): Promise<Response> {
     .bind(runId)
     .first();
   if (row === null) {
-    return corsError('Run not found', 404);
+    return corsError('Run not found', 404, env);
   }
-  return corsJson({ run: row });
+  return corsJson({ run: row }, env);
 }
 
 async function handleGetFindings(runId: string, env: WorkerEnv): Promise<Response> {
@@ -138,7 +142,7 @@ async function handleGetFindings(runId: string, env: WorkerEnv): Promise<Respons
   )
     .bind(runId)
     .all();
-  return corsJson({ findings: result.results });
+  return corsJson({ findings: result.results }, env);
 }
 
 async function handleGetReport(
@@ -152,7 +156,7 @@ async function handleGetReport(
   const key = `runs/${runId}/report.${fmt}`;
   const object = await env.REPORTS.get(key);
   if (object === null) {
-    return corsError('Report not found', 404);
+    return corsError('Report not found', 404, env);
   }
 
   let contentType = 'text/markdown; charset=utf-8';
@@ -160,7 +164,7 @@ async function handleGetReport(
   else if (fmt === 'json') contentType = 'application/json; charset=utf-8';
 
   return new Response(object.body, {
-    headers: { 'content-type': contentType, ...CORS_HEADERS },
+    headers: { 'content-type': contentType, ...corsHeaders(env) },
   });
 }
 
@@ -175,16 +179,16 @@ async function handlePostRun(request: Request, env: WorkerEnv): Promise<Response
     const form = await request.formData();
     const traceField = form.get('trace');
     if (typeof traceField !== 'string') {
-      return corsError('Missing "trace" field in multipart form', 400);
+      return corsError('Missing "trace" field in multipart form', 400, env);
     }
     if (traceField.length > maxBytes) {
-      return corsError(`Payload exceeds ${maxMb}MB limit`, 413);
+      return corsError(`Payload exceeds ${maxMb}MB limit`, 413, env);
     }
     jsonlContent = traceField;
   } else {
     const bodyBuf = await request.arrayBuffer();
     if (bodyBuf.byteLength > maxBytes) {
-      return corsError(`Payload exceeds ${maxMb}MB limit`, 413);
+      return corsError(`Payload exceeds ${maxMb}MB limit`, 413, env);
     }
     jsonlContent = new TextDecoder().decode(bodyBuf);
   }
@@ -201,6 +205,8 @@ async function handlePostRun(request: Request, env: WorkerEnv): Promise<Response
   // AEP records are pretty-printed (multi-line), so line-by-line parsing fails.
   let events: CanonicalEvent[];
   let aepProvenance: AepProvenanceForScoring | undefined;
+  let inputFormat = 'jsonl';
+  let parseFailures: number[] = [];
 
   let singleObject: Record<string, unknown> | undefined;
   try {
@@ -215,6 +221,7 @@ async function handlePostRun(request: Request, env: WorkerEnv): Promise<Response
     (singleObject['schema_version'] === 'aep/v0.2' || singleObject['schema_version'] === 'aep/v0.1');
 
   if (isAepRecord && singleObject !== undefined) {
+    inputFormat = 'aep';
     try {
       const aepRecord = singleObject as unknown as Parameters<typeof aepV0_2.AepV0_2Adapter.toEvents>[0];
       events = aepV0_2.AepV0_2Adapter.toEvents(aepRecord);
@@ -227,11 +234,13 @@ async function handlePostRun(request: Request, env: WorkerEnv): Promise<Response
       events = [];
     }
   } else {
-    // JSONL path: parse line-by-line
+    // JSONL path: parse line-by-line, recording failures
     const lines = jsonlContent.split('\n').filter((l) => l.trim().length > 0);
     const rawEvents: unknown[] = [];
-    for (const line of lines) {
-      try { rawEvents.push(JSON.parse(line)); } catch { /* skip invalid lines */ }
+    parseFailures = [];
+    for (const [idx, line] of lines.entries()) {
+      try { rawEvents.push(JSON.parse(line) as unknown); }
+      catch { parseFailures.push(idx + 1); }
     }
     const { valid } = validateEvents(rawEvents);
     events = valid;
@@ -247,12 +256,30 @@ async function handlePostRun(request: Request, env: WorkerEnv): Promise<Response
     },
   };
 
-  const [validationResult, inv, findings, score] = await Promise.all([
+  const [validationResult, inv, auditFindings, score] = await Promise.all([
     validate(events),
     inventory(events),
     policyAudit(events, ctx),
     computeRiskScore(events, run_id, aepProvenance),
   ]);
+
+  const findings: Finding[] = [...auditFindings];
+
+  // Append a parse-failure finding if any JSONL lines could not be parsed
+  if (parseFailures.length > 0) {
+    const SPEC_VERSION_CONST = 'open-agent-audit/v0.1' as const;
+    findings.push({
+      schema_version: SPEC_VERSION_CONST,
+      finding_id: btoa(`OAA-P-001:${run_id}:parse`),
+      rule_id: 'OAA-P-001',
+      severity: 'medium' as const,
+      category: 'trace_integrity',
+      title: 'Trace parse errors',
+      description: `${parseFailures.length} line(s) in the uploaded trace could not be parsed as JSON (lines: ${parseFailures.slice(0, 5).join(', ')}${parseFailures.length > 5 ? '…' : ''}).`,
+      evidence_ids: [],
+      recommendation: 'Review the trace file for malformed JSON lines. Each line must be a complete, valid JSON object.',
+    });
+  }
 
   const meta: ReportMeta = {
     issuer: env.ISSUER_NAME,
@@ -278,6 +305,10 @@ async function handlePostRun(request: Request, env: WorkerEnv): Promise<Response
     env.ARTIFACTS.put(`runs/${run_id}/score.json`, JSON.stringify(score, null, 2)),
   ]);
 
+  // Write run and findings to D1 so GET /api/v1/runs reflects this run
+  const completedAt = new Date().toISOString();
+  await writeRunToD1(env, run_id, 'default', r2Key, inputFormat, events.length, findings, score, completedAt);
+
   return corsJson({
     run_id,
     status: 'completed',
@@ -286,7 +317,7 @@ async function handlePostRun(request: Request, env: WorkerEnv): Promise<Response
     finding_count: findings.length,
     eas_score: score.evidence_admission_score.score,
     eas_grade: score.evidence_admission_score.grade,
-  }, 201);
+  }, env, 201);
 }
 
 async function handlePublicReportLink(runId: string, env: WorkerEnv): Promise<Response> {
@@ -333,7 +364,7 @@ async function handleFetch(request: Request, env: WorkerEnv): Promise<Response> 
 
   // OPTIONS pre-flight for CORS
   if (method === 'OPTIONS' && pathname.startsWith('/api/')) {
-    return new Response(null, { status: 204, headers: CORS_HEADERS });
+    return new Response(null, { status: 204, headers: corsHeaders(env) });
   }
 
   // GET /health
@@ -351,7 +382,7 @@ async function handleFetch(request: Request, env: WorkerEnv): Promise<Response> 
       site_name: siteName,
       site_tagline: 'Evidence-grade audit for enterprise AI agents',
       powered_by: 'OpenAgentAudit',
-    });
+    }, env);
   }
 
   // GET /api/v1/runs
@@ -368,7 +399,7 @@ async function handleFetch(request: Request, env: WorkerEnv): Promise<Response> 
   const runMatch = matchRoute(pathname, /^\/api\/v1\/runs\/([^/]+)$/);
   if (runMatch !== null && method === 'GET') {
     const runId = runMatch[1];
-    if (runId === undefined) return corsError('Bad route', 400);
+    if (runId === undefined) return corsError('Bad route', 400, env);
     return handleGetRun(runId, env);
   }
 
@@ -376,7 +407,7 @@ async function handleFetch(request: Request, env: WorkerEnv): Promise<Response> 
   const findingsMatch = matchRoute(pathname, /^\/api\/v1\/runs\/([^/]+)\/findings$/);
   if (findingsMatch !== null && method === 'GET') {
     const runId = findingsMatch[1];
-    if (runId === undefined) return corsError('Bad route', 400);
+    if (runId === undefined) return corsError('Bad route', 400, env);
     return handleGetFindings(runId, env);
   }
 
@@ -384,7 +415,7 @@ async function handleFetch(request: Request, env: WorkerEnv): Promise<Response> 
   const reportMatch = matchRoute(pathname, /^\/api\/v1\/runs\/([^/]+)\/report$/);
   if (reportMatch !== null && method === 'GET') {
     const runId = reportMatch[1];
-    if (runId === undefined) return corsError('Bad route', 400);
+    if (runId === undefined) return corsError('Bad route', 400, env);
     const format = url.searchParams.get('format') ?? 'md';
     return handleGetReport(runId, format, env);
   }
@@ -394,7 +425,7 @@ async function handleFetch(request: Request, env: WorkerEnv): Promise<Response> 
   const shortLinkMatch = matchRoute(pathname, /^\/r\/([A-Za-z0-9_-]+)$/);
   if (shortLinkMatch !== null && method === 'GET') {
     const reportId = shortLinkMatch[1];
-    if (reportId === undefined) return corsError('Bad route', 400);
+    if (reportId === undefined) return corsError('Bad route', 400, env);
     return handlePublicReportLink(reportId, env);
   }
 
@@ -412,6 +443,81 @@ async function handleFetch(request: Request, env: WorkerEnv): Promise<Response> 
 // Queue consumer helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Shared helper: upsert an audit run and batch-insert its findings into D1.
+ * Called from both handlePostRun (direct upload) and processAuditJob (queue).
+ */
+async function writeRunToD1(
+  env: WorkerEnv,
+  run_id: string,
+  tenant_id: string,
+  r2_key: string,
+  inputFormat: string,
+  eventCount: number,
+  findings: Finding[],
+  score: RiskScore,
+  completedAt: string,
+): Promise<void> {
+  const easScore = score.evidence_admission_score.score;
+  const easGrade = score.evidence_admission_score.grade;
+
+  await env.DB.prepare(
+    `INSERT INTO audit_runs
+       (run_id, tenant_id, project_id, status, input_format, schema_version,
+        profile_ids, raw_r2_key, event_count, finding_count,
+        risk_score, evidence_admission_score, created_at, updated_at, completed_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(run_id) DO UPDATE SET
+       status = 'completed',
+       finding_count = excluded.finding_count,
+       risk_score = excluded.risk_score,
+       evidence_admission_score = excluded.evidence_admission_score,
+       updated_at = excluded.updated_at,
+       completed_at = excluded.completed_at`,
+  )
+    .bind(
+      run_id,
+      tenant_id,
+      'default',
+      'completed',
+      inputFormat,
+      'open-agent-audit/v0.1',
+      JSON.stringify([]),
+      r2_key,
+      eventCount,
+      findings.length,
+      easScore,
+      easGrade,
+      completedAt,
+      completedAt,
+      completedAt,
+    )
+    .run();
+
+  if (findings.length > 0) {
+    const stmts = findings.map((f) =>
+      env.DB.prepare(
+        `INSERT OR IGNORE INTO findings
+           (finding_id, run_id, tenant_id, severity, category, title,
+            evidence_ids, standard_mappings, recommendation, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).bind(
+        f.finding_id,
+        run_id,
+        tenant_id,
+        f.severity,
+        f.category,
+        f.title,
+        JSON.stringify(f.evidence_ids),
+        f.standard_mappings !== undefined ? JSON.stringify(f.standard_mappings) : null,
+        f.recommendation,
+        completedAt,
+      ),
+    );
+    await env.DB.batch(stmts);
+  }
+}
+
 async function processAuditJob(
   msg: AuditJobMessage,
   env: WorkerEnv,
@@ -425,9 +531,17 @@ async function processAuditJob(
   }
   const text = await object.text();
 
-  // 2. Parse lines as CanonicalEvent[]
+  // 2. Parse lines as CanonicalEvent[], logging any parse failures
   const lines = text.split('\n').filter((l) => l.trim().length > 0);
-  const rawParsed: unknown[] = lines.map((line) => JSON.parse(line) as unknown);
+  const rawParsed: unknown[] = [];
+  let parseFailureCount = 0;
+  for (const line of lines) {
+    try { rawParsed.push(JSON.parse(line) as unknown); }
+    catch { parseFailureCount++; }
+  }
+  if (parseFailureCount > 0) {
+    console.warn(`processAuditJob: ${parseFailureCount} line(s) could not be parsed as JSON for run ${run_id}`);
+  }
   const { valid: events } = validateEvents(rawParsed);
 
   // 3. Run engines
@@ -485,67 +599,9 @@ async function processAuditJob(
   );
 
   const completedAt = new Date().toISOString();
-  const easScore = score.evidence_admission_score.score;
-  const easGrade = score.evidence_admission_score.grade;
-  const findingCount = findings.length;
 
-  // 6. Upsert audit_runs in D1
-  await env.DB.prepare(
-    `INSERT INTO audit_runs
-       (run_id, tenant_id, project_id, status, input_format, schema_version,
-        profile_ids, raw_r2_key, event_count, finding_count,
-        risk_score, evidence_admission_score, created_at, updated_at, completed_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(run_id) DO UPDATE SET
-       status = 'completed',
-       finding_count = excluded.finding_count,
-       risk_score = excluded.risk_score,
-       evidence_admission_score = excluded.evidence_admission_score,
-       updated_at = excluded.updated_at,
-       completed_at = excluded.completed_at`,
-  )
-    .bind(
-      run_id,
-      msg.tenant_id,
-      'default',
-      'completed',
-      'jsonl',
-      'open-agent-audit/v0.1',
-      JSON.stringify(msg.profiles),
-      r2_key,
-      events.length,
-      findingCount,
-      easScore,
-      easGrade,
-      completedAt,
-      completedAt,
-      completedAt,
-    )
-    .run();
-
-  // 7. Batch insert findings into D1
-  if (findings.length > 0) {
-    const stmts = findings.map((f) =>
-      env.DB.prepare(
-        `INSERT OR IGNORE INTO findings
-           (finding_id, run_id, tenant_id, severity, category, title,
-            evidence_ids, standard_mappings, recommendation, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).bind(
-        f.finding_id,
-        run_id,
-        msg.tenant_id,
-        f.severity,
-        f.category,
-        f.title,
-        JSON.stringify(f.evidence_ids),
-        f.standard_mappings !== undefined ? JSON.stringify(f.standard_mappings) : null,
-        f.recommendation,
-        completedAt,
-      ),
-    );
-    await env.DB.batch(stmts);
-  }
+  // 6. Write run and findings to D1
+  await writeRunToD1(env, run_id, msg.tenant_id, r2_key, 'jsonl', events.length, findings, score, completedAt);
 }
 
 async function processReportJob(

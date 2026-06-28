@@ -64,8 +64,10 @@ The audit trail itself is suspect.
 A benchmark claim is not supported by paired statistics.
 
 **Severities:**
-- `high` — claim contradicted by paired McNemar (p > 0.05).
-- `medium` — claim made without confidence interval; coverage gap.
+- `high` — regression detected: candidate pass rate is lower than baseline (OAA-B-001).
+- `medium` — claim made with fewer than 30 samples; statistical power is insufficient (OAA-B-002).
+- `low` — claim stated but verdict is inconclusive given available evidence (OAA-B-003);
+  or aggregate-only data provided where paired samples are required for McNemar (OAA-B-004).
 
 ### `contamination`
 

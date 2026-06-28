@@ -14,7 +14,7 @@ This package MUST NOT use Node.js APIs. See [`CONSTRAINTS.md`](../../CONSTRAINTS
 | `inventory` | Tool / capability / data inventory from trace | **implemented** |
 | `policy-audit` | Rule engine against regulatory profiles (6 rules) | **implemented** |
 | `report` | Markdown / HTML / JSON / CSV renderer with 4-framework compliance mapping | **implemented** |
-| `benchmark-audit` | McNemar + Wilson CI over paired benchmark samples | **implemented** (not wired into compliance mapping by default — pass `BenchmarkAuditResult` to `renderReport()` to unlock 3 controls) |
+| `benchmark-audit` | Paired McNemar + Wilson CI (paired mode) or aggregate comparison (aggregate mode) | **implemented** (not wired into compliance mapping by default — pass `BenchmarkAuditResult` to `renderReport()` to unlock 3 controls) |
 | `contamination` | MinHash / LSH train-test overlap detection | skeleton |
 | `drift-guard` | Statistical drift between time windows | skeleton |
 
@@ -72,18 +72,38 @@ const bundle = await renderReport(events, findings, score);
 
 ### Report with benchmark data (unlocks 3 compliance controls)
 
+**Paired mode** (preferred — enables McNemar significance test):
+
 ```ts
 import { benchmarkAudit } from '@openagentaudit/core/benchmark-audit';
 import { renderReport } from '@openagentaudit/core/report';
 
 const benchmarkResult = await benchmarkAudit({
-  candidate: { samples_total: 200, samples_pass: 174 },
-  baseline:  { samples_total: 200, samples_pass: 160 },
+  mode: 'paired',
+  samples: [
+    { sample_id: 'task-001', baseline_pass: true,  candidate_pass: true  },
+    { sample_id: 'task-002', baseline_pass: true,  candidate_pass: false },
+    // ...one entry per evaluation sample
+  ],
   claim: 'candidate improves on baseline',
 });
 
 const bundle = await renderReport(events, findings, score, meta, benchmarkResult);
 // annex-iv-testing-validation, MEASURE-2.9, and A.8.2 are now populated
+// statistics.audit_sufficiency === 'paired'
+// McNemar p-value computed when discordant pair count >= 10
+```
+
+**Aggregate mode** (backward-compatible, no McNemar):
+
+```ts
+const benchmarkResult = await benchmarkAudit({
+  candidate: { samples_total: 200, samples_pass: 174 },
+  baseline:  { samples_total: 200, samples_pass: 160 },
+  claim: 'candidate improves on baseline',
+});
+// statistics.audit_sufficiency === 'aggregate_only'
+// OAA-B-004 finding generated when claim is set (McNemar not possible)
 ```
 
 ### `renderReport()` signature

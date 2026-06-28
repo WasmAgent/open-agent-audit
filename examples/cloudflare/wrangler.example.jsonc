@@ -73,5 +73,6 @@
     "ISSUER_NAME": "Trustavo (trustavo.com)",
     "ISSUER_EMAIL": "issuer@trustavo.com",
     "PUBLIC_URL": "https://trustavo.com"
+    // "CORS_ORIGIN": "https://trustavo.com"  // optional — restrict CORS to your domain; defaults to '*'
   }
 }

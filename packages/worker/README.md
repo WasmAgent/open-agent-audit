@@ -22,10 +22,15 @@ Storage bindings (R2, D1, Queues, Durable Objects) are injected via `WorkerEnv`.
 
 `POST /api/v1/runs` accepts two formats:
 
-- **JSONL** (`CanonicalEvent` records, one per line) — standard OAA format.
+- **JSONL** (`CanonicalEvent` records, one per line) — standard OAA format. Lines
+  that cannot be parsed as JSON generate an `OAA-P-001` finding instead of being
+  silently dropped.
 - **AEP JSON** (a single `AEPRecord` with `schema_version: "aep/v0.2"`) — the worker
   auto-detects this format, converts via the adapter, and extracts run-provenance
   for scoring and report rendering. No pre-conversion needed.
+
+Every direct `POST /api/v1/runs` response immediately writes the run metadata and
+findings to D1, so the run appears in `GET /api/v1/runs` without delay.
 
 ## Architecture
 
@@ -51,6 +56,18 @@ HTTP / Queue message
 | `AUDIT_JOBS` | Queue | Async audit job dispatch |
 | `AUDIT_RUN_COORDINATOR` | DO | Per-run state coordination |
 | `TENANT_LIMITER` | DO | Per-tenant rate limiting |
+
+## Environment vars (wrangler.jsonc `vars`)
+
+| Var | Required | Default | Purpose |
+|---|---|---|---|
+| `OAA_ENV` | yes | — | Runtime environment label (`production`, `staging`, etc.) |
+| `MAX_UPLOAD_MB` | yes | `100` | Maximum trace upload size |
+| `DEFAULT_PROFILES` | yes | — | Comma-separated compliance profiles |
+| `ISSUER_NAME` | yes | — | Organisation name in reports and UI |
+| `ISSUER_EMAIL` | yes | — | Contact email in reports and 404 pages |
+| `PUBLIC_URL` | yes | — | Base URL for QR code links and report permalinks |
+| `CORS_ORIGIN` | no | `*` | Allowed CORS origin (e.g. `https://app.example.com`); defaults to wildcard |
 
 ## References
 
