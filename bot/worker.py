@@ -20,12 +20,6 @@ from zoneinfo import ZoneInfo
 
 import yaml
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [worker-%(worker_id)s] %(levelname)s %(message)s",
-    stream=sys.stdout,
-)
-
 DB_PATH = os.environ.get("DB_PATH", "/srv/claude-bot/db.sqlite3")
 REPOS_CONFIG_PATH = os.environ.get("REPOS_CONFIG_PATH", "/srv/claude-bot/repos.yml")
 MCP_CONFIG_PATH = os.environ.get("MCP_CONFIG_PATH", "/srv/claude-bot/empty-mcp.json")
@@ -56,8 +50,10 @@ class WorkerFilter(logging.Filter):
         return True
 
 
-root_log = logging.getLogger()
-root_log.addFilter(WorkerFilter())
+_handler = logging.StreamHandler(sys.stdout)
+_handler.setFormatter(logging.Formatter("%(asctime)s [worker-%(worker_id)s] %(levelname)s %(message)s"))
+_handler.addFilter(WorkerFilter())
+logging.basicConfig(level=logging.INFO, handlers=[_handler])
 log = logging.getLogger("worker")
 
 
