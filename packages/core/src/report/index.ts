@@ -1859,7 +1859,7 @@ function buildMarkdown(
   cryptoSummary?: ReportMeta['crypto_summary'],
 ): string {
   const counts = countBySeverity(findings);
-  const { evidence_admission_score, components } = score;
+  const { evidence_admission_score, agent_risk_score, components } = score;
   const runId = score.run_id;
 
   const findingsSummary =
@@ -1969,7 +1969,10 @@ function buildMarkdown(
   lines.push(`| Run ID | \`${runId}\` |`);
   lines.push(`| Total Events | ${events.length} |`);
   lines.push(
-    `| Evidence Admission Score | ${evidence_admission_score.score}/100 (Grade ${evidence_admission_score.grade}) |`,
+    `| Evidence Admission Score (EAS) | ${evidence_admission_score.score}/100 (Grade ${evidence_admission_score.grade}) |`,
+  );
+  lines.push(
+    `| Agent Risk Score (ARS) | ${agent_risk_score.score}/100 |`,
   );
   lines.push(`| Findings | ${findingsSummary} |`);
   lines.push('');
@@ -2221,7 +2224,7 @@ function buildHtml(
   cryptoSummary?: ReportMeta['crypto_summary'],
 ): string {
   const counts = countBySeverity(findings);
-  const { evidence_admission_score, components } = score;
+  const { evidence_admission_score, agent_risk_score, components } = score;
   const runId = score.run_id;
   const grade = evidence_admission_score.grade;
   const gradeStyle = `color:${gradeColor(grade)};font-weight:bold`;
@@ -2411,8 +2414,11 @@ function buildHtml(
   parts.push(`<tr><td>Run ID</td><td><code>${escapeHtml(runId)}</code></td></tr>`);
   parts.push(`<tr><td>Total Events</td><td>${events.length}</td></tr>`);
   parts.push(
-    `<tr><td>Evidence Admission Score</td><td>${evidence_admission_score.score}/100 ` +
+    `<tr><td>Evidence Admission Score (EAS)</td><td>${evidence_admission_score.score}/100 ` +
     `(Grade <span style="${gradeStyle}">${grade}</span>)</td></tr>`,
+  );
+  parts.push(
+    `<tr><td>Agent Risk Score (ARS)</td><td>${agent_risk_score.score}/100</td></tr>`,
   );
   parts.push(`<tr><td>Findings</td><td>${escapeHtml(findingsSummary)}</td></tr>`);
   parts.push('</tbody>');
