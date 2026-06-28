@@ -251,6 +251,21 @@ def gh_issue_comments(repo: str, issue_number: int) -> list[dict]:
         return []
 
 
+def has_human_member_comment(comments: list[dict], org: str, bot_login: str = "github-actions[bot]") -> bool:
+    """Return True if any comment is from a human org member (not a bot)."""
+    for c in comments:
+        author = (c.get("author") or {}).get("login", "")
+        if not author:
+            continue
+        # Skip known bots
+        if author.endswith("[bot]") or author == bot_login:
+            continue
+        # Check if this commenter is an org member
+        if is_org_member(org, author):
+            return True
+    return False
+
+
 def gh_post_comment(repo: str, issue_number: int, body: str) -> str | None:
     """Post a comment and return its node_id/URL."""
     out = gh([
@@ -586,7 +601,7 @@ def process_external_discussions(conn: sqlite3.Connection, new_external_ids: set
                discussion_last_checked_at, discussion_comment_count
         FROM jobs
         WHERE author_is_member = 0
-          AND discussion_state NOT IN ('approved', 'rejected')
+          AND discussion_state NOT IN ('approved', 'rejected', 'member_handling')
           AND state NOT IN ('merged', 'blocked', 'max_retry_exceeded')
     """).fetchall()
 
@@ -600,6 +615,23 @@ def process_external_discussions(conn: sqlite3.Connection, new_external_ids: set
 
         # --- Step 1: Post initial response for brand-new external issues ---
         if discussion_state is None or job_id in new_external_ids:
+            org = org_from_repo(repo)
+            comments = gh_issue_comments(repo, issue_number)
+
+            if has_human_member_comment(comments, org):
+                # A team member already replied — don't pile on with bot response
+                log.info("Skipping bot reply for %s#%d — member already commented", repo, issue_number)
+                conn.execute("""
+                    UPDATE jobs
+                    SET discussion_state='member_handling',
+                        discussion_comment_count=?,
+                        discussion_last_checked_at=?,
+                        updated_at=CURRENT_TIMESTAMP
+                    WHERE id=?
+                """, (len(comments), now_str, job_id))
+                conn.commit()
+                continue
+
             log.info("External issue %s#%d — posting initial response", repo, issue_number)
             response = generate_initial_response(repo, title, body)
             gh_post_comment(repo, issue_number, response)
@@ -629,6 +661,18 @@ def process_external_discussions(conn: sqlite3.Connection, new_external_ids: set
         comments = gh_issue_comments(repo, issue_number)
         current_count = len(comments)
         prev_count = row["discussion_comment_count"] or 0
+
+        # If a member has now commented, hand off to them
+        org = org_from_repo(repo)
+        if has_human_member_comment(comments, org):
+            log.info("Member took over discussion for %s#%d — bot stepping back", repo, issue_number)
+            conn.execute("""
+                UPDATE jobs SET discussion_state='member_handling',
+                    discussion_last_checked_at=?, discussion_comment_count=?,
+                    updated_at=CURRENT_TIMESTAMP WHERE id=?
+            """, (now_str, current_count, job_id))
+            conn.commit()
+            continue
 
         # Skip if no new comments and not enough time has passed (double-guard)
         if current_count == prev_count and now_ts - last_ts < DISCUSSION_REEVAL_INTERVAL * 2:
