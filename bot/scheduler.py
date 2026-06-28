@@ -349,13 +349,14 @@ def model_for_tier(model_tier: str) -> tuple[str, str]:
 # AI helpers (shared by scoring + discussion evaluation)
 # ---------------------------------------------------------------------------
 
-def call_ai(prompt: str, max_tokens: int = 1024) -> str | None:
+def call_ai(prompt: str, max_tokens: int = 1024, model: str = "glm-5.2") -> str | None:
+    """Call Z.AI directly. Uses glm-5.2 by default for all planning/analysis tasks."""
     if not ANTHROPIC_AUTH_TOKEN:
         return None
     try:
         import urllib.request
         payload = json.dumps({
-            "model": "glm-4.7",
+            "model": model,
             "max_tokens": max_tokens,
             "messages": [{"role": "user", "content": prompt}],
         }).encode()

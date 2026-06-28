@@ -945,9 +945,9 @@ def execute_job(conn: sqlite3.Connection, job: sqlite3.Row):
     model_tier = job["model_tier"]
     review_tier = job["review_tier"]
     automerge = bool(job["automerge"])
-    model_alias = job["model_alias"]
     base_branch = job["base_branch"]
     labels = set(json.loads(job["labels_json"] or "[]"))
+    retry_count = job["retry_count"]
 
     repo_cfg = repo_config_for_job(repo)
     test_cmds = repo_cfg["test_cmds"]
@@ -958,6 +958,15 @@ def execute_job(conn: sqlite3.Connection, job: sqlite3.Row):
     slug = slugify(title)
     branch = f"claude/issue-{issue_number}-{slug}"
     worktree_path = str(Path(worktree_root) / f"issue-{issue_number}")
+
+    # Model escalation: use glm-5.2 (opus) after 2 failures, or for hard/deep tasks
+    base_alias = job["model_alias"]
+    if model_tier == "hard" or review_tier == "deep" or retry_count >= 2:
+        model_alias = "opus"   # → glm-5.2 via settings.json mapping
+        if retry_count >= 2:
+            log.info("Escalating to opus (glm-5.2) after %d retries", retry_count)
+    else:
+        model_alias = base_alias  # sonnet → glm-5-turbo
 
     effort = effort_for_job(model_tier, review_tier)
     enable_ultracode = (
@@ -1274,7 +1283,7 @@ def diagnose_failure(repo: str, issue_number: int, title: str,
     try:
         import urllib.request
         payload = json.dumps({
-            "model": "glm-4.7",
+            "model": "glm-5.2",
             "max_tokens": 300,
             "messages": [{"role": "user", "content": prompt}],
         }).encode()
