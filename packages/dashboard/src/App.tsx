@@ -330,10 +330,24 @@ function AppInner() {
     fetch('/api/v1/config')
       .then((r) => r.json())
       .then((d) => setConfig(d as SiteConfig))
-      .catch(() => {
-        /* keep default */
-      })
+      .catch(() => { /* keep default */ })
   }, [])
+
+  // Reset all state when navigating back to home
+  useEffect(() => {
+    if (location === '/') {
+      setEvents([])
+      setFileName(null)
+      setFileText('')
+      setParseError(null)
+      setIsAepRecord(false)
+      setAepMeta(null)
+      setReportRunId(null)
+      setReportError(null)
+      setReportSummary(null)
+      setPage(0)
+    }
+  }, [location])
 
   const handleFile = useCallback((file: File) => {
     if (!file.name.endsWith('.jsonl') && !file.name.endsWith('.json')) {
