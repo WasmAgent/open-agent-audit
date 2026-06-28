@@ -461,6 +461,16 @@ async function writeRunToD1(
   const easScore = score.evidence_admission_score.score;
   const easGrade = score.evidence_admission_score.grade;
 
+  // Ensure the tenant and default project exist (single-tenant deployments use 'default').
+  await env.DB.batch([
+    env.DB.prepare(
+      `INSERT OR IGNORE INTO tenants (tenant_id, name, plan, created_at) VALUES (?, ?, ?, ?)`,
+    ).bind(tenant_id, tenant_id, 'pilot', completedAt),
+    env.DB.prepare(
+      `INSERT OR IGNORE INTO projects (project_id, tenant_id, name, created_at) VALUES (?, ?, ?, ?)`,
+    ).bind('default', tenant_id, 'default', completedAt),
+  ]);
+
   await env.DB.prepare(
     `INSERT INTO audit_runs
        (run_id, tenant_id, project_id, status, input_format, schema_version,
