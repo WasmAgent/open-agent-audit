@@ -76,3 +76,20 @@ OpenAgentAudit does none of these well.
 - You are delivering an audit bundle to an external counterparty.
 - You want the option of producing a defensible report years after the
   run executed.
+
+## Coverage vs. observability tools
+
+Observability tools (LangSmith, Langfuse, OTel) collect runtime telemetry but produce no regulatory framework mappings. OpenAgentAudit, as of 2026-06-28, maps to:
+
+| Framework | Controls mapped | Depth | Ceiling |
+|---|---|---|---|
+| OWASP Agentic Top 10 | 10 / 10 | 75% | At max breadth |
+| EU AI Act Annex IV | 13 / ~32 | 54% | Org. docs set the ceiling |
+| NIST AI RMF 1.0 | 25 / 72 | 36% | At single-run ceiling |
+| ISO/IEC 42001:2023 | 16 / 37 | 41% | At single-run ceiling |
+
+Every mapped control cites specific event IDs from the trace. Observability dashboards cannot produce this output.
+
+## Competitive landscape
+
+See [docs/competitive-landscape.md](./competitive-landscape.md) for a detailed comparison with commercial and open-source alternatives (ATR, VerifyWise, Credo AI, Argus, Holistic AI).

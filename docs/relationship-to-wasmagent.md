@@ -6,27 +6,19 @@ This is for people who already know the WasmAgent ecosystem and are asking:
 ## The current ecosystem
 
 ```
-                        wasmagent-js (runtime, SDK)
-                                │
-                ┌───────────────┴───────────────┐
-                ▼                               ▼
-              bscode                        erp-agent
-        (coding agent demo)            (ERP agent demo)
-        verifiers:                     verifiers:
-          - build                        - order-state
-          - visual                       - ledger
-                │                               │
-                │ AEP records, rollout JSONL    │
-                ▼                               ▼
-                └───────────────┬───────────────┘
-                                │
-                                ▼
-                         trace-pipeline
-                         (training data pipeline)
-                         - validate-aep
-                         - trust-score
-                         - TrainingDataExporter
-                         - DPO / PPO / SFT
+                     wasmagent-js (runtime, SDK, AEP emitter)
+                              │
+              ┌───────────────┴───────────────┐
+              ▼                               ▼
+           bscode                         erp-agent (planned)
+     (coding agent)                    (ERP agent)
+              │
+              │ AEP records (signed, Ed25519)
+              ▼
+     ┌────────┴────────┐
+     ▼                 ▼
+trace-pipeline   open-agent-audit
+(training data)  (audit reports + compliance)
 ```
 
 ## Where OpenAgentAudit fits
@@ -77,7 +69,7 @@ A peer pipeline:
 
 | Repo | Contribution |
 |---|---|
-| `wasmagent-js` | AEP schema (the primary source format); evidence_id generation; signature/hash chain; capability manifest; MCP firewall evidence. |
+| `wasmagent-js` | AEP schema (the primary source format); evidence_id generation; signature/hash chain; capability manifest; MCP firewall evidence. All four AEP run-provenance traceability fields are now populated since PR #12: `repo_commit`, `runtime_version`, `policy_bundle_digest`, `tool_manifest_digest`. |
 | `bscode` | Real-workload smoke traces; the canonical "audit demo" surface that drives the bscode adapter; attack-demo fixtures. |
 | `erp-agent` | Domain-specific verifiers (order-state, ledger) that contribute objective_verification evidence. |
 | `trace-pipeline` | Statistical algorithm reference (McNemar, Wilson CI, paired bootstrap) and test vectors; contamination sample fixtures. |
@@ -93,6 +85,24 @@ This is the architectural reason behind the Phase 2 freeze gate (see
 [`schema-versioning.md`](./schema-versioning.md)). The freeze gate
 applies only to **OAA's own** canonical model; it does **not** constrain
 AEP or the main projects, which continue to iterate at their own pace.
+
+## Upstream improvements tracked in wasmagent-ops#3
+
+The wasmagent-ops#3 issue tracks three upstream improvements needed for
+full OWASP/NIST/ISO coverage in OpenAgentAudit:
+
+1. **Guardrail → verifier promotion** — surface guardrail outcomes as
+   first-class AEP verifier records so OAA can map them to OWASP LLM01–10
+   and NIST AI RMF controls.
+2. **Deny decisions in AEP** — emit structured deny records (tool blocked,
+   capability refused) so OAA can report on enforcement rate alongside
+   detection rate.
+3. **Taint labels on tool outputs** — propagate data-sensitivity labels
+   through the tool-call chain so OAA can produce ISO 42001 data-lineage
+   evidence.
+
+Until these land upstream, OAA covers these gaps with heuristic fallbacks
+in the adapter layer (`packages/adapters/src/aep-v0_2.ts`).
 
 ## OAA does not gate the main projects
 

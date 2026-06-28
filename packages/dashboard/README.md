@@ -1,19 +1,60 @@
 # @openagentaudit/dashboard
 
-React + TypeScript + Tailwind CSS SPA for OpenAgentAudit.
+React SPA for OpenAgentAudit, deployed at [trustavo.com](https://trustavo.com).
 
-Deployed via **Cloudflare Workers Static Assets** — no Cloudflare Pages project needed.
+Served via **Cloudflare Workers Static Assets** — no separate Cloudflare Pages project needed.
 
-**Status:** implemented — MVP with JSONL upload and event visualization.
+**Status:** implemented — full routing, AEP support, compliance mapping.
 
 ## Features
 
-- Drag-and-drop or click-to-select `.jsonl` trace file upload
-- Summary cards: total events, run ID, agent ID, model ID
-- Event type breakdown (color-coded pills)
-- Paginated events table (50 rows/page): event_id, type, actor, timestamp, details
-- Color-coding: tool_call=blue, policy_decision=yellow, human_approval=green, error=red
-- Footer disclaimer
+### Routing
+
+Client-side routing powered by **wouter 3**:
+
+| Route | Description |
+|---|---|
+| `/` | Home — file upload and example loader |
+| `/audit` | Trace view — event breakdown and paginated events table |
+| `/runs/:runId` | Report view — audit report for a specific run |
+
+Breadcrumb navigation is present on all non-home routes.
+
+### File upload
+
+- Drag-and-drop or click-to-select upload accepting `.jsonl` or `.json` AEP files
+- AEP auto-detection: when an AEP trace is recognized, metadata cards are shown (`run_id`, model, action count, schema version)
+- JSONL mode: event type breakdown (color-coded pills) and a paginated events table (50 rows/page) with `event_id`, type, actor, timestamp, and details columns
+
+### Example loading
+
+One-click loading of bundled AEP samples fetched from raw GitHub:
+
+- **wasmagent-js** sample trace
+- **bscode** rollout sample trace
+
+No file selection required — examples load instantly in the browser.
+
+### Audit report
+
+After a trace is processed:
+
+- **Post-report summary card**: EAS score, letter grade, event count, finding count
+- **"Audit Report Ready" download card** with four export formats:
+  - Full Report (HTML)
+  - CSV
+  - JSON
+  - Markdown
+- EU AI Act Art. 26(6) retention notice included in all generated reports
+
+### Compliance mapping
+
+Findings are mapped to the following frameworks displayed in the report:
+
+- OWASP LLM Top 10
+- EU AI Act
+- NIST AI RMF
+- ISO 42001
 
 ## Development
 
@@ -38,4 +79,5 @@ the full deploy checklist.
 - React 18 + TypeScript
 - Tailwind CSS 3 + PostCSS
 - Vite 5
+- wouter 3 (client-side routing)
 - No external UI component library

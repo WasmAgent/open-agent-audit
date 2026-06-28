@@ -1,7 +1,8 @@
 # RFC 0006 — Spec Freeze Policy
 
-- **Status:** Draft
+- **Status:** Active
 - **Date:** 2026-06-26
+- **Last updated:** 2026-06-28
 
 ## Summary
 
@@ -60,5 +61,7 @@ A breaking change requires:
 ## Open questions
 
 - Whether to publish schemas at a versioned URL hosted on Cloudflare
-  Pages (`schemas.openagentaudit.org/v0.1/...`). Probably yes after the
-  first stable release.
+  Pages (`schemas.openagentaudit.org/v0.1/...`). The reference deployment
+  at trustavo.com serves schemas at /schemas/v0.1/ path. A dedicated
+  subdomain (schemas.openagentaudit.org) is deferred until the spec
+  reaches stable.

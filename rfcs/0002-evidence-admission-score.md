@@ -1,7 +1,8 @@
 # RFC 0002 — Evidence Admission Score
 
-- **Status:** Draft
+- **Status:** Implemented
 - **Date:** 2026-06-26
+- **Last updated:** 2026-06-28
 
 ## Summary
 
@@ -42,3 +43,11 @@ heuristic. They will be reviewed after the first 100 real audit runs.
 
 - Should EAS be calibrated separately per industry (high-regulated vs.
   low-regulated)? Probably yes, deferred to v0.2.
+
+## Implementation status
+
+Implemented in `packages/core/src/scoring/index.ts`. The formula and weights are as specified.
+
+One post-implementation addition: the `provenance_integrity` component accepts an optional `AepProvenanceForScoring` argument that adds +5 points per populated AEP traceability field (repo_commit, runtime_version, policy_bundle_digest, tool_manifest_digest), capped at 100. This does not change the formula weights.
+
+The "calibrate per industry" open question is deferred to v0.2.
