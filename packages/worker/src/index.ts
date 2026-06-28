@@ -75,6 +75,8 @@ export interface WorkerEnv {
   CORS_ORIGIN?: string;
   /** Shared secret for API authentication. If unset, auth is disabled (dev/demo mode). */
   API_KEY?: string;
+  /** 'public' (default) serves /r/:id without auth; 'private' requires Bearer API_KEY. */
+  REPORT_VISIBILITY?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -85,7 +87,7 @@ function corsHeaders(env: WorkerEnv): Record<string, string> {
   return {
     'Access-Control-Allow-Origin': env.CORS_ORIGIN ?? '*',
     'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Tenant-Id, X-Source-File',
   };
 }
 
@@ -300,12 +302,12 @@ async function handlePostRun(request: Request, env: WorkerEnv): Promise<Response
 
   // contamination check requires a separate training event set (pass via contamination_result param)
   // currently deferred — computeRiskScore uses neutral score (100) when no result is provided
-  const [validationResult, inv, auditFindings, score] = await Promise.all([
+  const [validationResult, inv, auditFindings] = await Promise.all([
     validate(events),
     inventory(events),
     policyAudit(events, ctx),
-    computeRiskScore(events, run_id, aepProvenance),
   ]);
+  const score = await computeRiskScore(events, run_id, aepProvenance, validationResult.crypto_summary);
 
   const findings: Finding[] = [...auditFindings];
 
@@ -365,7 +367,11 @@ async function handlePostRun(request: Request, env: WorkerEnv): Promise<Response
   }, env, 201);
 }
 
-async function handlePublicReportLink(runId: string, env: WorkerEnv): Promise<Response> {
+async function handlePublicReportLink(runId: string, env: WorkerEnv, request: Request): Promise<Response> {
+  const isPrivate = (env.REPORT_VISIBILITY ?? 'public') === 'private';
+  if (isPrivate && !checkAuth(request, env)) {
+    return new Response('Unauthorized', { status: 401 });
+  }
   const issuerEmail = env.ISSUER_EMAIL;
   const issuerName = env.ISSUER_NAME;
   const publicUrl = env.PUBLIC_URL;
@@ -414,8 +420,9 @@ async function handleFetch(request: Request, env: WorkerEnv): Promise<Response> 
 
   // GET /health
   if (method === 'GET' && pathname === '/health') {
+    const authMode = env.API_KEY ? 'api_key' : 'open';
     return new Response(
-      JSON.stringify({ status: 'ok', version: '0.1.0', env: env.OAA_ENV }),
+      JSON.stringify({ status: 'ok', version: '0.1.0', env: env.OAA_ENV, auth_mode: authMode }),
       { headers: { 'content-type': 'application/json' } },
     );
   }
@@ -467,12 +474,12 @@ async function handleFetch(request: Request, env: WorkerEnv): Promise<Response> 
   }
 
   // GET /r/:reportId — public short link for QR code scan
-  // Serves the HTML report directly; no auth required (reports are public by design)
+  // Serves the HTML report directly; visibility controlled by REPORT_VISIBILITY env var.
   const shortLinkMatch = matchRoute(pathname, /^\/r\/([A-Za-z0-9_-]+)$/);
   if (shortLinkMatch !== null && method === 'GET') {
     const reportId = shortLinkMatch[1];
     if (reportId === undefined) return corsError('Bad route', 400, env);
-    return handlePublicReportLink(reportId, env);
+    return handlePublicReportLink(reportId, env, request);
   }
 
   // Fall through: serve SPA for all other GET requests (client-side routing)
@@ -614,7 +621,7 @@ async function processAuditJob(
   const findings: Finding[] = await policyAudit(events, policyCtx);
   // contamination check requires a separate training event set (pass via contamination_result param)
   // currently deferred — computeRiskScore uses neutral score (100) when no result is provided
-  const score: RiskScore = await computeRiskScore(events, run_id);
+  const score: RiskScore = await computeRiskScore(events, run_id, undefined, validationResult.crypto_summary);
   const reportBundle = await renderReport(events, findings, score, inv, { crypto_summary: validationResult.crypto_summary });
 
   // 4. Store results in ARTIFACTS R2

@@ -1,4 +1,4 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, test, it, expect } from 'bun:test';
 import { benchmarkAudit } from './index.js';
 import type { PairedSample, BenchmarkPairAggregate } from './index.js';
 
@@ -512,5 +512,55 @@ describe('statistics accuracy — rates and wilson_ci', () => {
     expect(lo).toBeGreaterThanOrEqual(0);
     expect(hi).toBeLessThanOrEqual(1);
     expect(lo).toBeLessThan(hi);
+  });
+});
+
+describe('mcnemar p-value — golden statistical fixtures', () => {
+  // 通过 benchmarkAudit paired mode 间接测试 mcnemar_p
+
+  it('b=0, c=0 时 mcnemar_p 未定义（样本不足）', async () => {
+    // all concordant => no discordants => mcnemar_p undefined (b+c=0 < 10)
+    const samples = Array.from({ length: 20 }, (_, i) => ({
+      sample_id: `s${i}`,
+      baseline_pass: true,
+      candidate_pass: true,
+    }));
+    const result = await benchmarkAudit({ mode: 'paired', samples });
+    expect(result.statistics.mcnemar_p).toBeUndefined();
+  });
+
+  it('b=c 时 p-value 约为 1.0（对称，无差异）', async () => {
+    // 5 baseline-only, 5 candidate-only => b=5, c=5 => chi2 ≈ 0 => p ≈ 1
+    const samples = [
+      ...Array.from({ length: 5 }, (_, i) => ({ sample_id: `b${i}`, baseline_pass: true, candidate_pass: false })),
+      ...Array.from({ length: 5 }, (_, i) => ({ sample_id: `c${i}`, baseline_pass: false, candidate_pass: true })),
+      // pad to reach b+c >= 10
+      ...Array.from({ length: 10 }, (_, i) => ({ sample_id: `cc${i}`, baseline_pass: true, candidate_pass: true })),
+    ];
+    const result = await benchmarkAudit({ mode: 'paired', samples });
+    // p should be high (not significant)
+    expect(result.statistics.mcnemar_p).toBeDefined();
+    expect(result.statistics.mcnemar_p!).toBeGreaterThan(0.5);
+  });
+
+  it('强回归（b=20, c=0）时 p-value < 0.05', async () => {
+    // 20 baseline-pass/candidate-fail, 0 reverse => very significant
+    const samples = [
+      ...Array.from({ length: 20 }, (_, i) => ({ sample_id: `b${i}`, baseline_pass: true, candidate_pass: false })),
+      ...Array.from({ length: 10 }, (_, i) => ({ sample_id: `cc${i}`, baseline_pass: true, candidate_pass: true })),
+    ];
+    const result = await benchmarkAudit({ mode: 'paired', samples });
+    expect(result.statistics.mcnemar_p).toBeDefined();
+    expect(result.statistics.mcnemar_p!).toBeLessThan(0.05);
+  });
+
+  it('强改进（b=0, c=20）时 p-value < 0.05', async () => {
+    const samples = [
+      ...Array.from({ length: 20 }, (_, i) => ({ sample_id: `c${i}`, baseline_pass: false, candidate_pass: true })),
+      ...Array.from({ length: 10 }, (_, i) => ({ sample_id: `cc${i}`, baseline_pass: true, candidate_pass: true })),
+    ];
+    const result = await benchmarkAudit({ mode: 'paired', samples });
+    expect(result.statistics.mcnemar_p).toBeDefined();
+    expect(result.statistics.mcnemar_p!).toBeLessThan(0.05);
   });
 });

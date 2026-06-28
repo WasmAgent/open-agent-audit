@@ -50,9 +50,20 @@ function wilsonCI(p: number, n: number): [number, number] {
   return [Math.max(0, center - margin), Math.min(1, center + margin)];
 }
 
+function erfc(x: number): number {
+  // Abramowitz & Stegun 7.1.26 approximation, max error < 1.5e-7
+  const t = 1 / (1 + 0.3275911 * Math.abs(x));
+  const poly = t * (0.254829592 + t * (-0.284496736 + t * (1.421413741 + t * (-1.453152027 + t * 1.061405429))));
+  const result = poly * Math.exp(-x * x);
+  return x >= 0 ? result : 2 - result;
+}
+
 function mcnemarP(b: number, c: number): number {
-  const chi2 = b + c > 0 ? Math.pow(Math.abs(b - c) - 1, 2) / (b + c) : 0;
-  return Math.exp(-0.5 * chi2);
+  if (b + c === 0) return 1;
+  // Yates continuity-corrected chi-square statistic (df=1)
+  const chi2 = Math.pow(Math.abs(b - c) - 1, 2) / (b + c);
+  // Two-tailed p-value via chi-square(df=1) survival: p = erfc(sqrt(chi2/2))
+  return erfc(Math.sqrt(chi2 / 2));
 }
 
 function makeFinding(
