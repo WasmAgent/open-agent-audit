@@ -32,6 +32,14 @@ Storage bindings (R2, D1, Queues, Durable Objects) are injected via `WorkerEnv`.
 Every direct `POST /api/v1/runs` response immediately writes the run metadata and
 findings to D1, so the run appears in `GET /api/v1/runs` without delay.
 
+## Engine notes
+
+### Contamination risk
+The `contamination_risk_inverted` EAS component requires a training event set to compute a real score. In the single-upload API (`POST /api/v1/runs`), no training set is available, so this component always returns a **neutral score (100)**. The rendered report includes a disclosure note. To evaluate real contamination risk, call `contamination()` from `@openagentaudit/core` separately and pass the result to `computeRiskScore()`.
+
+### Drift guard
+The `driftGuard` engine compares two time windows and requires two separate event sets. It is not wired into the single-upload API. Use it programmatically via the `@openagentaudit/core` CLI or by calling `driftGuard(windowA, windowB)` directly.
+
 ## Architecture
 
 ```

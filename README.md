@@ -27,6 +27,27 @@ traces into defensible technical evidence reports.
 
 **[trustavo.com](https://trustavo.com)** — production deployment on Cloudflare Workers.
 
+## Install
+
+```sh
+npm install @openagentaudit/schema @openagentaudit/core @openagentaudit/adapters
+```
+
+```ts
+import { validate, computeRiskScore, renderReport } from '@openagentaudit/core';
+import { validateEvents } from '@openagentaudit/schema';
+import { aepV0_2, otel, langfuse, langsmith } from '@openagentaudit/adapters';
+
+// Parse and validate canonical events
+const { valid: events } = validateEvents(raw);
+const { errors, crypto_summary } = await validate(events);
+
+// Run the full audit pipeline
+const score = await computeRiskScore(events, runId);
+const bundle = await renderReport(events, findings, score);
+// bundle.html, bundle.markdown, bundle.json, bundle.csv
+```
+
 ## What it does
 
 - **Validate** agent evidence records against a canonical schema.
@@ -111,10 +132,11 @@ being built against the current `open-agent-audit/v0.1` schema.
 | `profiles/*.yaml` | draft |
 | `packages/schema` | implemented — Zod runtime validation |
 | `packages/core` | implemented — all engines operational |
-| `packages/adapters` | implemented — AEP v0.2, bscode; real fixtures + bun tests |
+| `packages/adapters` | implemented — AEP v0.2, bscode, OTel GenAI, Langfuse, LangSmith; 444 tests |
 | `packages/cli` | implemented — 7 commands including `from-aep`, `from-bscode` |
 | `packages/worker` | implemented — REST API, deployed at trustavo.com |
 | `packages/dashboard` | implemented — React SPA deployed at trustavo.com |
+| npm packages | published — `@openagentaudit/schema`, `@openagentaudit/core`, `@openagentaudit/adapters` |
 
 ## Documents you should read first
 
