@@ -116,7 +116,8 @@ function matchRoute(
 
 async function handleGetRuns(env: WorkerEnv): Promise<Response> {
   const result = await env.DB.prepare(
-    `SELECT run_id, agent_id, model_id, created_at, eas_score, eas_grade, finding_count
+    `SELECT run_id, tenant_id, status, input_format, event_count, finding_count,
+            risk_score, evidence_admission_score, created_at, completed_at
      FROM audit_runs
      ORDER BY created_at DESC
      LIMIT 50`,
