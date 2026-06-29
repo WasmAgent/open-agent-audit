@@ -488,8 +488,8 @@ def run_claude(
     repo_cfg: dict,
     job: sqlite3.Row,
     enable_ultracode: bool = False,
-) -> tuple[bool, str]:
-    """Run claude -p and return (success, output_text)."""
+) -> tuple[bool, str, int, int]:
+    """Run claude -p and return (success, output_text, token_input, token_output)."""
 
     env = os.environ.copy()
     # Strip secrets from Claude subprocess — it must not hold GitHub or npm tokens
@@ -547,14 +547,14 @@ def run_claude(
                                             "1311", "1313", "1314", "1315",
                                             "1316", "1317", "1318", "1319", "1320", "1321"]):
             log.warning("Provider error detected in Claude output")
-            return False, output
+            return False, output, 0, 0
         if "rate limit" in output.lower() or "429" in output or "quota" in output.lower():
             log.warning("Rate limit / quota error in Claude output")
-            return False, output
+            return False, output, 0, 0
 
         if result.returncode != 0:
             log.warning("Claude exited with returncode=%d", result.returncode)
-            return False, output
+            return False, output, 0, 0
 
         # Parse JSON result — treat error_max_turns as partial success (may have made changes)
         try:
@@ -565,15 +565,20 @@ def run_claude(
             log.info("Claude finished: subtype=%s is_error=%s turns=%d", subtype, is_error, num_turns)
             if is_error and subtype not in ("error_max_turns",):
                 log.warning("Claude reported error subtype=%s", subtype)
-                return False, output
+                return False, output, 0, 0
+            usage = data.get("usage", {})
+            token_input = usage.get("input_tokens", 0)
+            token_output = usage.get("output_tokens", 0)
+            log.info("Tokens: input=%d output=%d", token_input, token_output)
         except (json.JSONDecodeError, ValueError):
-            pass
+            token_input = 0
+            token_output = 0
 
-        return True, output
+        return True, output, token_input, token_output
 
     except subprocess.TimeoutExpired:
         log.error("Claude timed out after 3000s")
-        return False, "timeout"
+        return False, "timeout", 0, 0
 
 
 # ---------------------------------------------------------------------------
@@ -636,13 +641,22 @@ def gh(args: list[str], capture: bool = True, check: bool = True) -> str | None:
     return result.stdout.strip() if capture else None
 
 
-def commit_and_push(worktree_path: str, title: str, issue_number: int, branch: str):
+def commit_and_push(worktree_path: str, title: str, issue_number: int, branch: str, base_branch: str = "main"):
     git(["add", "-A"], cwd=worktree_path)
     diff = git(["diff", "--cached", "--stat"], cwd=worktree_path)
     if not diff.strip():
         raise RuntimeError("No changes staged — nothing to commit")
     git(["commit", "-m", f"fix: {title} (#{issue_number})"], cwd=worktree_path)
-    git(["push", "-u", "origin", branch, "--force"], cwd=worktree_path)
+    # Try push; if rejected due to upstream changes, rebase and retry once
+    result = subprocess.run(
+        ["git", "push", "-u", "origin", branch, "--force"],
+        capture_output=True, text=True, cwd=worktree_path, timeout=60,
+    )
+    if result.returncode != 0:
+        log.warning("Push failed, attempting rebase: %s", result.stderr.strip()[:200])
+        git(["fetch", "origin"], cwd=worktree_path, check=False)
+        git(["rebase", f"origin/{base_branch}"], cwd=worktree_path, check=False)
+        git(["push", "-u", "origin", branch, "--force"], cwd=worktree_path)
     log.info("Pushed branch %s", branch)
 
 
@@ -794,10 +808,12 @@ def run_ai_review(worktree_path: str, base_branch: str, title: str,
         f"Diff:\n{diff}\n"
     )
 
-    success, output = run_claude(
+    # Reviewer always uses opus (glm-5.2) regardless of implementer model
+    review_model = "opus"
+    success, output, _, _ = run_claude(
         prompt=prompt,
         worktree_path=worktree_path,
-        model_alias=model_alias,
+        model_alias=review_model,   # always opus
         effort=effort,
         agent=agent,
         max_turns=20 if review_tier == "deep" else 10,
@@ -944,7 +960,7 @@ def _run_review_and_merge(conn, job_id, repo, base_branch, title, issue_number,
             f"Summary: {review.get('summary', '')}\n\n"
             f"Address the findings without weakening tests or expanding scope.\nDo not run git or gh.\n"
         )
-        run_claude(prompt=fix_prompt, worktree_path=worktree_path, model_alias=model_alias,
+        _, _, _, _ = run_claude(prompt=fix_prompt, worktree_path=worktree_path, model_alias=model_alias,
                    effort=effort, agent="implementer", max_turns=20, repo_cfg=repo_cfg, job=job)
         git(["add", "-A"], cwd=worktree_path)
         diff_check = git(["diff", "--cached", "--stat"], cwd=worktree_path)
@@ -986,6 +1002,13 @@ def _run_review_and_merge(conn, job_id, repo, base_branch, title, issue_number,
     conn.commit()
     record_provider_success(conn, "zai-glm")
     log.info("Job %d merged: %s#%d", job_id, repo, issue_number)
+    # Post completion comment to original issue
+    try:
+        pr_url_short = f"https://github.com/{repo}/pull/{pr_number}"
+        gh(["issue", "comment", str(issue_number), "--repo", repo,
+            "--body", f"✅ Implemented and merged in {pr_url_short}"], check=False)
+    except Exception:
+        pass
     try:
         remove_worktree(worktree_path, bare_repo_path)
         conn.execute("UPDATE jobs SET worktree_path=NULL, updated_at=CURRENT_TIMESTAMP WHERE id=?", (job_id,))
@@ -1106,6 +1129,8 @@ def execute_job(conn: sqlite3.Connection, job: sqlite3.Row):
     conn.commit()
 
     last_outputs: list[str] = []  # track last 3 Claude outputs to detect stuck loops
+    total_tok_in = 0
+    total_tok_out = 0
 
     if enable_ultracode:
         prompt_prefix = (
@@ -1140,7 +1165,7 @@ def execute_job(conn: sqlite3.Connection, job: sqlite3.Row):
     )
 
     max_turns = 40 if model_tier == "hard" else 30
-    success, output = run_claude(
+    success, output, tok_in, tok_out = run_claude(
         prompt=implement_prompt,
         worktree_path=worktree_path,
         model_alias=model_alias,
@@ -1151,6 +1176,8 @@ def execute_job(conn: sqlite3.Connection, job: sqlite3.Row):
         job=job,
         enable_ultracode=enable_ultracode,
     )
+    total_tok_in += tok_in
+    total_tok_out += tok_out
 
     if not success:
         # Check if provider error
@@ -1201,7 +1228,7 @@ def execute_job(conn: sqlite3.Connection, job: sqlite3.Row):
             f"Do not run git or gh.\n"
             f"Keep changes scoped.\n"
         )
-        fix_success, fix_output = run_claude(
+        fix_success, fix_output, tok_in, tok_out = run_claude(
             prompt=fix_prompt,
             worktree_path=worktree_path,
             model_alias=model_alias,
@@ -1211,6 +1238,8 @@ def execute_job(conn: sqlite3.Connection, job: sqlite3.Row):
             repo_cfg=repo_cfg,
             job=job,
         )
+        total_tok_in += tok_in
+        total_tok_out += tok_out
         if not fix_success and any(x in fix_output for x in ["rate limit", "429", "quota"]):
             wip_checkpoint(worktree_path, issue_number)
             handle_provider_error(conn, job_id, "zai-glm", model_tier, fix_output)
@@ -1243,7 +1272,7 @@ def execute_job(conn: sqlite3.Connection, job: sqlite3.Row):
     conn.commit()
 
     try:
-        commit_and_push(worktree_path, title, issue_number, branch)
+        commit_and_push(worktree_path, title, issue_number, branch, base_branch)
     except RuntimeError as e:
         if "No changes staged" in str(e):
             mark_blocked(conn, job_id, "No changes produced by Claude")
@@ -1301,7 +1330,7 @@ def execute_job(conn: sqlite3.Connection, job: sqlite3.Row):
             f"Do not skip tests.\n"
             f"Do not run git or gh.\n"
         )
-        run_claude(
+        _ci_fix_unused, _ci_fix_out, tok_in, tok_out = run_claude(
             prompt=fix_prompt,
             worktree_path=worktree_path,
             model_alias=model_alias,
@@ -1311,7 +1340,9 @@ def execute_job(conn: sqlite3.Connection, job: sqlite3.Row):
             repo_cfg=repo_cfg,
             job=job,
         )
-        commit_and_push(worktree_path, f"{title} (ci-fix-{remote_ci_retries})", issue_number, branch)
+        total_tok_in += tok_in
+        total_tok_out += tok_out
+        commit_and_push(worktree_path, f"{title} (ci-fix-{remote_ci_retries})", issue_number, branch, base_branch)
         head_sha = get_pr_head_sha(repo, pr_number)
         conn.execute("UPDATE jobs SET pr_head_sha=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
                      (head_sha, job_id))
@@ -1322,6 +1353,10 @@ def execute_job(conn: sqlite3.Connection, job: sqlite3.Row):
                  (job_id,))
     conn.commit()
     pr_url = gh(["pr", "view", pr_number, "--repo", repo, "--json", "url", "-q", ".url"], check=False) or ""
+    # Write accumulated token usage to DB
+    conn.execute("UPDATE jobs SET token_input=token_input+?, token_output=token_output+?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                 (total_tok_in, total_tok_out, job_id))
+    conn.commit()
     _run_review_and_merge(conn, job_id, repo, base_branch, title, issue_number,
                           model_alias, effort, review_tier, repo_cfg, job,
                           worktree_path, pr_number, head_sha, pr_url, automerge,
@@ -1433,10 +1468,20 @@ def mark_blocked(conn: sqlite3.Connection, job_id: int, reason: str):
     """, (reason[:2000], job_id))
     conn.commit()
     log.warning("Job %d blocked: %s", job_id, reason)
+    # Also clean worktree
+    row = conn.execute("SELECT worktree_path, repo FROM jobs WHERE id=?", (job_id,)).fetchone()
+    if row and row["worktree_path"] and Path(row["worktree_path"]).exists():
+        try:
+            repo_cfg = repo_config_for_job(row["repo"])
+            remove_worktree(row["worktree_path"], repo_cfg["bare_repo_path"])
+            conn.execute("UPDATE jobs SET worktree_path=NULL, updated_at=CURRENT_TIMESTAMP WHERE id=?", (job_id,))
+            conn.commit()
+        except Exception as e:
+            log.warning("Could not remove worktree on block: %s", e)
 
 
 def mark_max_retry(conn: sqlite3.Connection, job_id: int, stage: str, reason: str):
-    row = conn.execute("SELECT repo, issue_number, title, retry_count FROM jobs WHERE id=?",
+    row = conn.execute("SELECT repo, issue_number, title, retry_count, worktree_path FROM jobs WHERE id=?",
                        (job_id,)).fetchone()
     conn.execute("""
         UPDATE jobs SET state='max_retry_exceeded', stage=?,
@@ -1447,6 +1492,31 @@ def mark_max_retry(conn: sqlite3.Connection, job_id: int, stage: str, reason: st
     """, (f"max_retry_{stage}", reason[:2000], job_id))
     conn.commit()
     log.warning("Job %d exceeded max retries at stage %s", job_id, stage)
+
+    # Also clean worktree
+    if row and row["worktree_path"] and Path(row["worktree_path"]).exists():
+        try:
+            repo_cfg = repo_config_for_job(row["repo"])
+            remove_worktree(row["worktree_path"], repo_cfg["bare_repo_path"])
+            conn.execute("UPDATE jobs SET worktree_path=NULL, updated_at=CURRENT_TIMESTAMP WHERE id=?", (job_id,))
+            conn.commit()
+        except Exception as e:
+            log.warning("Could not remove worktree on max_retry: %s", e)
+
+    # Unblock downstream jobs that were waiting on this job
+    dep_rows = conn.execute(
+        "SELECT id, depends_on_jobs FROM jobs WHERE depends_on_jobs LIKE ?",
+        (f"%{job_id}%",)
+    ).fetchall()
+    for dep_row in dep_rows:
+        try:
+            deps = json.loads(dep_row["depends_on_jobs"] or "[]")
+            deps = [d for d in deps if d != job_id]
+            conn.execute("UPDATE jobs SET depends_on_jobs=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                         (json.dumps(deps), dep_row["id"]))
+        except Exception:
+            pass
+    conn.commit()
 
     if row:
         repo = row["repo"]

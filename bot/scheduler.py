@@ -166,6 +166,8 @@ MIGRATIONS = [
     "ALTER TABLE jobs ADD COLUMN discussion_last_checked_at TEXT DEFAULT NULL",
     "ALTER TABLE jobs ADD COLUMN discussion_comment_count INTEGER DEFAULT 0",
     "ALTER TABLE jobs ADD COLUMN depends_on_jobs TEXT DEFAULT '[]'",
+    "ALTER TABLE jobs ADD COLUMN token_input INTEGER DEFAULT 0",
+    "ALTER TABLE jobs ADD COLUMN token_output INTEGER DEFAULT 0",
 ]
 
 
@@ -511,6 +513,10 @@ def assign_priorities(conn: sqlite3.Connection, new_jobs: list[dict]):
 
     for job in new_jobs:
         job_id = job["job_id"]
+        if "priority:critical" in job.get("labels", []):
+            conn.execute("UPDATE jobs SET priority=1, priority_reason='priority:critical label', updated_at=CURRENT_TIMESTAMP WHERE id=?", (job_id,))
+            log.info("Critical priority override: job %d → p=1", job_id)
+            continue
         if job_id in scores:
             s = scores[job_id]
             priority, reason = s["priority"], s["reason"]
@@ -904,6 +910,9 @@ def upsert_job(conn: sqlite3.Connection, repo: str, issue: dict,
     max_ci_retries = 4 if model_tier == "hard" else 3
     max_review_retries = 3 if model_tier == "hard" else 2
 
+    is_critical = "priority:critical" in labels
+    initial_priority = 1 if is_critical else 100
+
     existing = conn.execute(
         "SELECT id, state, priority FROM jobs WHERE repo=? AND issue_number=?",
         (repo, number),
@@ -958,7 +967,7 @@ def upsert_job(conn: sqlite3.Connection, repo: str, issue: dict,
     """, (
         repo, number, title, body, json.dumps(sorted(labels)),
         author_login, int(effective_is_member), None,
-        base_branch, initial_state, initial_stage, 100,
+        base_branch, initial_state, initial_stage, initial_priority,
         model_tier, review_tier, int(automerge),
         model_alias, effective_model, "zai-glm",
         max_retries, max_ci_retries, max_review_retries,
