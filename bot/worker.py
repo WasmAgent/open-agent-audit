@@ -14,13 +14,57 @@ import sqlite3
 import subprocess
 import sys
 import time
+import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import yaml
 
-DB_PATH = os.environ.get("DB_PATH", "/srv/claude-bot/db.sqlite3")
+LOG_DIR = os.environ.get("LOG_DIR", "/srv/claude-bot/logs/jobs")
+
+# ---------------------------------------------------------------------------
+# Per-job file logger
+# ---------------------------------------------------------------------------
+
+_job_file_handler: logging.FileHandler | None = None
+
+
+def open_job_log(job_id: int, repo: str, issue_number: int) -> Path:
+    """Open a per-job log file and attach it to the root logger. Returns log path."""
+    global _job_file_handler
+    close_job_log()
+
+    log_dir = Path(LOG_DIR)
+    log_dir.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+    repo_slug = repo.replace("/", "_")
+    log_path = log_dir / f"{ts}_job{job_id}_{repo_slug}_issue{issue_number}.log"
+
+    _job_file_handler = logging.FileHandler(str(log_path), encoding="utf-8")
+    _job_file_handler.setLevel(logging.DEBUG)
+    _job_file_handler.setFormatter(logging.Formatter(
+        "%(asctime)s [%(levelname)s] %(message)s"
+    ))
+    logging.getLogger().addHandler(_job_file_handler)
+    log.info("=== Job %d started: %s#%d ===", job_id, repo, issue_number)
+    return log_path
+
+
+def close_job_log():
+    global _job_file_handler
+    if _job_file_handler:
+        log.info("=== Job log closed ===")
+        logging.getLogger().removeHandler(_job_file_handler)
+        _job_file_handler.close()
+        _job_file_handler = None
+
+
+def log_section(title: str):
+    """Write a visible section header to the job log."""
+    log.info("─" * 60)
+    log.info("  %s", title)
+    log.info("─" * 60)
 REPOS_CONFIG_PATH = os.environ.get("REPOS_CONFIG_PATH", "/srv/claude-bot/repos.yml")
 MCP_CONFIG_PATH = os.environ.get("MCP_CONFIG_PATH", "/srv/claude-bot/empty-mcp.json")
 GH_TOKEN = os.environ.get("GH_TOKEN", "")
@@ -492,15 +536,22 @@ def run_claude(
         )
         output = result.stdout + result.stderr
 
+        # Log full Claude output to job log (DEBUG level — visible in file but not console)
+        log.debug("── Claude output (returncode=%d, len=%d) ──\n%s",
+                  result.returncode, len(output), output[:8000])
+
         # Detect provider errors in output
         if any(code in output for code in ["1302", "1305", "1308", "1309", "1310",
                                             "1311", "1313", "1314", "1315",
                                             "1316", "1317", "1318", "1319", "1320", "1321"]):
+            log.warning("Provider error detected in Claude output")
             return False, output
         if "rate limit" in output.lower() or "429" in output or "quota" in output.lower():
+            log.warning("Rate limit / quota error in Claude output")
             return False, output
 
         if result.returncode != 0:
+            log.warning("Claude exited with returncode=%d", result.returncode)
             return False, output
 
         # Parse JSON result — treat error_max_turns as partial success (may have made changes)
@@ -508,6 +559,8 @@ def run_claude(
             data = json.loads(result.stdout)
             subtype = data.get("subtype", "")
             is_error = data.get("is_error", False)
+            num_turns = data.get("num_turns", 0)
+            log.info("Claude finished: subtype=%s is_error=%s turns=%d", subtype, is_error, num_turns)
             if is_error and subtype not in ("error_max_turns",):
                 log.warning("Claude reported error subtype=%s", subtype)
                 return False, output
@@ -527,8 +580,9 @@ def run_claude(
 
 def run_local_tests(test_cmds: list[str], worktree_path: str) -> tuple[bool, str]:
     logs: list[str] = []
+    log_section("LOCAL TESTS")
     for cmd in test_cmds:
-        log.info("Running: %s", cmd)
+        log.info("$ %s", cmd)
         try:
             result = subprocess.run(
                 shlex.split(cmd),
@@ -537,11 +591,17 @@ def run_local_tests(test_cmds: list[str], worktree_path: str) -> tuple[bool, str
                 text=True,
                 timeout=600,
             )
-            logs.append(f"$ {cmd}\nexit: {result.returncode}\n{result.stdout}\n{result.stderr}")
+            entry = f"$ {cmd}\nexit: {result.returncode}\n{result.stdout}\n{result.stderr}"
+            logs.append(entry)
+            log.debug("%s", entry[:3000])
             if result.returncode != 0:
+                log.warning("Test FAILED: %s (exit %d)", cmd, result.returncode)
                 return False, "\n".join(logs)
+            log.info("  exit 0 ✓")
         except subprocess.TimeoutExpired:
-            logs.append(f"$ {cmd}\ntimeout after 600s")
+            entry = f"$ {cmd}\ntimeout after 600s"
+            logs.append(entry)
+            log.warning("Test TIMEOUT: %s", cmd)
             return False, "\n".join(logs)
     return True, "\n".join(logs)
 
@@ -959,6 +1019,13 @@ def execute_job(conn: sqlite3.Connection, job: sqlite3.Row):
     branch = f"claude/issue-{issue_number}-{slug}"
     worktree_path = str(Path(worktree_root) / f"issue-{issue_number}")
 
+    # Log job context
+    log_section("JOB CONTEXT")
+    log.info("repo=%s issue=#%d retry=%d model_tier=%s", repo, issue_number, retry_count, model_tier)
+    log.info("title=%r", title)
+    log.info("branch=%s worktree=%s", branch, worktree_path)
+    log.debug("body=\n%s", body[:2000])
+
     # Model escalation: use glm-5.2 (opus) after 2 failures, or for hard/deep tasks
     base_alias = job["model_alias"]
     if model_tier == "hard" or review_tier == "deep" or retry_count >= 2:
@@ -1157,6 +1224,19 @@ def execute_job(conn: sqlite3.Connection, job: sqlite3.Row):
             return
 
     # --- Step 4: commit and push ---
+    log_section("GIT DIFF (before push)")
+    try:
+        diff = git(["diff", "HEAD"], cwd=worktree_path, check=False)
+        staged = git(["diff", "--cached"], cwd=worktree_path, check=False)
+        combined = (diff + staged).strip()
+        if combined:
+            log.debug("%s", combined[:6000])
+            log.info("diff size: %d chars, %d lines", len(combined), combined.count("\n"))
+        else:
+            log.info("no diff (nothing changed)")
+    except Exception as e:
+        log.warning("Could not capture diff: %s", e)
+
     conn.execute("UPDATE jobs SET stage='pushing', updated_at=CURRENT_TIMESTAMP WHERE id=?", (job_id,))
     conn.commit()
 
@@ -1208,6 +1288,8 @@ def execute_job(conn: sqlite3.Connection, job: sqlite3.Row):
 
         log.info("Remote CI failed (attempt %d/%d), fetching logs", remote_ci_retries, max_ci)
         ci_logs = get_failed_ci_logs(repo, branch)
+        log_section(f"CI FAILURE LOGS (attempt {remote_ci_retries})")
+        log.debug("%s", ci_logs[:5000] if ci_logs else "(no logs retrieved)")
 
         fix_prompt = (
             f"The previous implementation failed remote CI.\n\n"
@@ -1510,11 +1592,22 @@ def worker_loop(worker_id: str):
                 continue
 
             log.info("Claimed job %d (%s#%d)", job["id"], job["repo"], job["issue_number"])
+            log_path = open_job_log(job["id"], job["repo"], job["issue_number"])
+            log.info("Job log: %s", log_path)
+            conn.execute(
+                "UPDATE jobs SET last_ci_log_path=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                (str(log_path), job["id"]),
+            )
+            conn.commit()
             try:
                 execute_job(conn, job)
             except Exception:
                 log.exception("Unhandled error in job %d", job["id"])
+                # Write full traceback to job log
+                log.error("FULL TRACEBACK:\n%s", traceback.format_exc())
                 mark_failed(conn, job["id"], "unhandled exception")
+            finally:
+                close_job_log()
 
         except Exception:
             log.exception("Worker loop error")
