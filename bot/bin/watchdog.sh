@@ -65,6 +65,29 @@ check_db_health() {
             2>/dev/null || true
         echo "$(date -u) Recovered $stuck stuck job(s)" >> "$WATCHDOG_STATE_DIR/watchdog.log"
     fi
+
+    # Detect orphaned running jobs: job is 'running' but worker process is gone
+    # This catches the SIGTERM-mid-job scenario where lease hasn't expired yet
+    local running_jobs
+    running_jobs=$(sqlite3 "$DB_PATH" \
+        "SELECT COUNT(*) FROM jobs WHERE state='running';" \
+        2>/dev/null || echo 0)
+    if [ "$running_jobs" -gt 0 ]; then
+        local worker_alive=0
+        if pgrep -f "worker\.py" > /dev/null 2>&1; then
+            worker_alive=1
+        fi
+        if [ "$worker_alive" -eq 0 ]; then
+            echo "$(date -u) WARNING: $running_jobs running job(s) but no worker process — releasing leases" \
+                >> "$WATCHDOG_STATE_DIR/watchdog.log"
+            sqlite3 "$DB_PATH" \
+                "UPDATE jobs SET state='pending', stage='orphan_recovered',
+                 lease_owner=NULL, lease_expires_at=NULL, updated_at=CURRENT_TIMESTAMP
+                 WHERE state='running';" \
+                2>/dev/null || true
+            echo "$(date -u) Released $running_jobs orphaned job(s)" >> "$WATCHDOG_STATE_DIR/watchdog.log"
+        fi
+    fi
 }
 
 for service in "${SERVICES[@]}"; do

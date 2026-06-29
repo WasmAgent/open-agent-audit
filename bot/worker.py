@@ -27,11 +27,34 @@ import yaml
 # ---------------------------------------------------------------------------
 
 _shutdown_requested = False
+_current_job_id: int | None = None     # set when a job is being executed
+_current_db_path: str | None = None    # set on worker start, used by SIGTERM handler
+
+
+def _release_current_job_lease():
+    """Release the lease of the currently-running job so the next worker can pick it up."""
+    if _current_job_id is None or _current_db_path is None:
+        return
+    try:
+        import sqlite3 as _sqlite3
+        conn = _sqlite3.connect(_current_db_path, timeout=5)
+        conn.execute("""
+            UPDATE jobs SET state='pending', stage='sigterm_released',
+                lease_owner=NULL, lease_expires_at=NULL,
+                updated_at=CURRENT_TIMESTAMP
+            WHERE id=? AND state='running'
+        """, (_current_job_id,))
+        conn.commit()
+        conn.close()
+        log.info("Released lease for job %d on SIGTERM", _current_job_id)
+    except Exception as e:
+        log.warning("Could not release job lease on SIGTERM: %s", e)
 
 
 def _handle_sigterm(signum, frame):
     global _shutdown_requested
-    log.info("SIGTERM received — will stop after current job completes")
+    log.info("SIGTERM received — releasing lease and stopping after current job")
+    _release_current_job_lease()
     _shutdown_requested = True
 
 
@@ -1745,8 +1768,9 @@ def claim_job(conn: sqlite3.Connection, worker_id: str) -> sqlite3.Row | None:
 
 
 def worker_loop(worker_id: str):
-    global WORKER_ID
+    global WORKER_ID, _current_db_path
     WORKER_ID = worker_id
+    _current_db_path = DB_PATH
     conn = open_db()
     log.info("Worker %s started. DB=%s", worker_id, DB_PATH)
 
@@ -1758,6 +1782,7 @@ def worker_loop(worker_id: str):
                 continue
 
             log.info("Claimed job %d (%s#%d)", job["id"], job["repo"], job["issue_number"])
+            _current_job_id = job["id"]   # register for SIGTERM handler
             log_path = open_job_log(job["id"], job["repo"], job["issue_number"])
             log.info("Job log: %s", log_path)
             conn.execute(
@@ -1769,11 +1794,11 @@ def worker_loop(worker_id: str):
                 execute_job(conn, job)
             except Exception:
                 log.exception("Unhandled error in job %d", job["id"])
-                # Write full traceback to job log
                 log.error("FULL TRACEBACK:\n%s", traceback.format_exc())
                 mark_failed(conn, job["id"], "unhandled exception")
             finally:
                 close_job_log()
+                _current_job_id = None   # clear after job completes
 
         except Exception:
             log.exception("Worker loop error")
