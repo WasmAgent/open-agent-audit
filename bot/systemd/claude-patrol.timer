@@ -1,0 +1,12 @@
+[Unit]
+Description=Claude Bot Patrol Timer
+Requires=claude-patrol.service
+
+[Timer]
+OnBootSec=30min
+OnUnitActiveSec=6h
+RandomizedDelaySec=15min
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

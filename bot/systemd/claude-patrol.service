@@ -1,0 +1,13 @@
+[Unit]
+Description=Claude Bot Patrol — idle-time code review and iteration
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=claudebot
+WorkingDirectory=/srv/claude-bot
+EnvironmentFile=/etc/claude-bot/claude-bot.env
+ExecStart=/usr/bin/python3 /srv/claude-bot/patrol.py
+
+[Install]
+WantedBy=multi-user.target
