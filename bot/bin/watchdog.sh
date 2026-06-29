@@ -108,6 +108,28 @@ done
 # DB health check
 check_db_health
 
+# Daily token report (only once per day)
+REPORT_FLAG="$WATCHDOG_STATE_DIR/token-report-$(date +%Y-%m-%d).done"
+if [ ! -f "$REPORT_FLAG" ]; then
+    if command -v sqlite3 &>/dev/null && [ -f "$DB_PATH" ]; then
+        TOKEN_REPORT=$(sqlite3 "$DB_PATH" "
+SELECT
+  'Today: merged=' || (SELECT COUNT(*) FROM jobs WHERE state='merged' AND DATE(finished_at)=DATE('now')) ||
+  ' tokens_in=' || COALESCE((SELECT SUM(token_input) FROM jobs WHERE DATE(finished_at)=DATE('now')),0) ||
+  ' tokens_out=' || COALESCE((SELECT SUM(token_output) FROM jobs WHERE DATE(finished_at)=DATE('now')),0) ||
+  ' | Total: merged=' || (SELECT COUNT(*) FROM jobs WHERE state='merged') ||
+  ' failed=' || (SELECT COUNT(*) FROM jobs WHERE state='max_retry_exceeded') ||
+  ' pending=' || (SELECT COUNT(*) FROM jobs WHERE state IN ('pending','fixing'))
+;" 2>/dev/null || echo "")
+        if [ -n "$TOKEN_REPORT" ]; then
+            echo "$(date -u) DAILY REPORT: $TOKEN_REPORT" >> "$WATCHDOG_STATE_DIR/watchdog.log"
+        fi
+    fi
+    touch "$REPORT_FLAG"
+    # Clean old report flags (keep 7 days)
+    find "$WATCHDOG_STATE_DIR" -name "token-report-*.done" -mtime +7 -delete 2>/dev/null || true
+fi
+
 # Rotate log (keep last 500 lines)
 if [ -f "$WATCHDOG_STATE_DIR/watchdog.log" ]; then
     tail -500 "$WATCHDOG_STATE_DIR/watchdog.log" > "$WATCHDOG_STATE_DIR/watchdog.log.tmp" \

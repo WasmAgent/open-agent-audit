@@ -11,6 +11,8 @@ EnvironmentFile=/etc/claude-bot/claude-bot.env
 ExecStart=/usr/bin/python3 /srv/claude-bot/worker.py --worker-id %i
 Restart=always
 RestartSec=10
+TimeoutStopSec=3600
+KillMode=mixed
 
 CPUQuota=250%
 MemoryHigh=4G

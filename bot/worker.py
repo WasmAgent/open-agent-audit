@@ -10,6 +10,7 @@ import logging
 import os
 import re
 import shlex
+import signal
 import sqlite3
 import subprocess
 import sys
@@ -20,6 +21,22 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import yaml
+
+# ---------------------------------------------------------------------------
+# Graceful SIGTERM / SIGHUP shutdown
+# ---------------------------------------------------------------------------
+
+_shutdown_requested = False
+
+
+def _handle_sigterm(signum, frame):
+    global _shutdown_requested
+    log.info("SIGTERM received — will stop after current job completes")
+    _shutdown_requested = True
+
+
+signal.signal(signal.SIGTERM, _handle_sigterm)
+signal.signal(signal.SIGHUP, _handle_sigterm)
 
 LOG_DIR = os.environ.get("LOG_DIR", "/srv/claude-bot/logs/jobs")
 
@@ -81,6 +98,7 @@ MAX_NORMAL_JOBS_PER_DAY = int(os.environ.get("MAX_NORMAL_JOBS_PER_DAY", "5"))
 MAX_HARD_JOBS_PER_DAY = int(os.environ.get("MAX_HARD_JOBS_PER_DAY", "1"))
 MAX_ULTRACODE_JOBS_PER_DAY = int(os.environ.get("MAX_ULTRACODE_JOBS_PER_DAY", "0"))
 SUCCESS_TO_RESTORE_CONCURRENCY = int(os.environ.get("SUCCESS_TO_RESTORE_CONCURRENCY", "3"))
+JOB_HARD_TIMEOUT_SECS = int(os.environ.get("JOB_HARD_TIMEOUT_SECS", "2700"))  # 45 min
 HIGH_COST_PAUSE_WINDOW = os.environ.get("HIGH_COST_TASK_PAUSE_WINDOW_JST", "15:00-19:00")
 
 WORKER_ID = "1"  # overridden by CLI arg
@@ -399,6 +417,10 @@ def create_worktree(bare_repo_path: str, worktree_path: str,
         git_dir=bare_repo_path, check=False)
     # Fall back to plain fetch if refspec fails (e.g. first-time with no local ref yet)
     git(["fetch", "origin"], git_dir=bare_repo_path, check=False)
+
+    # Delete stale local branch if it exists (from a previous failed attempt)
+    git(["branch", "-D", branch], git_dir=bare_repo_path, check=False)
+
     Path(worktree_path).parent.mkdir(parents=True, exist_ok=True)
     # In a bare repo, refs are refs/heads/<base_branch>, not refs/remotes/origin/<base_branch>
     git(
@@ -896,6 +918,52 @@ def merge_pr(repo: str, pr_number: str, head_sha: str):
 
 
 # ---------------------------------------------------------------------------
+# Post-merge main branch health check
+# ---------------------------------------------------------------------------
+
+def verify_main_after_merge(repo: str, base_branch: str, test_cmds: list[str],
+                             bare_repo_path: str, pr_number: str) -> bool:
+    """Pull main and run tests. If they fail, revert the PR."""
+    tmp_path = f"/tmp/verify-main-{repo.replace('/', '_')}-{int(time.time())}"
+    try:
+        # Create a temp worktree on main
+        git(["fetch", "origin", f"{base_branch}:{base_branch}", "--force"],
+            git_dir=bare_repo_path, check=False)
+        git(["fetch", "origin"], git_dir=bare_repo_path, check=False)
+        Path(tmp_path).parent.mkdir(parents=True, exist_ok=True)
+        git(["worktree", "add", tmp_path, base_branch], git_dir=bare_repo_path)
+
+        if not test_cmds:
+            return True
+
+        ok, output = run_local_tests(test_cmds, tmp_path)
+        if not ok:
+            log.error("Main branch health check FAILED after merge of PR #%s:\n%s",
+                      pr_number, output[:2000])
+            # Auto-revert
+            try:
+                gh(["pr", "revert", pr_number, "--repo", repo,
+                    "--title", f"revert: PR #{pr_number} broke main",
+                    "--body", f"Automatically reverted because post-merge tests failed.\n\n```\n{output[:1000]}\n```"],
+                   check=False)
+                log.warning("Auto-reverted PR #%s", pr_number)
+            except Exception as e:
+                log.error("Could not auto-revert: %s", e)
+            return False
+        log.info("Main branch health check passed after merging PR #%s", pr_number)
+        return True
+    except Exception as e:
+        log.warning("Main branch health check error: %s", e)
+        return True  # fail open — don't revert on infrastructure errors
+    finally:
+        try:
+            git(["worktree", "remove", "--force", tmp_path],
+                git_dir=bare_repo_path, check=False)
+        except Exception:
+            pass
+
+
+# ---------------------------------------------------------------------------
 # Review + merge helper (called from both main flow and review_failed shortcut)
 # ---------------------------------------------------------------------------
 
@@ -1002,6 +1070,14 @@ def _run_review_and_merge(conn, job_id, repo, base_branch, title, issue_number,
     conn.commit()
     record_provider_success(conn, "zai-glm")
     log.info("Job %d merged: %s#%d", job_id, repo, issue_number)
+
+    # Verify main is still healthy
+    repo_cfg2 = repo_config_for_job(repo)
+    verify_main_after_merge(
+        repo, base_branch,
+        repo_cfg2.get("test_cmds", []),
+        bare_repo_path, pr_number
+    )
     # Post completion comment to original issue
     try:
         pr_url_short = f"https://github.com/{repo}/pull/{pr_number}"
@@ -1033,6 +1109,8 @@ def execute_job(conn: sqlite3.Connection, job: sqlite3.Row):
     base_branch = job["base_branch"]
     labels = set(json.loads(job["labels_json"] or "[]"))
     retry_count = job["retry_count"]
+
+    job_start_time = time.time()
 
     repo_cfg = repo_config_for_job(repo)
     test_cmds = repo_cfg["test_cmds"]
@@ -1125,6 +1203,10 @@ def execute_job(conn: sqlite3.Connection, job: sqlite3.Row):
     write_claude_local_permissions(worktree_path, test_cmds)
 
     # --- Step 2: implement ---
+    if time.time() - job_start_time > JOB_HARD_TIMEOUT_SECS:
+        mark_max_retry(conn, job_id, "hard_timeout",
+                       f"Job exceeded {JOB_HARD_TIMEOUT_SECS}s hard limit before step 2")
+        return
     conn.execute("UPDATE jobs SET stage='implementing', updated_at=CURRENT_TIMESTAMP WHERE id=?", (job_id,))
     conn.commit()
 
@@ -1194,6 +1276,10 @@ def execute_job(conn: sqlite3.Connection, job: sqlite3.Row):
         last_outputs.pop(0)
 
     # --- Step 3: local verification ---
+    if time.time() - job_start_time > JOB_HARD_TIMEOUT_SECS:
+        mark_max_retry(conn, job_id, "hard_timeout",
+                       f"Job exceeded {JOB_HARD_TIMEOUT_SECS}s hard limit before step 3")
+        return
     conn.execute("UPDATE jobs SET stage='local_verify', updated_at=CURRENT_TIMESTAMP WHERE id=?", (job_id,))
     conn.commit()
 
@@ -1294,6 +1380,10 @@ def execute_job(conn: sqlite3.Connection, job: sqlite3.Row):
     conn.commit()
 
     # --- Step 6: wait for remote CI ---
+    if time.time() - job_start_time > JOB_HARD_TIMEOUT_SECS:
+        mark_max_retry(conn, job_id, "hard_timeout",
+                       f"Job exceeded {JOB_HARD_TIMEOUT_SECS}s hard limit before step 6")
+        return
     conn.execute("""
         UPDATE jobs SET state='remote_ci_waiting', stage='ci_waiting',
             updated_at=CURRENT_TIMESTAMP WHERE id=?
@@ -1349,6 +1439,10 @@ def execute_job(conn: sqlite3.Connection, job: sqlite3.Row):
         conn.commit()
 
     # --- Step 7 + 8: AI review and merge ---
+    if time.time() - job_start_time > JOB_HARD_TIMEOUT_SECS:
+        mark_max_retry(conn, job_id, "hard_timeout",
+                       f"Job exceeded {JOB_HARD_TIMEOUT_SECS}s hard limit before step 7")
+        return
     conn.execute("UPDATE jobs SET state='reviewing', stage='reviewing', updated_at=CURRENT_TIMESTAMP WHERE id=?",
                  (job_id,))
     conn.commit()
@@ -1656,7 +1750,7 @@ def worker_loop(worker_id: str):
     conn = open_db()
     log.info("Worker %s started. DB=%s", worker_id, DB_PATH)
 
-    while True:
+    while not _shutdown_requested:
         try:
             job = claim_job(conn, worker_id)
             if job is None:
@@ -1684,6 +1778,8 @@ def worker_loop(worker_id: str):
         except Exception:
             log.exception("Worker loop error")
             time.sleep(30)
+
+    log.info("Graceful shutdown complete")
 
 
 if __name__ == "__main__":

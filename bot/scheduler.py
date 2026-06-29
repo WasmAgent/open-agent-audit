@@ -41,6 +41,9 @@ DISCUSSION_REEVAL_INTERVAL = int(os.environ.get("DISCUSSION_REEVAL_INTERVAL", "2
 _member_cache: dict = {}
 MEMBER_CACHE_TTL = 3600  # 1 hour
 
+# Tracks repos that need dep reanalysis (populated on new jobs or recent merges)
+_repos_needing_dep_reanalysis: set[str] = set()
+
 
 # ---------------------------------------------------------------------------
 # Database
@@ -647,14 +650,15 @@ def evaluate_discussion(repo: str, title: str, body: str, comments: list[dict]) 
     }
 
 
-def reanalyze_existing_deps(conn: sqlite3.Connection):
+def reanalyze_existing_deps(conn: sqlite3.Connection, repos: list[str] | None = None):
     """
     For repos that have multiple pending jobs but no dependency data yet,
     re-run the AI analysis to fill in depends_on_jobs.
     Runs at most once per scheduler cycle, only if there are unanalyzed jobs.
+    Optional repos filter: only reanalyze jobs belonging to those repos.
     """
     # Find repos with 2+ pending jobs that haven't been dependency-analyzed
-    rows = conn.execute("""
+    query = """
         SELECT repo, COUNT(*) as cnt
         FROM jobs
         WHERE state IN ('pending','fixing','remote_ci_failed','review_failed')
@@ -662,7 +666,16 @@ def reanalyze_existing_deps(conn: sqlite3.Connection):
           AND author_is_member = 1
         GROUP BY repo
         HAVING cnt >= 2
-    """).fetchall()
+    """
+    if repos:
+        placeholders = ",".join("?" * len(repos))
+        query = query.replace(
+            "author_is_member = 1",
+            f"author_is_member = 1 AND repo IN ({placeholders})"
+        )
+        rows = conn.execute(query, repos).fetchall()
+    else:
+        rows = conn.execute(query).fetchall()
 
     for repo_row in rows:
         repo = repo_row["repo"]
@@ -720,7 +733,8 @@ def process_external_discussions(conn: sqlite3.Connection, new_external_ids: set
     rows = conn.execute("""
         SELECT id, repo, issue_number, title, body,
                discussion_state, bot_comment_id,
-               discussion_last_checked_at, discussion_comment_count
+               discussion_last_checked_at, discussion_comment_count,
+               created_at
         FROM jobs
         WHERE author_is_member = 0
           AND discussion_state NOT IN ('approved', 'rejected', 'member_handling')
@@ -734,6 +748,28 @@ def process_external_discussions(conn: sqlite3.Connection, new_external_ids: set
         title = row["title"]
         body = row["body"] or ""
         discussion_state = row["discussion_state"]
+
+        # Auto-close discussions stale for > 30 days
+        created_at = row.get("created_at") or ""
+        if created_at:
+            try:
+                created_ts = time.mktime(time.strptime(created_at[:19], "%Y-%m-%d %H:%M:%S"))
+                if now_ts - created_ts > 30 * 86400:
+                    close_comment = (
+                        "This issue has been open for 30 days without reaching a conclusion. "
+                        "Closing automatically. Feel free to reopen with additional context."
+                    )
+                    gh_close_issue(repo, issue_number, close_comment)
+                    conn.execute("""
+                        UPDATE jobs SET discussion_state='rejected', state='blocked',
+                            stage='discussion_timeout', last_error='auto-closed after 30 days',
+                            updated_at=CURRENT_TIMESTAMP WHERE id=?
+                    """, (job_id,))
+                    conn.commit()
+                    log.info("Auto-closed stale discussion: %s#%d", repo, issue_number)
+                    continue
+            except Exception:
+                pass
 
         # --- Step 1: Post initial response for brand-new external issues ---
         if discussion_state is None or job_id in new_external_ids:
@@ -1062,8 +1098,23 @@ def scheduler_loop():
             if new_member_jobs:
                 log.info("Scoring %d new member job(s) with dependency analysis...", len(new_member_jobs))
                 assign_priorities(conn, new_member_jobs)
-            else:
-                # Re-analyze existing pending jobs that lack dependency data
+                for j in new_member_jobs:
+                    _repos_needing_dep_reanalysis.add(j["repo"])
+
+            # Check for recent merges and add their repos to the reanalysis set
+            recently_merged = conn.execute("""
+                SELECT DISTINCT repo FROM jobs
+                WHERE state='merged' AND updated_at > datetime('now', '-3 minutes')
+            """).fetchall()
+            for row in recently_merged:
+                _repos_needing_dep_reanalysis.add(row["repo"])
+
+            # Re-analyze deps only for repos that had new activity this cycle
+            if _repos_needing_dep_reanalysis:
+                reanalyze_existing_deps(conn, repos=list(_repos_needing_dep_reanalysis))
+                _repos_needing_dep_reanalysis.clear()
+            elif not new_member_jobs:
+                # Fallback: periodic full scan when nothing else triggered it
                 reanalyze_existing_deps(conn)
 
             # Advance external discussion state machines

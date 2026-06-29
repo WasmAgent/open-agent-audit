@@ -388,18 +388,72 @@ def patrol_research(repo_cfg: dict, repo_path: str) -> list[dict]:
     repo = repo_cfg["repo"]
     log.info("[%s] Running research patrol", repo)
 
+    # Collect real dependency data
+    real_data_lines = []
+
+    # npm outdated
+    r = subprocess.run(["npm", "outdated", "--json"], capture_output=True, text=True,
+                       cwd=repo_path, timeout=60)
+    if r.stdout.strip() and r.stdout.strip() != "{}":
+        try:
+            outdated = json.loads(r.stdout)
+            for pkg, info in list(outdated.items())[:10]:
+                real_data_lines.append(
+                    f"npm outdated: {pkg} current={info.get('current','?')} wanted={info.get('wanted','?')} latest={info.get('latest','?')}"
+                )
+        except Exception:
+            pass
+
+    # bun outdated (if bun.lock exists)
+    if (Path(repo_path) / "bun.lock").exists() or (Path(repo_path) / "bun.lockb").exists():
+        r2 = subprocess.run(["bun", "outdated"], capture_output=True, text=True,
+                            cwd=repo_path, timeout=60)
+        if r2.stdout.strip():
+            real_data_lines.append("bun outdated output:\n" + r2.stdout[:1000])
+
+    # GitHub Dependabot alerts
+    alerts_out = gh(["api", f"repos/{repo}/vulnerability-alerts",
+                     "--include-headers", "-H", "Accept: application/vnd.github+json"])
+    if alerts_out and "HTTP 204" not in (alerts_out or ""):
+        alerts_json = gh(["api", f"repos/{repo}/dependabot/alerts",
+                          "--jq", ".[0:5] | .[] | .security_advisory.summary + \" (\" + .dependency.package.name + \")\""])
+        if alerts_json:
+            real_data_lines.append("Dependabot alerts:\n" + alerts_json[:500])
+
+    if not real_data_lines:
+        log.info("[%s] No outdated deps or security alerts found", repo)
+        return []
+
+    real_data = "\n".join(real_data_lines)
     tech_stack = infer_tech_stack(repo_path)
     recent_prs = get_recent_merged_prs(repo, limit=5)
-    prs_text = "\n".join(
-        f"- {p['title']}" for p in recent_prs
-    ) or "(none)"
+    prs_text = "\n".join(f"- {p['title']}" for p in recent_prs) or "(none)"
 
-    prompt = RESEARCH_PROMPT.format(
-        repo=repo,
-        tech_stack=tech_stack,
-        recent_prs=prs_text,
-    )
-    text = call_ai(prompt, max_tokens=1000)
+    prompt = f"""You are a technical researcher reviewing real dependency data for a GitHub project.
+
+Repository: {repo}
+Tech stack: {tech_stack}
+Recent merged work: {prs_text}
+
+REAL DATA from the repository:
+{real_data}
+
+Based on this actual data, suggest up to 2 concrete improvements:
+- Update a dependency that is significantly outdated or has a security issue
+- Address a Dependabot alert
+- Only suggest changes supported by the real data above
+
+Return ONLY a JSON array:
+[
+  {{
+    "title": "chore: update <package> from <current> to <latest>",
+    "body": "<why this matters, what to change, acceptance criteria>",
+    "priority": <1-100>
+  }}
+]
+Return [] if no actionable issues."""
+
+    text = call_ai(prompt, max_tokens=800)
     return parse_issues_from_ai(text)
 
 
@@ -568,6 +622,14 @@ def main():
 
     if not is_idle(conn):
         log.info("Jobs are active — patrol skipped")
+        sys.exit(0)
+
+    # Don't pile up more issues if queue is already deep
+    pending_count = conn.execute(
+        "SELECT COUNT(*) FROM jobs WHERE state IN ('pending','fixing','remote_ci_failed','review_failed')"
+    ).fetchone()[0]
+    if pending_count > 10:
+        log.info("Queue depth %d > 10 — patrol skipped to avoid overflow", pending_count)
         sys.exit(0)
 
     repos = full_mode_repos()
