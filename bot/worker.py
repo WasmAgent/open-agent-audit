@@ -23,6 +23,8 @@ import yaml
 
 LOG_DIR = os.environ.get("LOG_DIR", "/srv/claude-bot/logs/jobs")
 
+DB_PATH = os.environ.get("DB_PATH", "/srv/claude-bot/db.sqlite3")
+
 # ---------------------------------------------------------------------------
 # Per-job file logger
 # ---------------------------------------------------------------------------
