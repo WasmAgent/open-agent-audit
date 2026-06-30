@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/WasmAgent/wasmagent/main/assets/logo.png" width="100" alt="WasmAgent logo"/>
+  <img src="https://raw.githubusercontent.com/WasmAgent/.github/main/assets/logo.png" width="100" alt="WasmAgent logo"/>
 </p>
 
 # OpenAgentAudit
@@ -17,7 +17,7 @@
 > OpenAgentAudit. In audit, evidence only counts when it is trusted; Trustavo
 > exists to make that trust legible.
 
-![WasmAgent product matrix](https://raw.githubusercontent.com/WasmAgent/wasmagent/main/assets/product-matrix.webp)
+![WasmAgent product matrix](https://raw.githubusercontent.com/WasmAgent/.github/main/assets/product-matrix.svg)
 
 **Agent logs are not audit evidence.** OpenAgentAudit turns tool calls, policy
 decisions, human approvals, benchmark results, training manifests, and runtime
