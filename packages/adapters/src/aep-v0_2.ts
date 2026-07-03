@@ -395,5 +395,4 @@ export const AepV0_2Adapter: SourceFormatAdapter<AEPRecordInput> = {
   version,
   beginRun,
   toEvents,
-  toEventsBatch,
 };
