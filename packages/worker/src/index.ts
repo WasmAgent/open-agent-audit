@@ -77,6 +77,12 @@ export interface WorkerEnv {
   API_KEY?: string;
   /** 'public' (default) serves /r/:id without auth; 'private' requires Bearer API_KEY. */
   REPORT_VISIBILITY?: string;
+  /** GitHub personal access token for the scheduler to poll issues. */
+  GITHUB_TOKEN?: string;
+  /** Comma-separated list of "owner/repo" to poll for issues, e.g. "WasmAgent/open-agent-audit,WasmAgent/agent-trust-infra" */
+  REPOS_TO_POLL?: string;
+  /** Label filter for issue polling. Defaults to "claude". */
+  POLL_LABEL?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -746,12 +752,139 @@ async function handleQueue(
 }
 
 // ---------------------------------------------------------------------------
+// Scheduler — polls GitHub repos for labeled issues
+// ---------------------------------------------------------------------------
+
+/** Timeout (ms) for GitHub API fetch calls. */
+const GH_FETCH_TIMEOUT_MS = 30_000;
+
+/**
+ * Fetch GitHub issues for a repo with a label filter.
+ * Throws on timeout (AbortError) or HTTP 408.
+ */
+async function fetchGitHubIssues(
+  repo: string,
+  label: string,
+  token: string,
+): Promise<unknown[]> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), GH_FETCH_TIMEOUT_MS);
+
+  try {
+    const url = `https://api.github.com/repos/${repo}/issues?labels=${encodeURIComponent(label)}&state=open&per_page=50`;
+    const resp = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/vnd.github+json',
+        'User-Agent': 'open-agent-audit-scheduler/0.1',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+      signal: controller.signal,
+    });
+
+    if (resp.status === 408) {
+      throw new Error('GitHub API returned HTTP 408 (Request Timeout)');
+    }
+    if (!resp.ok) {
+      console.warn(`GitHub API returned ${resp.status} for ${repo}`);
+      return [];
+    }
+
+    return (await resp.json()) as unknown[];
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Returns true if the error is a timeout: either an AbortError from our
+ * AbortController or an HTTP 408 response.
+ */
+function isTimeoutError(err: unknown): boolean {
+  if (err instanceof DOMException && err.name === 'AbortError') return true;
+  if (err instanceof Error && err.message.includes('HTTP 408')) return true;
+  return false;
+}
+
+/**
+ * Fetch issues for a single repo with retry-once-on-timeout.
+ * Returns the issues array, or an empty array if both attempts fail.
+ */
+async function fetchIssuesWithRetry(
+  repo: string,
+  label: string,
+  token: string,
+): Promise<unknown[]> {
+  try {
+    return await fetchGitHubIssues(repo, label, token);
+  } catch (err: unknown) {
+    if (!isTimeoutError(err)) {
+      console.error(`[scheduler] Non-timeout error polling ${repo}:`, err);
+      return [];
+    }
+
+    // First attempt timed out — retry once
+    console.warn(`[scheduler] Timeout polling ${repo}, retrying once...`);
+    try {
+      return await fetchGitHubIssues(repo, label, token);
+    } catch (retryErr: unknown) {
+      if (isTimeoutError(retryErr)) {
+        console.warn(`[scheduler] Retry also timed out for ${repo}, skipping for this cycle.`);
+      } else {
+        console.error(`[scheduler] Retry failed for ${repo} with non-timeout error:`, retryErr);
+      }
+      return [];
+    }
+  }
+}
+
+/**
+ * Cloudflare Workers scheduled event handler.
+ * Polls configured GitHub repos for labeled issues and enqueues audit jobs.
+ */
+async function handleScheduled(
+  _event: ScheduledEvent,
+  env: WorkerEnv,
+  _ctx: ExecutionContext,
+): Promise<void> {
+  const token = env.GITHUB_TOKEN;
+  if (!token) {
+    console.warn('[scheduler] GITHUB_TOKEN not configured, skipping poll.');
+    return;
+  }
+
+  const reposRaw = env.REPOS_TO_POLL ?? '';
+  const repos = reposRaw
+    .split(',')
+    .map((r) => r.trim())
+    .filter((r) => r.length > 0);
+
+  if (repos.length === 0) {
+    console.warn('[scheduler] REPOS_TO_POLL is empty, nothing to poll.');
+    return;
+  }
+
+  const label = env.POLL_LABEL ?? 'claude';
+
+  for (const repo of repos) {
+    const issues = await fetchIssuesWithRetry(repo, label, token);
+    if (issues.length === 0) continue;
+
+    console.info(`[scheduler] ${repo}: found ${issues.length} open issue(s) with label '${label}'.`);
+
+    // TODO: Enqueue discovered issues as audit jobs.
+    // For now, log them. Full job-enqueueing logic to be added in a follow-up.
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Worker export
 // ---------------------------------------------------------------------------
 
 export default {
   fetch: handleFetch,
   queue: handleQueue,
+  scheduled: handleScheduled,
 };
 
 export { AuditRunCoordinator } from './durable-objects/AuditRunCoordinator.js';
