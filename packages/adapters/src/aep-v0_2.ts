@@ -218,7 +218,7 @@ function validateRecord(record: AEPRecordInput): void {
  *   - capability_decision → policy_decision (actor: system)
  *   - verifier_result (failed) → observation (actor: system)
  */
-function toEvents(record: AEPRecordInput): CanonicalEvent[] {
+function toEvents(record: AEPRecordInput, opts?: { prevHash?: string }): CanonicalEvent[] {
   validateRecord(record);
   const events: CanonicalEvent[] = [];
 
@@ -228,8 +228,8 @@ function toEvents(record: AEPRecordInput): CanonicalEvent[] {
   const sigSig = record.signature.sig;
   const sigKeyId = record.signature.key_id;
 
-  // Build up prev_hash chain. First event points back to the zero hash.
-  let prevHash = '0'.repeat(64);
+  // Build up prev_hash chain. Continues from opts.prevHash when provided.
+  let prevHash = opts?.prevHash ?? '0'.repeat(64);
 
   let globalIndex = 0;
 
@@ -249,6 +249,7 @@ function toEvents(record: AEPRecordInput): CanonicalEvent[] {
       model_id: modelId,
       event_id: eventId,
       evidence: {
+        evidence_id: eventId,
         hash,
         prev_hash: prevHash,
         signature: sigSig,
@@ -309,9 +310,16 @@ function toEvents(record: AEPRecordInput): CanonicalEvent[] {
       reason: cd.reason_code ?? '',
     };
 
+    // Use the matching action's timestamp so policy_decision sorts correctly
+    // relative to its tool_call event (avoids hash chain breakage after sort).
+    const matchingAction = actions.find(
+      (a) => a.capability_decision?.capability === cd.capability,
+    );
+    const ts = matchingAction ? matchingAction.timestamp_ms + 1 : record.created_at_ms;
+
     events.push(
       nextEvent({
-        timestamp: msToIso(record.created_at_ms),
+        timestamp: msToIso(ts),
         type: 'policy_decision',
         actor: 'system',
         policy: policyObj,
@@ -359,6 +367,24 @@ function beginRun(record: AEPRecordInput): AuditRun {
       risk_level: 'low',
     },
   };
+}
+
+/**
+ * Convert multiple AEP records into a single continuous event chain.
+ * Maintains prev_hash continuity across record boundaries.
+ */
+export function toEventsBatch(
+  records: AEPRecordInput[],
+  initialPrevHash = '0'.repeat(64),
+): CanonicalEvent[] {
+  const all: CanonicalEvent[] = [];
+  let prevHash = initialPrevHash;
+  for (const record of records) {
+    const events = toEvents(record, { prevHash });
+    all.push(...events);
+    prevHash = all[all.length - 1]?.evidence?.hash ?? prevHash;
+  }
+  return all;
 }
 
 export const id = 'aep-v0.2' as const;
