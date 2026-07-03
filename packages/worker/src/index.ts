@@ -292,9 +292,21 @@ async function handlePostRun(request: Request, env: WorkerEnv): Promise<Response
 
   const sourceFile = request.headers.get('x-source-file') ?? undefined;
 
+  // Auto-derive capability manifest from events when not explicitly provided.
+  // Every tool_call event's tool.name or tool.capability counts as a declared capability,
+  // preventing OAA-R-CAP-001 from firing on all legitimate tool calls.
+  const declaredCapabilities = [
+    ...new Set(
+      events
+        .filter((e) => e.type === 'tool_call' && e.tool)
+        .map((e) => e.tool!.capability ?? e.tool!.name)
+        .filter(Boolean),
+    ),
+  ];
+
   const ctx: PolicyAuditContext = {
     manifest: {
-      declared_capabilities: [],
+      declared_capabilities: declaredCapabilities,
       high_risk_capabilities: [],
       denied_capabilities: [],
     },
