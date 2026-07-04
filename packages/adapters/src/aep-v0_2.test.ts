@@ -68,7 +68,7 @@ describe('aep-v0_2 adapter — wasmagent-js fixture', () => {
   it('getProvenance extracts all four traceability fields', () => {
     const prov = getProvenance(record);
     expect(prov.repo_commit).toBe('1234567890abcdef1234567890abcdef12345678');
-    expect(prov.runtime_version).toBe('wasmagent-js@1.3.4');
+    expect(prov.runtime_version).toBe('wasmagent-js@1.4.0');
     expect(prov.policy_bundle_digest).toBe('a'.repeat(64));
     expect(prov.tool_manifest_digest).toBe('b'.repeat(64));
     expect(prov.model_provider).toBe('anthropic');
