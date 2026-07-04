@@ -1,9 +1,18 @@
 {
   "$schema": "https://unpkg.com/@changesets/config@3.0.0/schema.json",
-  "changelog": ["@changesets/changelog-github", {"repo": "WasmAgent/open-agent-audit"}],
+  "changelog": [
+    "@changesets/changelog-github",
+    {
+      "repo": "WasmAgent/open-agent-audit"
+    }
+  ],
   "commit": false,
   "fixed": [],
-  "linked": [["@openagentaudit/*"]],
+  "linked": [
+    [
+      "@openagentaudit/*"
+    ]
+  ],
   "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
