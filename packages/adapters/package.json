@@ -1,6 +1,6 @@
 {
   "name": "@openagentaudit/adapters",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Source-format adapters: AEP, ComplianceEvalRecord, bscode, OTel, Langfuse, LangSmith",
   "license": "Apache-2.0",
   "type": "module",
@@ -28,7 +28,7 @@
     "stability": "alpha"
   },
   "dependencies": {
-    "@openagentaudit/schema": "0.1.1"
+    "@openagentaudit/schema": "0.2.0"
   },
   "devDependencies": {
     "@types/bun": "^1.3.14"
