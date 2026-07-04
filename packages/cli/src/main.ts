@@ -245,8 +245,10 @@ function printHelp(): void {
       '  report [file] [--format md|html|json|csv] [--meta <json>]',
       '    Read JSONL, run full audit pipeline, print report.',
       '',
-      '  from-aep [file]',
+      '  from-aep [file] [--batch]',
       '    Read a single AEP JSON record, convert to CanonicalEvents JSONL.',
+      '    With --batch: read multiple AEP records (JSON array or JSONL),',
+      '    merge events into one aggregate stream with hash-chain continuity.',
       '',
       '  from-bscode [file]',
       '    Read a single bscode RolloutWireRecord JSON, convert to JSONL.',
@@ -258,6 +260,7 @@ function printHelp(): void {
       '  --profile       Profile ID (policy-audit).',
       '  --format        Output format: md, html, json, or csv (report).',
       '  --meta          JSON string with ReportMeta fields (report).',
+      '  --batch         Process multiple AEP records as a batch (from-aep).',
       '                  Supported fields: issuer, prepared_by, source_files,',
       '                  scope, profiles_applied, report_id, trace_start,',
       '                  trace_end, engine_version, spec_version.',
@@ -443,7 +446,49 @@ async function cmdReport(
   }
 }
 
-async function cmdFromAep(filePath?: string): Promise<void> {
+async function cmdFromAep(filePath?: string, batch = false): Promise<void> {
+  if (batch) {
+    // Batch mode: read multiple AEP records from a JSONL file or a JSON array,
+    // merge their events into one aggregate stream with hash-chain continuity.
+    const text = await readText(filePath);
+    let records: unknown[];
+    try {
+      const trimmed = text.trim();
+      if (trimmed.startsWith('[')) {
+        // JSON array of records
+        records = JSON.parse(trimmed) as unknown[];
+      } else {
+        // JSONL: one record per line
+        records = [];
+        for (const line of trimmed.split('\n')) {
+          const l = line.trim();
+          if (l.length === 0 || l.startsWith('//')) continue;
+          records.push(JSON.parse(l));
+        }
+      }
+    } catch {
+      process.stderr.write('Error: input is not valid JSON or JSONL\n');
+      process.exit(1);
+    }
+
+    let events;
+    try {
+      events = aepV0_2.toEventsBatch(
+        records as Parameters<typeof aepV0_2.toEventsBatch>[0],
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      process.stderr.write(`Error: ${msg}\n`);
+      process.exit(1);
+    }
+
+    for (const ev of events) {
+      console.log(JSON.stringify(ev));
+    }
+    return;
+  }
+
+  // Single-record mode (original behavior)
   const text = await readText(filePath);
   let record: unknown;
   try {
@@ -561,7 +606,8 @@ switch (cmd) {
     break;
   }
   case 'from-aep': {
-    await cmdFromAep(args.file);
+    const batchFlag = args.flags.has('batch');
+    await cmdFromAep(args.file, batchFlag);
     break;
   }
   case 'from-bscode': {

@@ -63,6 +63,18 @@ export interface ReportMeta {
     signatures_verified: number;
     signatures_failed: number;
   };
+  /**
+   * LLM-authored narrative introduction for the report.
+   * Ignored by the core engine but available for downstream renderers
+   * to present an auditor-voice summary at the top of the report.
+   */
+  narrative_intro?: string;
+  /**
+   * LLM-authored narrative conclusion/recommendations for the report.
+   * Ignored by the core engine but available for downstream renderers
+   * to present auditor-voice closing remarks and action items.
+   */
+  narrative_conclusion?: string;
 }
 
 // ---------------------------------------------------------------------------

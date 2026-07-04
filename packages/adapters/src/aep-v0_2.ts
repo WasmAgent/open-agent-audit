@@ -283,11 +283,20 @@ function toEvents(record: AEPRecordInput, opts?: { prevHash?: string }): Canonic
       toolObj.risk_tags = riskTags;
     }
 
+    // Issue #15: If the action has a capability_decision with decision
+    // 'allow' or 'dry_run' (platform-approved), set human_approval=true
+    // so that OAA-R-OVERSIGHT-001 does not fire false positives.
+    const hasApprovalSignal =
+      action.capability_decision !== undefined &&
+      (action.capability_decision.decision === 'allow' ||
+        action.capability_decision.decision === 'dry_run');
+
     const event = nextEvent({
       timestamp: msToIso(action.timestamp_ms),
       type: 'tool_call',
       actor: 'agent',
       tool: toolObj,
+      ...(hasApprovalSignal ? { human_approval: true } : {}),
     });
 
     events.push(event);
@@ -395,4 +404,5 @@ export const AepV0_2Adapter: SourceFormatAdapter<AEPRecordInput> = {
   version,
   beginRun,
   toEvents,
+  toEventsBatch,
 };

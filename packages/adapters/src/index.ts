@@ -12,6 +12,19 @@ export interface SourceFormatAdapter<TSource> {
   readonly version: string;
   beginRun(input: TSource): AuditRun;
   toEvents(record: TSource): CanonicalEvent[];
+  /**
+   * Convert multiple source records into a single flat array of CanonicalEvents.
+   *
+   * This method maintains hash-chain continuity across record boundaries,
+   * producing one continuous event stream suitable for aggregate reporting.
+   * Useful when auditing a batch of AEP records from the same agent session
+   * or across multiple runs.
+   *
+   * @param records - Array of source-format records to convert.
+   * @param initialPrevHash - Optional starting prev_hash for the chain (defaults to 64 zero chars).
+   * @returns A flat array of CanonicalEvents with a continuous evidence hash chain.
+   */
+  toEventsBatch?(records: TSource[], initialPrevHash?: string): CanonicalEvent[];
   finalizeRun?(run: AuditRun): AuditRun;
 }
 

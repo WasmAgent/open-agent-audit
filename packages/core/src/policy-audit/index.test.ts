@@ -94,19 +94,32 @@ function humanApproval(runId = 'run-001'): CanonicalEvent {
 // ---------------------------------------------------------------------------
 
 describe('policyAudit', () => {
-  // 1. Empty events, empty manifest — no findings
-  test('empty events and empty manifest produce no findings', async () => {
+  // 1. Empty events, empty manifest — one info finding (issue #12)
+  test('empty events and empty manifest produce one info finding about skipped audit', async () => {
     const findings = await policyAudit([], ctx());
-    expect(findings).toHaveLength(0);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.rule_id).toBe('OAA-R-CAP-001');
+    expect(findings[0]!.severity).toBe('info');
+    expect(findings[0]!.title).toContain('capability audit skipped');
   });
 
   // 2. tool_call with undeclared capability — OAA-R-CAP-001 (high)
+  // Note: requires a non-empty manifest to trigger per-event findings
   test('tool_call with undeclared capability fires OAA-R-CAP-001 at high severity', async () => {
     const ev = toolCall('bash', { capability: 'filesystem.write' });
-    const findings = await policyAudit([ev], ctx([])); // nothing declared
+    const findings = await policyAudit([ev], ctx(['other.cap'])); // non-empty manifest so CAP-001 fires
     const cap001 = findings.filter((f) => f.rule_id === 'OAA-R-CAP-001');
     expect(cap001).toHaveLength(1);
     expect(cap001[0]!.severity).toBe('high');
+  });
+
+  // 2b. tool_call with empty manifest — only info finding, no per-event high findings (issue #12)
+  test('tool_call with empty manifest fires one info finding instead of N high findings', async () => {
+    const ev = toolCall('bash', { capability: 'filesystem.write' });
+    const findings = await policyAudit([ev], ctx([]));
+    const cap001 = findings.filter((f) => f.rule_id === 'OAA-R-CAP-001');
+    expect(cap001).toHaveLength(1);
+    expect(cap001[0]!.severity).toBe('info');
   });
 
   // 3. tool_call with declared capability — no OAA-R-CAP-001
@@ -235,7 +248,7 @@ describe('policyAudit', () => {
   describe('evidence_ids correctness', () => {
     test('OAA-R-CAP-001 evidence_ids contains the offending event_id', async () => {
       const ev = toolCall('bash', { capability: 'disk.format', event_id: 'ev-cap001' });
-      const findings = await policyAudit([ev], ctx([]));
+      const findings = await policyAudit([ev], ctx(['other.cap'])); // non-empty manifest
       const f = findings.find((x) => x.rule_id === 'OAA-R-CAP-001');
       expect(f).toBeDefined();
       expect(f!.evidence_ids).toContain('ev-cap001');
@@ -324,22 +337,23 @@ describe('policyAudit', () => {
   test('multiple tool_calls with undeclared capabilities produce one finding per event', async () => {
     const e1 = toolCall('bash', { capability: 'fs.read' });
     const e2 = toolCall('net', { capability: 'net.fetch' });
-    const findings = await policyAudit([e1, e2], ctx([]));
+    const findings = await policyAudit([e1, e2], ctx(['other.cap'])); // non-empty manifest
     const cap001 = findings.filter((f) => f.rule_id === 'OAA-R-CAP-001');
     expect(cap001).toHaveLength(2);
   });
 
   test('tool_call without capability field does not fire OAA-R-CAP-001 or OAA-R-CAP-002', async () => {
     const ev = toolCall('bash'); // no capability field
-    const findings = await policyAudit([ev], ctx([]));
-    expect(findings.filter((f) => f.rule_id === 'OAA-R-CAP-001')).toHaveLength(0);
+    const findings = await policyAudit([ev], ctx(['some.cap'])); // non-empty manifest
+    expect(findings.filter((f) => f.rule_id === 'OAA-R-CAP-001' && f.severity === 'high')).toHaveLength(0);
     expect(findings.filter((f) => f.rule_id === 'OAA-R-CAP-002')).toHaveLength(0);
   });
 
   test('tool_call capability in denied list also fires OAA-R-CAP-001 when not declared', async () => {
     // A denied capability that is also not in declared_capabilities should fire both rules
+    // Need non-empty manifest (with at least one other cap) so CAP-001 per-event fires
     const ev = toolCall('bash', { capability: 'network.exfiltrate' });
-    const findings = await policyAudit([ev], ctx([], [], ['network.exfiltrate']));
+    const findings = await policyAudit([ev], ctx(['other.cap'], [], ['network.exfiltrate']));
     expect(findings.filter((f) => f.rule_id === 'OAA-R-CAP-001')).toHaveLength(1);
     expect(findings.filter((f) => f.rule_id === 'OAA-R-CAP-002')).toHaveLength(1);
   });
@@ -371,7 +385,7 @@ describe('policyAudit', () => {
 
   test('schema_version on each finding matches SPEC_VERSION', async () => {
     const ev = toolCall('bash', { capability: 'fs.exec' });
-    const findings = await policyAudit([ev], ctx([]));
+    const findings = await policyAudit([ev], ctx(['other.cap'])); // non-empty manifest to get high finding
     expect(findings.length).toBeGreaterThan(0);
     for (const f of findings) {
       expect(f.schema_version).toBe(SCHEMA_VERSION);

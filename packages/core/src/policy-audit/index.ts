@@ -25,9 +25,37 @@ export async function policyAudit(
   const findings: Finding[] = [];
   const { manifest } = ctx;
 
-  const declaredSet = new Set(manifest.declared_capabilities);
-  const deniedSet = new Set(manifest.denied_capabilities);
-  const highRiskSet = new Set(manifest.high_risk_capabilities);
+  // ------------------------------------------------------------------
+  // Issue #12: When no capability manifest is provided (empty/undefined
+  // declared_capabilities), emit ONE info-level finding and skip
+  // capability-boundary checks instead of firing N high-severity findings.
+  // ------------------------------------------------------------------
+  const manifestIsEmpty =
+    manifest.declared_capabilities === undefined ||
+    manifest.declared_capabilities.length === 0;
+
+  if (manifestIsEmpty) {
+    findings.push({
+      schema_version: SPEC_VERSION,
+      finding_id: makeFindingId('OAA-R-CAP-001', '__no_manifest__'),
+      rule_id: 'OAA-R-CAP-001',
+      severity: 'info',
+      category: 'capability_boundary',
+      title: 'No capability manifest provided — capability audit skipped',
+      description:
+        'The capability manifest has no declared_capabilities. ' +
+        'OAA-R-CAP-001 (undeclared capability) checks are skipped for this audit run. ' +
+        'Provide a manifest to enable full capability boundary analysis.',
+      evidence_ids: [],
+      recommendation:
+        'Supply a CapabilityManifest with declared_capabilities to enable capability auditing.',
+      confidence: 'high',
+    });
+  }
+
+  const declaredSet = new Set(manifest.declared_capabilities ?? []);
+  const deniedSet = new Set(manifest.denied_capabilities ?? []);
+  const highRiskSet = new Set(manifest.high_risk_capabilities ?? []);
 
   // Precompute derived sets for multi-event rules.
 
@@ -36,6 +64,15 @@ export async function policyAudit(
   for (const ev of events) {
     if (ev.type === 'human_approval') {
       runsWithApproval.add(ev.run_id);
+    }
+  }
+
+  // Set of event_ids that carry a permission/approval signal (issue #15).
+  // Events with human_approval=true are considered pre-approved by the platform.
+  const eventsWithApprovalSignal = new Set<string>();
+  for (const ev of events) {
+    if ((ev as CanonicalEvent & { human_approval?: boolean }).human_approval === true) {
+      eventsWithApprovalSignal.add(ev.event_id);
     }
   }
 
@@ -76,8 +113,10 @@ export async function policyAudit(
 
     // ------------------------------------------------------------------
     // R1 — UNDECLARED_CAPABILITY
+    // Skip when manifest is empty (issue #12: one info finding already emitted above).
     // ------------------------------------------------------------------
     if (
+      !manifestIsEmpty &&
       ev.type === 'tool_call' &&
       ev.tool?.capability !== undefined &&
       !declaredSet.has(ev.tool.capability)
@@ -128,12 +167,15 @@ export async function policyAudit(
 
     // ------------------------------------------------------------------
     // R3 — HIGH_RISK_NO_APPROVAL
+    // Issue #15: Also suppressed when the event carries human_approval=true
+    // (e.g. from AEP-adapted events with permission_gate/capability_decision).
     // ------------------------------------------------------------------
     if (
       ev.type === 'tool_call' &&
       ev.tool?.capability !== undefined &&
       highRiskSet.has(ev.tool.capability) &&
-      !runsWithApproval.has(ev.run_id)
+      !runsWithApproval.has(ev.run_id) &&
+      !eventsWithApprovalSignal.has(ev.event_id)
     ) {
       const ruleId = 'OAA-R-OVERSIGHT-001';
       findings.push({

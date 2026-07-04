@@ -78,6 +78,14 @@ export interface CanonicalEvent {
     signature_algorithm?: 'ed25519' | 'ecdsa-p256';
     signer_key_id?: string;
   };
+  /**
+   * When true, indicates the action was approved (or auto-approved) by a
+   * human-in-the-loop or platform permission gate prior to execution.
+   * Set by adapters (e.g. AEP) when the source record contains a
+   * permission_gate or capability_decision with decision 'approved'/'auto_approved'/'allow'.
+   * Suppresses OAA-R-OVERSIGHT-001 false positives for pre-gated actions.
+   */
+  human_approval?: boolean;
 }
 
 export interface AuditRun {
@@ -213,6 +221,7 @@ export const CanonicalEventSchema = z.object({
       signer_key_id: z.string().optional(),
     })
     .optional(),
+  human_approval: z.boolean().optional(),
 });
 
 export const AuditRunSchema = z.object({
