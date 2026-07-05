@@ -19,7 +19,7 @@ function toGrade(score: number): Grade {
 }
 
 function computeTraceCompleteness(events: CanonicalEvent[]): number {
-  if (events.length === 0) return 100;
+  if (events.length === 0) return 0;
 
   let score = 100;
 

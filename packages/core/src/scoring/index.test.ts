@@ -38,6 +38,13 @@ function withHashChain(events: CanonicalEvent[], withSignature: boolean): Canoni
 // computeProvenanceIntegrity via computeRiskScore
 // ---------------------------------------------------------------------------
 
+describe('computeRiskScore — trace_completeness scoring', () => {
+  it('returns zero trace completeness when the trace has no events', async () => {
+    const score = await computeRiskScore([], 'empty-run');
+    expect(score.components.trace_completeness).toBe(0);
+  });
+});
+
 describe('computeRiskScore — provenance_integrity scoring', () => {
   it('returns 100 when all events have ed25519 signatures (no AEP provenance)', async () => {
     const events = withHashChain([makeToolCall('e1'), makeToolCall('e2')], true);
