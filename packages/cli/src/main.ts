@@ -249,6 +249,8 @@ function printHelp(): void {
       '    Read a single AEP JSON record, convert to CanonicalEvents JSONL.',
       '    With --batch: read multiple AEP records (JSON array or JSONL),',
       '    merge events into one aggregate stream with hash-chain continuity.',
+      '    JSONL input is auto-detected (one JSON object per line).',
+      '    Uses toEventsBatch internally to maintain the evidence hash chain.',
       '',
       '  from-bscode [file]',
       '    Read a single bscode RolloutWireRecord JSON, convert to JSONL.',
