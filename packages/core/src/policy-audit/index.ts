@@ -35,17 +35,29 @@ export async function policyAudit(
     manifest.declared_capabilities.length === 0;
 
   if (manifestIsEmpty) {
+    // Collect observed capabilities from tool_call events to suggest a manifest.
+    const observedCapabilities = new Set<string>();
+    for (const ev of events) {
+      if (ev.type === 'tool_call' && ev.tool?.capability !== undefined) {
+        observedCapabilities.add(ev.tool.capability);
+      }
+    }
+    const suggestedManifest = observedCapabilities.size > 0
+      ? ` Suggested manifest based on observed capabilities: { "declared_capabilities": ${JSON.stringify([...observedCapabilities].sort())} }`
+      : '';
+
     findings.push({
       schema_version: SPEC_VERSION,
-      finding_id: makeFindingId('OAA-R-CAP-001', '__no_manifest__'),
-      rule_id: 'OAA-R-CAP-001',
+      finding_id: makeFindingId('OAA-R-CAP-000', '__no_manifest__'),
+      rule_id: 'OAA-R-CAP-000',
       severity: 'info',
       category: 'capability_boundary',
       title: 'No capability manifest provided — capability audit skipped',
       description:
         'The capability manifest has no declared_capabilities. ' +
         'OAA-R-CAP-001 (undeclared capability) checks are skipped for this audit run. ' +
-        'Provide a manifest to enable full capability boundary analysis.',
+        'Provide a manifest to enable full capability boundary analysis.' +
+        suggestedManifest,
       evidence_ids: [],
       recommendation:
         'Supply a CapabilityManifest with declared_capabilities to enable capability auditing.',
