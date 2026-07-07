@@ -143,7 +143,12 @@ function computeObjectiveVerification(events: CanonicalEvent[]): number {
   if (verifierCount >= toolCallCount * 0.8) return 100;
   if (verifierCount >= toolCallCount * 0.5) return 70;
   if (verifierCount > 0) return 40;
-  return 0;
+
+  // No verifiers present at all: return neutral baseline (50) rather than 0.
+  // A score of 0 is reserved for explicit verifier failures (verifier observations
+  // exist but all failed). Non-verifier agents should not be penalized for not
+  // having verification infrastructure.
+  return 50;
 }
 
 function computePolicyCoverage(events: CanonicalEvent[]): number {
