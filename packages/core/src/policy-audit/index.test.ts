@@ -98,7 +98,7 @@ describe('policyAudit', () => {
   test('empty events and empty manifest produce one info finding about skipped audit', async () => {
     const findings = await policyAudit([], ctx());
     expect(findings).toHaveLength(1);
-    expect(findings[0]!.rule_id).toBe('OAA-R-CAP-001');
+    expect(findings[0]!.rule_id).toBe('OAA-R-CAP-000');
     expect(findings[0]!.severity).toBe('info');
     expect(findings[0]!.title).toContain('capability audit skipped');
   });
@@ -113,13 +113,17 @@ describe('policyAudit', () => {
     expect(cap001[0]!.severity).toBe('high');
   });
 
-  // 2b. tool_call with empty manifest — only info finding, no per-event high findings (issue #12)
+  // 2b. tool_call with empty manifest — only info finding (OAA-R-CAP-000), no per-event high findings (issue #12)
   test('tool_call with empty manifest fires one info finding instead of N high findings', async () => {
     const ev = toolCall('bash', { capability: 'filesystem.write' });
     const findings = await policyAudit([ev], ctx([]));
-    const cap001 = findings.filter((f) => f.rule_id === 'OAA-R-CAP-001');
-    expect(cap001).toHaveLength(1);
-    expect(cap001[0]!.severity).toBe('info');
+    // The info finding is OAA-R-CAP-000 (not OAA-R-CAP-001 which is reserved for per-event undeclared)
+    const cap000 = findings.filter((f) => f.rule_id === 'OAA-R-CAP-000');
+    expect(cap000).toHaveLength(1);
+    expect(cap000[0]!.severity).toBe('info');
+    // Ensure no per-event high findings were emitted
+    const cap001High = findings.filter((f) => f.rule_id === 'OAA-R-CAP-001' && f.severity === 'high');
+    expect(cap001High).toHaveLength(0);
   });
 
   // 3. tool_call with declared capability — no OAA-R-CAP-001
@@ -306,9 +310,10 @@ describe('policyAudit', () => {
     const eventId = 'deterministic-evt-001';
     const ev = toolCall('bash', { capability: 'filesystem.write', event_id: eventId });
 
+    // Use non-empty manifest so per-event OAA-R-CAP-001 fires
     const [run1, run2] = await Promise.all([
-      policyAudit([ev], ctx([])),
-      policyAudit([ev], ctx([])),
+      policyAudit([ev], ctx(['other.cap'])),
+      policyAudit([ev], ctx(['other.cap'])),
     ]);
 
     const f1 = run1.find((x) => x.rule_id === 'OAA-R-CAP-001');
@@ -322,8 +327,9 @@ describe('policyAudit', () => {
     const ev1 = toolCall('bash', { capability: 'filesystem.write', event_id: 'det-evt-A' });
     const ev2 = toolCall('bash', { capability: 'filesystem.write', event_id: 'det-evt-B' });
 
-    const findings1 = await policyAudit([ev1], ctx([]));
-    const findings2 = await policyAudit([ev2], ctx([]));
+    // Use non-empty manifest so per-event OAA-R-CAP-001 fires
+    const findings1 = await policyAudit([ev1], ctx(['other.cap']));
+    const findings2 = await policyAudit([ev2], ctx(['other.cap']));
 
     const f1 = findings1.find((x) => x.rule_id === 'OAA-R-CAP-001');
     const f2 = findings2.find((x) => x.rule_id === 'OAA-R-CAP-001');
