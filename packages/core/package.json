@@ -1,6 +1,6 @@
 {
   "name": "@openagentaudit/core",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "OpenAgentAudit audit engines: validate, inventory, policy-audit, benchmark-audit, contamination, drift-guard, scoring, report",
   "license": "Apache-2.0",
   "type": "module",
