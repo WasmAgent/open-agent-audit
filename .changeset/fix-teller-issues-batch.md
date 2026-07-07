@@ -1,7 +1,6 @@
 ---
 "@openagentaudit/core": patch
 "@openagentaudit/adapters": patch
-"@openagentaudit/cli": patch
 ---
 
 fix: Teller issues batch (#12-#21)
