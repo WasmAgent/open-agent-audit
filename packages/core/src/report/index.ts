@@ -75,6 +75,17 @@ export interface ReportMeta {
    * to present auditor-voice closing remarks and action items.
    */
   narrative_conclusion?: string;
+  /**
+   * Structured narrative hook for LLM-authored auditor voice.
+   * When provided, `narrative.intro` is rendered as a blockquote after the
+   * cover metadata, and `narrative.conclusion` is rendered as a blockquote
+   * before the forensic appendix. If both this and the flat narrative_intro /
+   * narrative_conclusion fields are absent, output is unchanged.
+   */
+  narrative?: {
+    intro?: string;
+    conclusion?: string;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1869,6 +1880,8 @@ function buildMarkdown(
   resolved: ResolvedMeta,
   complianceMappings: ComplianceMapping[],
   cryptoSummary?: ReportMeta['crypto_summary'],
+  narrativeIntro?: string,
+  narrativeConclusion?: string,
 ): string {
   const counts = countBySeverity(findings);
   const { evidence_admission_score, agent_risk_score, components } = score;
@@ -1972,6 +1985,15 @@ function buildMarkdown(
   lines.push(`| Issuing platform | ${resolved.issuer} |`);
   lines.push(`| Applicable regulation | EU AI Act (Regulation (EU) 2024/1689), Art. 26(6) |`);
   lines.push('');
+
+  // Narrative intro (optional LLM-authored auditor voice)
+  if (narrativeIntro !== undefined && narrativeIntro.trim().length > 0) {
+    lines.push('');
+    for (const line of narrativeIntro.split('\n')) {
+      lines.push(`> ${line}`);
+    }
+    lines.push('');
+  }
 
   // Executive Summary
   lines.push('## Executive Summary');
@@ -2127,6 +2149,15 @@ function buildMarkdown(
     lines.push('');
   }
 
+  // Narrative conclusion (optional LLM-authored auditor voice)
+  if (narrativeConclusion !== undefined && narrativeConclusion.trim().length > 0) {
+    lines.push('');
+    for (const line of narrativeConclusion.split('\n')) {
+      lines.push(`> ${line}`);
+    }
+    lines.push('');
+  }
+
   // Forensic Event Appendix
   lines.push('## Forensic Event Appendix');
   lines.push('');
@@ -2234,6 +2265,8 @@ function buildHtml(
   resolved: ResolvedMeta,
   complianceMappings: ComplianceMapping[],
   cryptoSummary?: ReportMeta['crypto_summary'],
+  narrativeIntro?: string,
+  narrativeConclusion?: string,
 ): string {
   const counts = countBySeverity(findings);
   const { evidence_admission_score, agent_risk_score, components } = score;
@@ -2417,6 +2450,11 @@ function buildHtml(
   parts.push(`<tr><td>Applicable regulation</td><td>EU AI Act (Regulation (EU) 2024/1689), Art. 26(6)</td></tr>`);
   parts.push('</tbody>');
   parts.push('</table>');
+
+  // Narrative intro (optional LLM-authored auditor voice)
+  if (narrativeIntro !== undefined && narrativeIntro.trim().length > 0) {
+    parts.push(`<blockquote>${escapeHtml(narrativeIntro).replace(/\n/g, '<br>')}</blockquote>`);
+  }
 
   // Executive Summary
   parts.push('<h2>Executive Summary</h2>');
@@ -2628,6 +2666,11 @@ function buildHtml(
     parts.push(`<p><em>${chainEvs.length} of ${events.length} events signed. ${unsignedCnt} unsigned.</em></p>`);
   }
 
+  // Narrative conclusion (optional LLM-authored auditor voice)
+  if (narrativeConclusion !== undefined && narrativeConclusion.trim().length > 0) {
+    parts.push(`<blockquote>${escapeHtml(narrativeConclusion).replace(/\n/g, '<br>')}</blockquote>`);
+  }
+
   // Forensic Event Appendix
   const typeColorHtml: Record<string, string> = {
     tool_call: '#dbeafe',
@@ -2734,8 +2777,11 @@ export async function renderReport(
   const complianceMappings = buildComplianceMappings(events, findings, meta, benchmarkResult);
   const cryptoSummary = meta?.crypto_summary;
 
-  const markdown = buildMarkdown(events, findings, score, inventoryReport, generatedAt, resolved, complianceMappings, cryptoSummary);
-  const html = buildHtml(events, findings, score, inventoryReport, generatedAt, resolved, complianceMappings, cryptoSummary);
+  const narrativeIntro = meta?.narrative?.intro ?? meta?.narrative_intro;
+  const narrativeConclusion = meta?.narrative?.conclusion ?? meta?.narrative_conclusion;
+
+  const markdown = buildMarkdown(events, findings, score, inventoryReport, generatedAt, resolved, complianceMappings, cryptoSummary, narrativeIntro, narrativeConclusion);
+  const html = buildHtml(events, findings, score, inventoryReport, generatedAt, resolved, complianceMappings, cryptoSummary, narrativeIntro, narrativeConclusion);
   const json = buildJson(events, findings, score, inventoryReport, generatedAt, resolved, complianceMappings, cryptoSummary);
   const csv = buildCsv(events, findings);
 
