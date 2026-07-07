@@ -177,9 +177,9 @@ describe('golden report fixture', () => {
     expect(report.risk_score.evidence_admission_score.score).toBe(85);
     expect(report.risk_score.evidence_admission_score.grade).toBe('B');
 
-    // Findings — must include the two key rules
-    expect(report.findings.length).toBe(3);
-    expect(report.findings.some((f) => f.rule_id === 'OAA-R-CAP-001')).toBe(true);
+    // Findings — with empty manifest, OAA-R-CAP-000 (info, skipped audit) + OAA-R-POLICY-002
+    expect(report.findings.length).toBe(2);
+    expect(report.findings.some((f) => f.rule_id === 'OAA-R-CAP-000')).toBe(true);
     expect(report.findings.some((f) => f.rule_id === 'OAA-R-POLICY-002')).toBe(true);
 
     // Compliance mappings — four profiles always emitted
@@ -197,7 +197,7 @@ describe('golden report fixture', () => {
 
     // Markdown report contains key strings
     expect(bundle.markdown).toContain('Evidence Admission Score');
-    expect(bundle.markdown).toContain('OAA-R-CAP-001');
+    expect(bundle.markdown).toContain('OAA-R-CAP-000');
 
     // HTML report contains score display
     const hasScoreDisplay =

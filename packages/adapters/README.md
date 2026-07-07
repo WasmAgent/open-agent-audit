@@ -36,6 +36,32 @@ const run = bscode.BscodeAdapter.beginRun(rolloutRecord);
 const events = bscode.BscodeAdapter.toEvents(rolloutRecord);
 ```
 
+## Batch conversion with `toEventsBatch`
+
+When auditing **multiple AEP records** from the same session or across runs, use
+`toEventsBatch` to produce a single continuous event stream with hash-chain
+continuity across record boundaries:
+
+```ts
+import { aepV0_2 } from '@openagentaudit/adapters';
+
+const records: AEPRecordInput[] = [record1, record2, record3];
+const events = aepV0_2.toEventsBatch(records);
+// or via the adapter object:
+const events2 = aepV0_2.AepV0_2Adapter.toEventsBatch!(records);
+```
+
+The method signature on the `SourceFormatAdapter` interface:
+
+```ts
+toEventsBatch?(records: TSource[], initialPrevHash?: string): CanonicalEvent[];
+```
+
+**Warning:** Calling `toEvents` per record and concatenating the results will
+break the hash chain (`prev_hash` of the first event in record N+1 will not
+match the last hash of record N). Always use `toEventsBatch` when you need
+aggregate reporting across multiple source records.
+
 ## AEP v0.2 adapter — what is preserved, what is rejected, where the boundary is
 
 ### What the adapter preserves

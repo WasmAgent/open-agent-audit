@@ -35,17 +35,29 @@ export async function policyAudit(
     manifest.declared_capabilities.length === 0;
 
   if (manifestIsEmpty) {
+    // Collect observed capabilities from tool_call events to suggest a manifest.
+    const observedCapabilities = new Set<string>();
+    for (const ev of events) {
+      if (ev.type === 'tool_call' && ev.tool?.capability !== undefined) {
+        observedCapabilities.add(ev.tool.capability);
+      }
+    }
+    const suggestedManifest = observedCapabilities.size > 0
+      ? ` Suggested manifest based on observed capabilities: { "declared_capabilities": ${JSON.stringify([...observedCapabilities].sort())} }`
+      : '';
+
     findings.push({
       schema_version: SPEC_VERSION,
-      finding_id: makeFindingId('OAA-R-CAP-001', '__no_manifest__'),
-      rule_id: 'OAA-R-CAP-001',
+      finding_id: makeFindingId('OAA-R-CAP-000', '__no_manifest__'),
+      rule_id: 'OAA-R-CAP-000',
       severity: 'info',
       category: 'capability_boundary',
       title: 'No capability manifest provided — capability audit skipped',
       description:
         'The capability manifest has no declared_capabilities. ' +
         'OAA-R-CAP-001 (undeclared capability) checks are skipped for this audit run. ' +
-        'Provide a manifest to enable full capability boundary analysis.',
+        'Provide a manifest to enable full capability boundary analysis.' +
+        suggestedManifest,
       evidence_ids: [],
       recommendation:
         'Supply a CapabilityManifest with declared_capabilities to enable capability auditing.',
@@ -169,6 +181,7 @@ export async function policyAudit(
     // R3 — HIGH_RISK_NO_APPROVAL
     // Issue #15: Also suppressed when the event carries human_approval=true
     // (e.g. from AEP-adapted events with permission_gate/capability_decision).
+    // When a policy_decision exists for the same tool, downgrade to medium.
     // ------------------------------------------------------------------
     if (
       ev.type === 'tool_call' &&
@@ -178,16 +191,27 @@ export async function policyAudit(
       !eventsWithApprovalSignal.has(ev.event_id)
     ) {
       const ruleId = 'OAA-R-OVERSIGHT-001';
+      // If a policy_decision event exists for this tool, treat it as partial
+      // oversight (the platform evaluated the request) — downgrade severity.
+      const hasPolicyDecision =
+        ev.tool.name !== undefined && toolsWithAnyPolicyDecision.has(ev.tool.name);
+      const severity = hasPolicyDecision ? 'medium' : 'high';
+
       findings.push({
         schema_version: SPEC_VERSION,
         finding_id: makeFindingId(ruleId, ev.event_id),
         rule_id: ruleId,
-        severity: 'high',
+        severity,
         category: 'human_oversight',
-        title: 'High-risk capability invoked without human approval',
+        title: hasPolicyDecision
+          ? 'High-risk capability invoked — policy decision present but no human approval'
+          : 'High-risk capability invoked without human approval',
         description:
           `Event "${ev.event_id}": tool "${ev.tool.name ?? '(unknown)'}" invoked high-risk ` +
-          `capability "${ev.tool.capability}" but run "${ev.run_id}" has no human_approval event.`,
+          `capability "${ev.tool.capability}" but run "${ev.run_id}" has no human_approval event.` +
+          (hasPolicyDecision
+            ? ` A policy_decision event exists for this tool, indicating automated oversight is present.`
+            : ''),
         evidence_ids: [ev.event_id],
         recommendation:
           'Require a human_approval event before or after any high-risk capability invocation.',

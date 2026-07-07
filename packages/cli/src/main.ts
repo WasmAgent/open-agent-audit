@@ -242,13 +242,15 @@ function printHelp(): void {
       '  score [file]',
       '    Read JSONL, compute Evidence Admission Score, print as JSON.',
       '',
-      '  report [file] [--format md|html|json|csv] [--meta <json>]',
+      '  report [file] [--format md|html|json|csv] [--meta <json>] [--manifest <json>]',
       '    Read JSONL, run full audit pipeline, print report.',
       '',
       '  from-aep [file] [--batch]',
       '    Read a single AEP JSON record, convert to CanonicalEvents JSONL.',
       '    With --batch: read multiple AEP records (JSON array or JSONL),',
       '    merge events into one aggregate stream with hash-chain continuity.',
+      '    JSONL input is auto-detected (one JSON object per line).',
+      '    Uses toEventsBatch internally to maintain the evidence hash chain.',
       '',
       '  from-bscode [file]',
       '    Read a single bscode RolloutWireRecord JSON, convert to JSONL.',
@@ -334,6 +336,11 @@ async function cmdPolicyAudit(
       process.stderr.write('Error: --manifest value is not valid JSON\n');
       process.exit(1);
     }
+  } else {
+    process.stderr.write(
+      'Warning: --manifest not provided. Capability boundary analysis will be limited.\n' +
+      'Supply --manifest \'{"declared_capabilities":[...]}\' for full audit coverage.\n',
+    );
   }
 
   const ctx = {
@@ -380,6 +387,7 @@ async function cmdReport(
   filePath: string | undefined,
   format: string,
   metaJson: string | undefined,
+  manifestJson: string | undefined,
 ): Promise<void> {
   const events = await readEvents(filePath);
 
@@ -406,13 +414,27 @@ async function cmdReport(
     denied_capabilities: [],
   };
 
+  let manifest: CapabilityManifest = defaultManifest;
+  if (manifestJson !== undefined) {
+    try {
+      manifest = JSON.parse(manifestJson) as CapabilityManifest;
+    } catch {
+      process.stderr.write('Error: --manifest value is not valid JSON\n');
+      process.exit(1);
+    }
+  } else {
+    process.stderr.write(
+      'Warning: --manifest not provided for report. Capability boundary analysis will be limited.\n',
+    );
+  }
+
   let findings;
   let inv;
   let score;
   let bundle;
 
   try {
-    findings = await policyAudit(events, { manifest: defaultManifest });
+    findings = await policyAudit(events, { manifest });
     inv = await inventory(events);
     score = await computeRiskScore(events);
     bundle = await renderReport(events, findings, score, inv, meta);
@@ -602,7 +624,9 @@ switch (cmd) {
     const format = formatRaw !== undefined && formatRaw !== true ? formatRaw : 'md';
     const metaRaw = args.flags.get('meta');
     const metaJson = metaRaw !== true ? metaRaw : undefined;
-    await cmdReport(args.file, format, metaJson);
+    const manifestRaw = args.flags.get('manifest');
+    const manifestJson = manifestRaw !== true ? manifestRaw : undefined;
+    await cmdReport(args.file, format, metaJson, manifestJson);
     break;
   }
   case 'from-aep': {

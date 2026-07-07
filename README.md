@@ -149,6 +149,27 @@ being built against the current `open-agent-audit/v0.1` schema.
 7. [`docs/regulatory-disclaimer.md`](./docs/regulatory-disclaimer.md) — what we do and do not claim.
 8. [`docs/compliance-coverage-report.md`](./docs/compliance-coverage-report.md) — per-framework coverage depth and breadth (OWASP / EU AI Act / NIST AI RMF / ISO 42001), upgrade paths, and ceiling analysis.
 9. [`docs/competitive-landscape.md`](./docs/competitive-landscape.md) — market analysis: how OpenAgentAudit compares to ATR, VerifyWise, Credo AI, and other tools in the AI agent audit space.
+10. [`docs/agent-risk-score.md`](./docs/agent-risk-score.md) — Agent Risk Score (ARS) methodology, penalty table, and interpretation guide.
+
+## Non-JS runtime integration
+
+If your agent runtime is not JavaScript/TypeScript, you can still use the full
+audit engine via a stdin/stdout bridge pattern:
+
+- **Node.js bridge** — [`examples/bridges/node-stdin-jsonl/bridge.mjs`](./examples/bridges/node-stdin-jsonl/bridge.mjs):
+  reads AEP records from stdin (single JSON or JSONL), runs the full pipeline,
+  outputs analysis JSON to stdout. Exit codes: 0 success / 2 bad input / 3 adapter error / 4 engine error.
+
+- **Python wrapper** — [`examples/bridges/python/oaa_bridge.py`](./examples/bridges/python/oaa_bridge.py):
+  subprocess-invokes the Node bridge. Use this when your agent is Python-native.
+
+```sh
+# From any language, pipe AEP JSONL to the bridge:
+cat records.jsonl | node examples/bridges/node-stdin-jsonl/bridge.mjs --manifest '{"declared_capabilities":["fs.read"]}'
+
+# Python wrapper:
+cat records.jsonl | python examples/bridges/python/oaa_bridge.py --manifest '{"declared_capabilities":["fs.read"]}'
+```
 
 ## Disclaimer
 
