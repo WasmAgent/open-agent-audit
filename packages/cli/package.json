@@ -23,7 +23,7 @@
     "stability": "alpha"
   },
   "dependencies": {
-    "@openagentaudit/adapters": "0.2.3",
+    "@openagentaudit/adapters": "0.2.4",
     "@openagentaudit/core": "0.2.2",
     "@openagentaudit/schema": "0.2.0"
   },

@@ -1,5 +1,11 @@
 # @openagentaudit/adapters
 
+## 0.2.4
+
+### Patch Changes
+
+- [#36](https://github.com/WasmAgent/open-agent-audit/pull/36) [`d5fa820`](https://github.com/WasmAgent/open-agent-audit/commit/d5fa8206c4118a3c4bd5e2ecb08c7ebb974176f2) Thanks [@HainingYin](https://github.com/HainingYin)! - Fix ESM/CJS inconsistency: align exports field with conditional import/types subpaths matching @openagentaudit/core
+
 ## 0.2.3
 
 ### Patch Changes
