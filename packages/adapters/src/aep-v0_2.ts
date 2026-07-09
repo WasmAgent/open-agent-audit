@@ -34,6 +34,10 @@ export interface ActionEvidenceInput {
   evidence_refs?: string[];
   parent_action_id?: string;
   causal_chain_id?: string;
+  // v0.3 optional fields
+  side_effect_class?: string;
+  argument_drift?: string;
+  approval_mode?: string;
 }
 
 export interface VerifierResultInput {
@@ -78,9 +82,13 @@ export interface RunContextInput {
   dependency_lock_digest?: string;
 }
 
+/** Supported AEP schema versions. v0.3 is a strict superset of v0.2 (adds optional fields only). */
+export const SUPPORTED_AEP_VERSIONS = ['aep/v0.1', 'aep/v0.2', 'aep/v0.3'] as const;
+export type SupportedAepVersion = (typeof SUPPORTED_AEP_VERSIONS)[number];
+
 /** Local mirror of the AEPRecord type from @wasmagent/aep. */
 export interface AEPRecordInput {
-  schema_version: 'aep/v0.1' | 'aep/v0.2';
+  schema_version: SupportedAepVersion;
   run_id: string;
   trace_id?: string;
   parent_trace_id?: string | null;
@@ -202,10 +210,10 @@ function validateRecord(record: AEPRecordInput): void {
         'Ensure the AEPRecord was produced by a compliant emitter (aep/v0.2).',
     );
   }
-  if (record.schema_version !== 'aep/v0.2' && record.schema_version !== 'aep/v0.1') {
+  if (record.schema_version !== 'aep/v0.2' && record.schema_version !== 'aep/v0.1' && record.schema_version !== 'aep/v0.3') {
     throw new Error(
       `AEP adapter: unsupported schema_version "${record.schema_version}". ` +
-        'Expected "aep/v0.2" (or "aep/v0.1" for backward compatibility).',
+        `Expected one of: ${SUPPORTED_AEP_VERSIONS.join(', ')}.`,
     );
   }
 }
@@ -270,6 +278,18 @@ function toEvents(record: AEPRecordInput, opts?: { prevHash?: string }): Canonic
       ...(action.input_taint_labels ?? []),
       ...(action.output_taint_labels ?? []),
     ];
+
+    // v0.3 fields: preserve side_effect_class, argument_drift, approval_mode
+    // in risk_tags so downstream rules can inspect them.
+    if (action.side_effect_class) {
+      riskTags.push(`side_effect_class:${action.side_effect_class}`);
+    }
+    if (action.argument_drift) {
+      riskTags.push(`argument_drift:${action.argument_drift}`);
+    }
+    if (action.approval_mode) {
+      riskTags.push(`approval_mode:${action.approval_mode}`);
+    }
 
     const toolObj: CanonicalEvent['tool'] = {
       name: action.tool_name,

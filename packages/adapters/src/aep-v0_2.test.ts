@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { AepV0_2Adapter, getProvenance } from './aep-v0_2.js';
+import { AepV0_2Adapter, getProvenance, SUPPORTED_AEP_VERSIONS, toEventsBatch } from './aep-v0_2.js';
 import type { AEPRecordInput } from './aep-v0_2.js';
 
 // Fixture paths relative to the repo root — both were committed under examples/traces/
@@ -172,5 +172,75 @@ describe('getProvenance — edge cases', () => {
     };
     const prov = getProvenance(r);
     expect(prov.parent_trace_id).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AEP v0.3 support (Issue #25 & #26)
+// ---------------------------------------------------------------------------
+
+describe('aep-v0_2 adapter — aep/v0.3 support', () => {
+  const record = loadFixture('aep-v0.3-fixture.json');
+
+  it('SUPPORTED_AEP_VERSIONS includes aep/v0.3', () => {
+    expect(SUPPORTED_AEP_VERSIONS).toContain('aep/v0.3');
+  });
+
+  it('beginRun accepts aep/v0.3 schema_version without throwing', () => {
+    const run = AepV0_2Adapter.beginRun(record);
+    expect(run.run_id).toBe('run-v03-fixture-001');
+    expect(run.agent_id).toBe('v03-agent');
+    expect(run.model_id).toBe('claude-sonnet-4-6');
+    expect(run.source_adapter).toBe('aep-v0.2');
+  });
+
+  it('toEvents accepts aep/v0.3 schema_version without throwing', () => {
+    const events = AepV0_2Adapter.toEvents(record);
+    expect(events.length).toBeGreaterThan(0);
+  });
+
+  it('toEvents maps side_effect_class into risk_tags', () => {
+    const events = AepV0_2Adapter.toEvents(record);
+    const httpAction = events.find((e) => e.tool?.name === 'http_request');
+    expect(httpAction?.tool?.risk_tags).toContain('side_effect_class:network-write');
+  });
+
+  it('toEvents maps argument_drift into risk_tags', () => {
+    const events = AepV0_2Adapter.toEvents(record);
+    const httpAction = events.find((e) => e.tool?.name === 'http_request');
+    expect(httpAction?.tool?.risk_tags).toContain('argument_drift:low');
+  });
+
+  it('toEvents maps approval_mode into risk_tags', () => {
+    const events = AepV0_2Adapter.toEvents(record);
+    const httpAction = events.find((e) => e.tool?.name === 'http_request');
+    expect(httpAction?.tool?.risk_tags).toContain('approval_mode:auto');
+  });
+
+  it('toEvents does not add v0.3 risk_tags when fields are absent', () => {
+    const events = AepV0_2Adapter.toEvents(record);
+    const readAction = events.find((e) => e.tool?.name === 'read_file');
+    // read_file has no taint labels and no v0.3 fields, so risk_tags should be absent
+    expect(readAction?.tool?.risk_tags).toBeUndefined();
+  });
+
+  it('toEvents preserves existing taint labels alongside v0.3 fields', () => {
+    const events = AepV0_2Adapter.toEvents(record);
+    const httpAction = events.find((e) => e.tool?.name === 'http_request');
+    // Should contain both taint labels AND v0.3 tags
+    expect(httpAction?.tool?.risk_tags).toContain('user-supplied');
+    expect(httpAction?.tool?.risk_tags).toContain('network');
+    expect(httpAction?.tool?.risk_tags).toContain('side_effect_class:network-write');
+  });
+
+  it('toEventsBatch works with a mix of v0.2 and v0.3 records', () => {
+    const v02Record = loadFixture('aep-wasmagent-fixture.json');
+    const events = toEventsBatch([v02Record, record]);
+    // Should produce events from both records without error
+    expect(events.length).toBeGreaterThan(3);
+    // Verify hash chain continuity
+    for (let i = 1; i < events.length; i++) {
+      expect(events[i]?.evidence?.prev_hash).toBeDefined();
+    }
   });
 });

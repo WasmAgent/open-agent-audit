@@ -1,0 +1,73 @@
+{
+  "schema_version": "aep/v0.3",
+  "run_id": "run-v03-fixture-001",
+  "repo_commit": "aabbccddee1234567890aabbccddee1234567890",
+  "runtime_version": "wasmagent-js@1.8.0",
+  "model_provider": "anthropic",
+  "model_id": "claude-sonnet-4-6",
+  "policy_bundle_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+  "tool_manifest_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+  "input_refs": [],
+  "output_refs": [],
+  "capability_decisions": [
+    {
+      "capability": "net:http",
+      "subject": "agent",
+      "resource": "https://api.example.com/data",
+      "decision": "allow",
+      "reason_code": "policy-allow-http"
+    }
+  ],
+  "actions": [
+    {
+      "action_id": "action-0",
+      "tool_name": "http_request",
+      "state_changing": true,
+      "evidence_refs": [],
+      "timestamp_ms": 1700000010000,
+      "input_taint_labels": ["user-supplied"],
+      "output_taint_labels": ["network"],
+      "side_effect_class": "network-write",
+      "argument_drift": "low",
+      "approval_mode": "auto",
+      "capability_decision": {
+        "capability": "net:http",
+        "subject": "agent",
+        "resource": "https://api.example.com/data",
+        "decision": "allow",
+        "reason_code": "policy-allow-http"
+      }
+    },
+    {
+      "action_id": "action-1",
+      "tool_name": "read_file",
+      "state_changing": false,
+      "evidence_refs": [],
+      "timestamp_ms": 1700000011000,
+      "input_taint_labels": [],
+      "output_taint_labels": []
+    }
+  ],
+  "verifier_results": [
+    {
+      "verifier_id": "drift-check-v1",
+      "passed": true,
+      "score": 1,
+      "claim_ids": ["claim-010"]
+    }
+  ],
+  "budget_ledger": {
+    "token_budget": { "limit": 20000, "spent": 8100 },
+    "tool_budget": { "limit": 30, "spent": 2 }
+  },
+  "created_at_ms": 1700000012000,
+  "run_context": {
+    "agent_id": "v03-agent",
+    "agent_version": "1.8.0"
+  },
+  "signature": {
+    "alg": "ed25519",
+    "key_id": "wasmagent-v03-key-v1",
+    "sig": "dGVzdC12MDMtc2lnbmF0dXJlLWRhdGEtZm9yLWZpeHR1cmU="
+  }
+}
