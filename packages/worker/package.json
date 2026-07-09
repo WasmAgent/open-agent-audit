@@ -20,7 +20,7 @@
   },
   "dependencies": {
     "@openagentaudit/core": "0.2.2",
-    "@openagentaudit/adapters": "0.2.2",
+    "@openagentaudit/adapters": "0.2.3",
     "@openagentaudit/schema": "0.2.0"
   },
   "devDependencies": {
