@@ -78,9 +78,13 @@ export interface RunContextInput {
   dependency_lock_digest?: string;
 }
 
+/** Supported AEP schema versions. v0.3 is a strict superset of v0.2 (adds optional fields only). */
+export const SUPPORTED_AEP_VERSIONS = ['aep/v0.1', 'aep/v0.2', 'aep/v0.3'] as const;
+export type SupportedAepVersion = (typeof SUPPORTED_AEP_VERSIONS)[number];
+
 /** Local mirror of the AEPRecord type from @wasmagent/aep. */
 export interface AEPRecordInput {
-  schema_version: 'aep/v0.1' | 'aep/v0.2';
+  schema_version: SupportedAepVersion;
   run_id: string;
   trace_id?: string;
   parent_trace_id?: string | null;
@@ -202,10 +206,10 @@ function validateRecord(record: AEPRecordInput): void {
         'Ensure the AEPRecord was produced by a compliant emitter (aep/v0.2).',
     );
   }
-  if (record.schema_version !== 'aep/v0.2' && record.schema_version !== 'aep/v0.1') {
+  if (record.schema_version !== 'aep/v0.2' && record.schema_version !== 'aep/v0.1' && record.schema_version !== 'aep/v0.3') {
     throw new Error(
       `AEP adapter: unsupported schema_version "${record.schema_version}". ` +
-        'Expected "aep/v0.2" (or "aep/v0.1" for backward compatibility).',
+        `Expected one of: ${SUPPORTED_AEP_VERSIONS.join(', ')}.`,
     );
   }
 }
