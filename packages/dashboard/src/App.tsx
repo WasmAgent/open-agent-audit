@@ -4,6 +4,7 @@ import { AuditProvider, useAudit } from './AuditContext'
 import { Breadcrumb, type Crumb } from './Breadcrumb'
 import { parseJsonl, isAepJson, buildAepMeta } from './utils'
 import { useSortable } from './hooks/useSortable'
+import { RunsPage } from './pages/RunsPage'
 
 // ---------- Site config ----------
 
@@ -1120,6 +1121,12 @@ function AppShell() {
     if (location === '/') {
       return [{ label: 'Home' }]
     }
+    if (location === '/runs') {
+      return [
+        { label: 'Home', href: '/' },
+        { label: 'Runs' },
+      ]
+    }
     if (location === '/audit') {
       return [
         { label: 'Home', href: '/' },
@@ -1129,7 +1136,7 @@ function AppShell() {
     if (location.startsWith('/runs/')) {
       return [
         { label: 'Home', href: '/' },
-        { label: fileName ? `Audit Trace — ${fileName}` : 'Audit Trace', href: '/audit' },
+        { label: 'Runs', href: '/runs' },
         { label: 'Report' },
       ]
     }
@@ -1155,6 +1162,15 @@ function AppShell() {
             <span className="hidden sm:block text-sm text-slate-500 truncate">{config.site_tagline}</span>
           </div>
 
+          <nav className="hidden sm:flex items-center gap-3 ml-4">
+            <button
+              onClick={() => navigate('/runs')}
+              className="text-xs font-medium text-slate-500 hover:text-indigo-600 transition-colors"
+            >
+              Runs
+            </button>
+          </nav>
+
           <div className="ml-auto shrink-0">
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-50 border border-indigo-100 text-xs font-medium text-indigo-600 whitespace-nowrap">
               <span className="text-slate-400 font-normal hidden sm:inline">Powered by</span>
@@ -1170,6 +1186,7 @@ function AppShell() {
         <Switch>
           <Route path="/" component={HomePage} />
           <Route path="/audit" component={AuditPage} />
+          <Route path="/runs" component={RunsPage} />
           <Route path="/runs/:runId" component={ReportPage} />
         </Switch>
       </main>
