@@ -34,6 +34,10 @@ export interface ActionEvidenceInput {
   evidence_refs?: string[];
   parent_action_id?: string;
   causal_chain_id?: string;
+  // v0.3 optional fields
+  side_effect_class?: string;
+  argument_drift?: string;
+  approval_mode?: string;
 }
 
 export interface VerifierResultInput {
@@ -274,6 +278,18 @@ function toEvents(record: AEPRecordInput, opts?: { prevHash?: string }): Canonic
       ...(action.input_taint_labels ?? []),
       ...(action.output_taint_labels ?? []),
     ];
+
+    // v0.3 fields: preserve side_effect_class, argument_drift, approval_mode
+    // in risk_tags so downstream rules can inspect them.
+    if (action.side_effect_class) {
+      riskTags.push(`side_effect_class:${action.side_effect_class}`);
+    }
+    if (action.argument_drift) {
+      riskTags.push(`argument_drift:${action.argument_drift}`);
+    }
+    if (action.approval_mode) {
+      riskTags.push(`approval_mode:${action.approval_mode}`);
+    }
 
     const toolObj: CanonicalEvent['tool'] = {
       name: action.tool_name,
