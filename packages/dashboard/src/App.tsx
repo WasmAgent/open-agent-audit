@@ -152,13 +152,25 @@ function TypeBadge({ type }: { type: string | undefined }) {
   )
 }
 
-function SummaryCard({ label, value }: { label: string; value: string | number }) {
+function SummaryCard({
+  label,
+  value,
+  accent = 'border-l-indigo-400',
+  primary = false,
+}: {
+  label: string
+  value: string | number
+  accent?: string
+  primary?: boolean
+}) {
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm hover:shadow-md transition-shadow">
+    <div className={`bg-white rounded-2xl border border-slate-200 border-l-4 ${accent} p-5 shadow-sm hover:shadow-md transition-shadow`}>
       <div className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-2">
         {label}
       </div>
-      <div className="text-3xl font-bold text-slate-900 truncate">{value}</div>
+      <div className={`font-bold text-slate-900 truncate ${primary ? 'text-3xl' : 'text-xl'}`}>
+        {value}
+      </div>
     </div>
   )
 }
@@ -851,10 +863,10 @@ function AuditPage() {
           </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <SummaryCard label="Total Events" value={events.length} />
-            <SummaryCard label="Run ID" value={firstEvent?.run_id ?? '—'} />
-            <SummaryCard label="Agent ID" value={firstEvent?.agent_id ?? '—'} />
-            <SummaryCard label="Model ID" value={firstEvent?.model_id ?? '—'} />
+            <SummaryCard label="Total Events" value={events.length} accent="border-l-indigo-500" primary />
+            <SummaryCard label="Run ID" value={firstEvent?.run_id ?? '—'} accent="border-l-violet-400" />
+            <SummaryCard label="Agent ID" value={firstEvent?.agent_id ?? '—'} accent="border-l-emerald-400" />
+            <SummaryCard label="Model ID" value={firstEvent?.model_id ?? '—'} accent="border-l-amber-400" />
           </div>
         )}
 
