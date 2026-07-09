@@ -7,12 +7,30 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./dist/index.js",
-    "./aep-v0_2": "./dist/aep-v0_2.js",
-    "./bscode": "./dist/bscode.js",
-    "./otel": "./dist/otel.js",
-    "./langfuse": "./dist/langfuse.js",
-    "./langsmith": "./dist/langsmith.js"
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./aep-v0_2": {
+      "import": "./dist/aep-v0_2.js",
+      "types": "./dist/aep-v0_2.d.ts"
+    },
+    "./bscode": {
+      "import": "./dist/bscode.js",
+      "types": "./dist/bscode.d.ts"
+    },
+    "./otel": {
+      "import": "./dist/otel.js",
+      "types": "./dist/otel.d.ts"
+    },
+    "./langfuse": {
+      "import": "./dist/langfuse.js",
+      "types": "./dist/langfuse.d.ts"
+    },
+    "./langsmith": {
+      "import": "./dist/langsmith.js",
+      "types": "./dist/langsmith.d.ts"
+    }
   },
   "files": [
     "dist",

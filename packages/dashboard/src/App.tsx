@@ -1,8 +1,10 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import { Router, Route, Switch, useLocation, useParams } from 'wouter'
 import { AuditProvider, useAudit } from './AuditContext'
 import { Breadcrumb, type Crumb } from './Breadcrumb'
 import { parseJsonl, isAepJson, buildAepMeta } from './utils'
+import { useSortable } from './hooks/useSortable'
+import { RunsPage } from './pages/RunsPage'
 
 // ---------- Site config ----------
 
@@ -150,13 +152,25 @@ function TypeBadge({ type }: { type: string | undefined }) {
   )
 }
 
-function SummaryCard({ label, value }: { label: string; value: string | number }) {
+function SummaryCard({
+  label,
+  value,
+  accent = 'border-l-indigo-400',
+  primary = false,
+}: {
+  label: string
+  value: string | number
+  accent?: string
+  primary?: boolean
+}) {
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm hover:shadow-md transition-shadow">
+    <div className={`bg-white rounded-2xl border border-slate-200 border-l-4 ${accent} p-5 shadow-sm hover:shadow-md transition-shadow`}>
       <div className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-2">
         {label}
       </div>
-      <div className="text-3xl font-bold text-slate-900 truncate">{value}</div>
+      <div className={`font-bold text-slate-900 truncate ${primary ? 'text-3xl' : 'text-xl'}`}>
+        {value}
+      </div>
     </div>
   )
 }
@@ -656,8 +670,22 @@ function AuditPage() {
   const hasEvents = events.length > 0
   const firstEvent = events[0]
   const typeCounts = countByType(events)
-  const totalPages = Math.ceil(events.length / PAGE_SIZE)
-  const pageEvents = events.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+
+  const sortGetters = useMemo(() => ({
+    timestamp: (ev: RawEvent) => ev.timestamp ?? '',
+    type: (ev: RawEvent) => ev.type ?? '',
+    tool: (ev: RawEvent) => ev.tool?.name ?? '',
+  }), [])
+
+  const { sorted: sortedEvents, sort, toggleSort } = useSortable(
+    events,
+    sortGetters,
+    'timestamp',
+    'asc',
+  )
+
+  const totalPages = Math.ceil(sortedEvents.length / PAGE_SIZE)
+  const pageEvents = sortedEvents.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
 
   // Redirect to home if no data is loaded
   useEffect(() => {
@@ -835,10 +863,10 @@ function AuditPage() {
           </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <SummaryCard label="Total Events" value={events.length} />
-            <SummaryCard label="Run ID" value={firstEvent?.run_id ?? '—'} />
-            <SummaryCard label="Agent ID" value={firstEvent?.agent_id ?? '—'} />
-            <SummaryCard label="Model ID" value={firstEvent?.model_id ?? '—'} />
+            <SummaryCard label="Total Events" value={events.length} accent="border-l-indigo-500" primary />
+            <SummaryCard label="Run ID" value={firstEvent?.run_id ?? '—'} accent="border-l-violet-400" />
+            <SummaryCard label="Agent ID" value={firstEvent?.agent_id ?? '—'} accent="border-l-emerald-400" />
+            <SummaryCard label="Model ID" value={firstEvent?.model_id ?? '—'} accent="border-l-amber-400" />
           </div>
         )}
 
@@ -908,10 +936,25 @@ function AuditPage() {
                 <thead className="bg-slate-50 sticky top-0">
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-widest w-44">Event ID</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-widest">Type</th>
+                    <th
+                      className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-widest cursor-pointer select-none hover:text-indigo-500 transition-colors"
+                      onClick={() => toggleSort('type')}
+                    >
+                      Type {sort.key === 'type' ? (sort.direction === 'asc' ? '↑' : '↓') : ''}
+                    </th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-widest">Actor</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-widest w-44">Timestamp</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-widest">Details</th>
+                    <th
+                      className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-widest w-44 cursor-pointer select-none hover:text-indigo-500 transition-colors"
+                      onClick={() => toggleSort('timestamp')}
+                    >
+                      Timestamp {sort.key === 'timestamp' ? (sort.direction === 'asc' ? '↑' : '↓') : ''}
+                    </th>
+                    <th
+                      className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-widest cursor-pointer select-none hover:text-indigo-500 transition-colors"
+                      onClick={() => toggleSort('tool')}
+                    >
+                      Details {sort.key === 'tool' ? (sort.direction === 'asc' ? '↑' : '↓') : ''}
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -1090,6 +1133,12 @@ function AppShell() {
     if (location === '/') {
       return [{ label: 'Home' }]
     }
+    if (location === '/runs') {
+      return [
+        { label: 'Home', href: '/' },
+        { label: 'Runs' },
+      ]
+    }
     if (location === '/audit') {
       return [
         { label: 'Home', href: '/' },
@@ -1099,7 +1148,7 @@ function AppShell() {
     if (location.startsWith('/runs/')) {
       return [
         { label: 'Home', href: '/' },
-        { label: fileName ? `Audit Trace — ${fileName}` : 'Audit Trace', href: '/audit' },
+        { label: 'Runs', href: '/runs' },
         { label: 'Report' },
       ]
     }
@@ -1125,6 +1174,15 @@ function AppShell() {
             <span className="hidden sm:block text-sm text-slate-500 truncate">{config.site_tagline}</span>
           </div>
 
+          <nav className="hidden sm:flex items-center gap-3 ml-4">
+            <button
+              onClick={() => navigate('/runs')}
+              className="text-xs font-medium text-slate-500 hover:text-indigo-600 transition-colors"
+            >
+              Runs
+            </button>
+          </nav>
+
           <div className="ml-auto shrink-0">
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-50 border border-indigo-100 text-xs font-medium text-indigo-600 whitespace-nowrap">
               <span className="text-slate-400 font-normal hidden sm:inline">Powered by</span>
@@ -1140,6 +1198,7 @@ function AppShell() {
         <Switch>
           <Route path="/" component={HomePage} />
           <Route path="/audit" component={AuditPage} />
+          <Route path="/runs" component={RunsPage} />
           <Route path="/runs/:runId" component={ReportPage} />
         </Switch>
       </main>
