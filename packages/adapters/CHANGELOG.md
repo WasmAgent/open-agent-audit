@@ -1,5 +1,11 @@
 # @openagentaudit/adapters
 
+## 0.2.3
+
+### Patch Changes
+
+- [#34](https://github.com/WasmAgent/open-agent-audit/pull/34) [`ce926cd`](https://github.com/WasmAgent/open-agent-audit/commit/ce926cd9182c58f0f5f743401ba0545c8b6513a4) Thanks [@HainingYin](https://github.com/HainingYin)! - fix: accept aep/v0.3 records and preserve side_effect_class in adapter output ([#25](https://github.com/WasmAgent/open-agent-audit/issues/25), [#26](https://github.com/WasmAgent/open-agent-audit/issues/26))
+
 ## 0.2.2
 
 ### Patch Changes
