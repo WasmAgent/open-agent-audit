@@ -1,8 +1,9 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import { Router, Route, Switch, useLocation, useParams } from 'wouter'
 import { AuditProvider, useAudit } from './AuditContext'
 import { Breadcrumb, type Crumb } from './Breadcrumb'
 import { parseJsonl, isAepJson, buildAepMeta } from './utils'
+import { useSortable } from './hooks/useSortable'
 
 // ---------- Site config ----------
 
@@ -656,8 +657,22 @@ function AuditPage() {
   const hasEvents = events.length > 0
   const firstEvent = events[0]
   const typeCounts = countByType(events)
-  const totalPages = Math.ceil(events.length / PAGE_SIZE)
-  const pageEvents = events.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+
+  const sortGetters = useMemo(() => ({
+    timestamp: (ev: RawEvent) => ev.timestamp ?? '',
+    type: (ev: RawEvent) => ev.type ?? '',
+    tool: (ev: RawEvent) => ev.tool?.name ?? '',
+  }), [])
+
+  const { sorted: sortedEvents, sort, toggleSort } = useSortable(
+    events,
+    sortGetters,
+    'timestamp',
+    'asc',
+  )
+
+  const totalPages = Math.ceil(sortedEvents.length / PAGE_SIZE)
+  const pageEvents = sortedEvents.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
 
   // Redirect to home if no data is loaded
   useEffect(() => {
@@ -908,10 +923,25 @@ function AuditPage() {
                 <thead className="bg-slate-50 sticky top-0">
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-widest w-44">Event ID</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-widest">Type</th>
+                    <th
+                      className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-widest cursor-pointer select-none hover:text-indigo-500 transition-colors"
+                      onClick={() => toggleSort('type')}
+                    >
+                      Type {sort.key === 'type' ? (sort.direction === 'asc' ? '↑' : '↓') : ''}
+                    </th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-widest">Actor</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-widest w-44">Timestamp</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-widest">Details</th>
+                    <th
+                      className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-widest w-44 cursor-pointer select-none hover:text-indigo-500 transition-colors"
+                      onClick={() => toggleSort('timestamp')}
+                    >
+                      Timestamp {sort.key === 'timestamp' ? (sort.direction === 'asc' ? '↑' : '↓') : ''}
+                    </th>
+                    <th
+                      className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-widest cursor-pointer select-none hover:text-indigo-500 transition-colors"
+                      onClick={() => toggleSort('tool')}
+                    >
+                      Details {sort.key === 'tool' ? (sort.direction === 'asc' ? '↑' : '↓') : ''}
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
