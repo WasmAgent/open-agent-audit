@@ -255,6 +255,19 @@ function printHelp(): void {
       '  from-bscode [file]',
       '    Read a single bscode RolloutWireRecord JSON, convert to JSONL.',
       '',
+      '  passport issue --report <json> --agent-id <id> [options]',
+      '    Issue a Trust Passport from an audit report.',
+      '    Options: --agent-name, --validity-days, --agentbom, --posture, --output',
+      '',
+      '  passport status --passport <json>',
+      '    Check the status (valid/expired/revoked) of a Trust Passport.',
+      '',
+      '  passport renew --passport <json> --report <json> [--validity-days N] [--output]',
+      '    Renew a Trust Passport with a fresh audit report.',
+      '',
+      '  passport revoke --passport <json> --reason <text> [--output]',
+      '    Revoke a Trust Passport.',
+      '',
       'options:',
       '  --help, -h      Print this help and exit.',
       '  --version, -v   Print version and exit.',
@@ -534,6 +547,144 @@ async function cmdFromAep(filePath?: string, batch = false): Promise<void> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Passport commands
+// ---------------------------------------------------------------------------
+
+async function cmdPassportIssue(flags: Map<string, string | true>): Promise<void> {
+  const { issue } = await import('@openagentaudit/passport');
+
+  const reportPath = flags.get('report');
+  if (!reportPath || reportPath === true) {
+    process.stderr.write('Error: --report is required\n');
+    process.exit(1);
+  }
+
+  const agentId = flags.get('agent-id');
+  if (!agentId || agentId === true) {
+    process.stderr.write('Error: --agent-id is required\n');
+    process.exit(1);
+  }
+
+  const reportText = await readText(reportPath as string);
+  const report = JSON.parse(reportText);
+
+  const agentName = flags.get('agent-name');
+  const validityDaysRaw = flags.get('validity-days');
+  const validityDays =
+    validityDaysRaw && validityDaysRaw !== true ? Number.parseInt(validityDaysRaw, 10) : 90;
+
+  let agentbom: unknown = undefined;
+  const bomPath = flags.get('agentbom');
+  if (bomPath && bomPath !== true) {
+    agentbom = JSON.parse(await readText(bomPath));
+  }
+
+  let posture: unknown = undefined;
+  const posturePath = flags.get('posture');
+  if (posturePath && posturePath !== true) {
+    posture = JSON.parse(await readText(posturePath));
+  }
+
+  const agentNameValue = agentName && agentName !== true ? agentName : undefined;
+
+  const passport = issue({
+    report,
+    agentId: agentId as string,
+    ...(agentNameValue !== undefined ? { agentName: agentNameValue } : {}),
+    agentbom,
+    posture,
+    validityDays,
+  });
+
+  const outputPath = flags.get('output');
+  if (outputPath && outputPath !== true) {
+    await Bun.write(outputPath, JSON.stringify(passport, null, 2));
+    process.stderr.write(`Passport issued: ${passport.identity.passport_id}\n`);
+    process.stderr.write(`Written to: ${outputPath}\n`);
+  } else {
+    console.log(JSON.stringify(passport, null, 2));
+  }
+}
+
+async function cmdPassportStatus(flags: Map<string, string | true>): Promise<void> {
+  const { status } = await import('@openagentaudit/passport');
+
+  const passportPath = flags.get('passport');
+  if (!passportPath || passportPath === true) {
+    process.stderr.write('Error: --passport is required\n');
+    process.exit(1);
+  }
+
+  const passportText = await readText(passportPath as string);
+  const passport = JSON.parse(passportText);
+  const result = status(passport);
+
+  console.log(
+    JSON.stringify(
+      {
+        passport_id: passport.identity.passport_id,
+        agent_id: passport.identity.agent_id,
+        status: result,
+        issued_at: passport.validity.issued_at,
+        expires_at: passport.validity.expires_at,
+      },
+      null,
+      2,
+    ),
+  );
+}
+
+async function cmdPassportRenew(flags: Map<string, string | true>): Promise<void> {
+  const { renew } = await import('@openagentaudit/passport');
+
+  const passportPath = flags.get('passport');
+  const reportPath = flags.get('report');
+  if (!passportPath || passportPath === true || !reportPath || reportPath === true) {
+    process.stderr.write('Error: --passport and --report are required\n');
+    process.exit(1);
+  }
+
+  const passport = JSON.parse(await readText(passportPath as string));
+  const report = JSON.parse(await readText(reportPath as string));
+
+  const validityDaysRaw = flags.get('validity-days');
+  const validityDays =
+    validityDaysRaw && validityDaysRaw !== true ? Number.parseInt(validityDaysRaw, 10) : 90;
+
+  const renewed = renew({ passport, report, validityDays });
+
+  const outputPath = flags.get('output');
+  if (outputPath && outputPath !== true) {
+    await Bun.write(outputPath, JSON.stringify(renewed, null, 2));
+    process.stderr.write(`Passport renewed: ${renewed.identity.passport_id}\n`);
+  } else {
+    console.log(JSON.stringify(renewed, null, 2));
+  }
+}
+
+async function cmdPassportRevoke(flags: Map<string, string | true>): Promise<void> {
+  const { revoke } = await import('@openagentaudit/passport');
+
+  const passportPath = flags.get('passport');
+  const reason = flags.get('reason');
+  if (!passportPath || passportPath === true || !reason || reason === true) {
+    process.stderr.write('Error: --passport and --reason are required\n');
+    process.exit(1);
+  }
+
+  const passport = JSON.parse(await readText(passportPath as string));
+  const revoked = revoke({ passport, reason: reason as string });
+
+  const outputPath = flags.get('output');
+  if (outputPath && outputPath !== true) {
+    await Bun.write(outputPath, JSON.stringify(revoked, null, 2));
+    process.stderr.write(`Passport revoked: ${revoked.identity.passport_id}\n`);
+  } else {
+    console.log(JSON.stringify(revoked, null, 2));
+  }
+}
+
 async function cmdFromBscode(filePath?: string): Promise<void> {
   const text = await readText(filePath);
   let record: unknown;
@@ -590,6 +741,7 @@ const COMMANDS = [
   'report',
   'from-aep',
   'from-bscode',
+  'passport',
 ] as const;
 
 if (!(COMMANDS as readonly string[]).includes(cmd)) {
@@ -636,6 +788,28 @@ switch (cmd) {
   }
   case 'from-bscode': {
     await cmdFromBscode(args.file);
+    break;
+  }
+  case 'passport': {
+    const subcommand = args.positional[1];
+    switch (subcommand) {
+      case 'issue':
+        await cmdPassportIssue(args.flags);
+        break;
+      case 'status':
+        await cmdPassportStatus(args.flags);
+        break;
+      case 'renew':
+        await cmdPassportRenew(args.flags);
+        break;
+      case 'revoke':
+        await cmdPassportRevoke(args.flags);
+        break;
+      default:
+        process.stderr.write(`Error: unknown passport subcommand: ${subcommand ?? '(none)'}\n`);
+        process.stderr.write('Available: issue, status, renew, revoke\n');
+        process.exit(2);
+    }
     break;
   }
 }
