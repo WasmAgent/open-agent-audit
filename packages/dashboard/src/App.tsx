@@ -677,7 +677,7 @@ function AuditPage() {
     tool: (ev: RawEvent) => ev.tool?.name ?? '',
   }), [])
 
-  const { sorted: sortedEvents, sort, toggleSort } = useSortable(
+  const { sorted: sortedEvents, sort, toggleSort } = useSortable<RawEvent, 'timestamp' | 'type' | 'tool'>(
     events,
     sortGetters,
     'timestamp',
