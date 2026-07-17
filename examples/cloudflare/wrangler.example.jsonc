@@ -34,6 +34,10 @@
     { "binding": "REPORTS",    "bucket_name": "oaa-reports"    }
   ],
 
+  "kv_namespaces": [
+    { "binding": "PASSPORTS", "id": "REPLACE_ME_KV_PASSPORTS_ID" }
+  ],
+
   "d1_databases": [
     {
       "binding": "DB",

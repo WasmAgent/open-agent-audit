@@ -16,6 +16,8 @@ import type { PolicyAuditContext, ReportMeta, AepProvenanceForScoring } from '@o
 import { validateEvents } from '@openagentaudit/schema';
 import type { CanonicalEvent, Finding, RiskScore } from '@openagentaudit/schema';
 import { aepV0_2 } from '@openagentaudit/adapters';
+import { issue, revoke, status } from '@openagentaudit/passport';
+import type { TrustPassport } from '@openagentaudit/passport';
 
 // ---------------------------------------------------------------------------
 // Job message shapes
@@ -55,6 +57,7 @@ export interface WorkerEnv {
   RAW_TRACES: R2Bucket;
   ARTIFACTS: R2Bucket;
   REPORTS: R2Bucket;
+  PASSPORTS: KVNamespace;
   DB: D1Database;
   AUDIT_JOBS: Queue<AuditJobMessage>;
   CHUNK_JOBS: Queue<ChunkJobMessage>;
@@ -423,6 +426,100 @@ async function handlePublicReportLink(runId: string, env: WorkerEnv, request: Re
 }
 
 // ---------------------------------------------------------------------------
+// Passport route handlers
+// ---------------------------------------------------------------------------
+
+async function handlePassportIssue(request: Request, env: WorkerEnv): Promise<Response> {
+  let body: Record<string, unknown>;
+  try {
+    body = (await request.json()) as Record<string, unknown>;
+  } catch {
+    return corsError('Invalid JSON body', 400, env);
+  }
+
+  const { report, agentId, agentName, agentbom, posture, validityDays } = body as {
+    report?: unknown;
+    agentId?: string;
+    agentName?: string;
+    agentbom?: unknown;
+    posture?: unknown;
+    validityDays?: number;
+  };
+
+  if (!report || !agentId) {
+    return corsError('Missing required fields: report, agentId', 400, env);
+  }
+
+  const passport = issue({
+    report,
+    agentId,
+    ...(agentName !== undefined && { agentName }),
+    ...(agentbom !== undefined && { agentbom }),
+    ...(posture !== undefined && { posture }),
+    ...(validityDays !== undefined && { validityDays }),
+    issuer: 'trustavo.com',
+    issuanceContext: 'trustavo',
+  });
+
+  await env.PASSPORTS.put(
+    passport.identity.passport_id,
+    JSON.stringify(passport),
+  );
+
+  return corsJson(passport, env, 201);
+}
+
+async function handlePassportGet(passportId: string, env: WorkerEnv): Promise<Response> {
+  const raw = await env.PASSPORTS.get(passportId);
+  if (raw === null) {
+    return corsError('Passport not found', 404, env);
+  }
+  return corsJson(JSON.parse(raw), env);
+}
+
+async function handlePassportRevoke(passportId: string, request: Request, env: WorkerEnv): Promise<Response> {
+  let body: Record<string, unknown>;
+  try {
+    body = (await request.json()) as Record<string, unknown>;
+  } catch {
+    return corsError('Invalid JSON body', 400, env);
+  }
+
+  const { reason } = body as { reason?: string };
+  if (!reason) {
+    return corsError('Missing required field: reason', 400, env);
+  }
+
+  const raw = await env.PASSPORTS.get(passportId);
+  if (raw === null) {
+    return corsError('Passport not found', 404, env);
+  }
+
+  const passport = JSON.parse(raw) as TrustPassport;
+  const revoked = revoke({ passport, reason });
+
+  await env.PASSPORTS.put(passportId, JSON.stringify(revoked));
+
+  return corsJson(revoked, env);
+}
+
+async function handlePassportStatus(passportId: string, env: WorkerEnv): Promise<Response> {
+  const raw = await env.PASSPORTS.get(passportId);
+  if (raw === null) {
+    return corsError('Passport not found', 404, env);
+  }
+
+  const passport = JSON.parse(raw) as TrustPassport;
+  const currentStatus = status(passport);
+
+  return corsJson({
+    status: currentStatus,
+    passport_id: passport.identity.passport_id,
+    expires_at: passport.validity.expires_at,
+  }, env);
+}
+
+// ---------------------------------------------------------------------------
 // Fetch handler
 // ---------------------------------------------------------------------------
 
@@ -432,7 +529,7 @@ async function handleFetch(request: Request, env: WorkerEnv): Promise<Response> 
   const method = request.method.toUpperCase();
 
   // OPTIONS pre-flight for CORS
-  if (method === 'OPTIONS' && pathname.startsWith('/api/')) {
+  if (method === 'OPTIONS' && (pathname.startsWith('/api/') || pathname.startsWith('/passport/'))) {
     return new Response(null, { status: 204, headers: corsHeaders(env) });
   }
 
@@ -498,6 +595,35 @@ async function handleFetch(request: Request, env: WorkerEnv): Promise<Response> 
     const reportId = shortLinkMatch[1];
     if (reportId === undefined) return corsError('Bad route', 400, env);
     return handlePublicReportLink(reportId, env, request);
+  }
+
+  // POST /passport/issue
+  if (method === 'POST' && pathname === '/passport/issue') {
+    return handlePassportIssue(request, env);
+  }
+
+  // GET /passport/:id
+  const passportGetMatch = matchRoute(pathname, /^\/passport\/([^/]+)$/);
+  if (passportGetMatch !== null && method === 'GET') {
+    const passportId = passportGetMatch[1];
+    if (passportId === undefined) return corsError('Bad route', 400, env);
+    return handlePassportGet(passportId, env);
+  }
+
+  // POST /passport/:id/revoke
+  const passportRevokeMatch = matchRoute(pathname, /^\/passport\/([^/]+)\/revoke$/);
+  if (passportRevokeMatch !== null && method === 'POST') {
+    const passportId = passportRevokeMatch[1];
+    if (passportId === undefined) return corsError('Bad route', 400, env);
+    return handlePassportRevoke(passportId, request, env);
+  }
+
+  // GET /passport/:id/status
+  const passportStatusMatch = matchRoute(pathname, /^\/passport\/([^/]+)\/status$/);
+  if (passportStatusMatch !== null && method === 'GET') {
+    const passportId = passportStatusMatch[1];
+    if (passportId === undefined) return corsError('Bad route', 400, env);
+    return handlePassportStatus(passportId, env);
   }
 
   // Fall through: serve SPA for all other GET requests (client-side routing)

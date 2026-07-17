@@ -48,6 +48,40 @@ const bundle = await renderReport(events, findings, score);
 // bundle.html, bundle.markdown, bundle.json, bundle.csv
 ```
 
+## Trust Passport
+
+`@openagentaudit/passport` issues signed audit certificates for AI agents.
+A Trust Passport summarises evidence quality, open risks, framework coverage,
+and a validity window — giving procurement teams and auditors a single
+machine-verifiable trust signal.
+
+### Programmatic API
+
+```ts
+import { issue, renew, revoke, status } from '@openagentaudit/passport';
+
+const passport = issue({ report, agentId: 'my-agent', validityDays: 90 });
+console.log(status(passport)); // 'valid'
+
+const renewed = renew({ passport, report: newReport });
+const revoked = revoke({ passport, reason: 'critical-finding' });
+```
+
+### REST API (trustavo.com)
+
+| Method | Path | Action |
+|--------|------|--------|
+| POST | /passport/issue | Issue a new passport |
+| GET  | /passport/:id   | Fetch a passport by ID |
+| POST | /passport/:id/revoke | Revoke a passport |
+| GET  | /passport/:id/status | Returns valid / expired / revoked |
+
+### Note on signing
+
+Passports currently carry `attestation.signing_method: "none"` — content is
+hash-linked but not cryptographically signed. Sigstore / in-toto signing is
+planned as a follow-up.
+
 ## What it does
 
 - **Validate** agent evidence records against a canonical schema.
@@ -134,6 +168,7 @@ being built against the current `open-agent-audit/v0.1` schema.
 | `packages/core` | implemented — all engines operational |
 | `packages/adapters` | implemented — AEP v0.2, bscode, OTel GenAI, Langfuse, LangSmith; 444 tests |
 | `packages/cli` | implemented — 7 commands including `from-aep`, `from-bscode` |
+| `packages/passport` | implemented — Trust Passport issuance, lifecycle, REST API |
 | `packages/worker` | implemented — REST API, deployed at trustavo.com |
 | `packages/dashboard` | implemented — React SPA deployed at trustavo.com |
 | npm packages | published — `@openagentaudit/schema`, `@openagentaudit/core`, `@openagentaudit/adapters` |
