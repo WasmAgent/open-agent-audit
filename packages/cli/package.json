@@ -25,7 +25,7 @@
   "dependencies": {
     "@openagentaudit/adapters": "0.2.5",
     "@openagentaudit/core": "0.2.5",
-    "@openagentaudit/passport": "0.2.5",
+    "@openagentaudit/passport": "0.3.0",
     "@openagentaudit/schema": "0.2.0"
   },
   "devDependencies": {
