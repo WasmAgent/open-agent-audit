@@ -124,7 +124,7 @@ export async function driftGuard(
   });
 
   const drifted_metrics = metrics.filter((m) => m.drifted).map((m) => m.name);
-  const drift_score = Math.round((drifted_metrics.length / 8) * 100);
+  const drift_score = Math.round((drifted_metrics.length / METRIC_NAMES.length) * 100);
 
   return {
     windows: 2,

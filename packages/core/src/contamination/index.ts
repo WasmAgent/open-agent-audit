@@ -103,7 +103,7 @@ export async function contamination(
   const threshold = opts?.threshold ?? 0.8;
   const totalPairs = trainEvents.length * testEvents.length;
   const method: 'exact' | 'ngram' | 'minhash' =
-    opts?.method ?? (totalPairs <= 10000 ? 'exact' : 'ngram');
+    opts?.method ?? (totalPairs <= 10_000 ? 'exact' : totalPairs <= 250_000 ? 'ngram' : 'minhash');
 
   const pairs: ContaminationPair[] = [];
 
