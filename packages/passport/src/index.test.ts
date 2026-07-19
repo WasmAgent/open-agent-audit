@@ -1,5 +1,15 @@
 import { describe, expect, test } from 'bun:test';
-import { issue, renew, revoke, status } from './index.js';
+import {
+  issue,
+  renew,
+  revoke,
+  status,
+  validateTrustPassport,
+  isExpired,
+  hashEvidence,
+  addFact,
+} from './index.js';
+import type { TrustPassport } from './index.js';
 
 const MOCK_REPORT = {
   run_id: 'run-001',
@@ -112,5 +122,166 @@ describe('passport/revoke', () => {
     expect(revoked.revocation.revoked).toBe(true);
     expect(revoked.revocation.revocation_reason).toBe('critical-finding');
     expect(revoked.revocation.revoked_at).toBeTruthy();
+  });
+});
+
+// ---------- validateTrustPassport ----------
+
+describe('passport/validateTrustPassport', () => {
+  function makeValidPassport(): Record<string, unknown> {
+    return {
+      passport_version: '0.1',
+      identity: { passport_id: 'tp-1', agent_id: 'a', issuer: 'trustavo.com' },
+      validity: {
+        issued_at: '2025-01-01T00:00:00Z',
+        expires_at: '2025-04-01T00:00:00Z',
+      },
+      revocation: { revoked: false },
+      attestation: { issuer: 'trustavo.com', signing_method: 'none' },
+    };
+  }
+
+  test('valid passport passes', () => {
+    const result = validateTrustPassport(makeValidPassport());
+    expect(result.valid).toBe(true);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  test('missing required fields', () => {
+    const result = validateTrustPassport({ passport_version: '0.1' });
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes('identity'))).toBe(true);
+    expect(result.errors.some((e) => e.includes('validity'))).toBe(true);
+    expect(result.errors.some((e) => e.includes('revocation'))).toBe(true);
+    expect(result.errors.some((e) => e.includes('attestation'))).toBe(true);
+  });
+
+  test('wrong passport_version', () => {
+    const data = makeValidPassport();
+    data['passport_version'] = '0.2';
+    const result = validateTrustPassport(data);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes('passport_version'))).toBe(true);
+  });
+
+  test('non-UTC timestamps rejected', () => {
+    const data = makeValidPassport();
+    (data['validity'] as Record<string, unknown>)['issued_at'] = '2025-01-01T00:00:00+05:00';
+    const result = validateTrustPassport(data);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes('issued_at'))).toBe(true);
+  });
+
+  test('invalid coverage enum rejected', () => {
+    const data = makeValidPassport();
+    data['evidence_summary'] = {
+      framework_mappings: [{ framework: 'test', coverage: 'full' }],
+    };
+    const result = validateTrustPassport(data);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes('coverage'))).toBe(true);
+  });
+
+  test('prototype-pollution attempt rejected', () => {
+    const data = makeValidPassport();
+    Object.defineProperty(data, '__proto__', {
+      value: { admin: true },
+      enumerable: false,
+      configurable: true,
+      writable: true,
+    });
+    // hasPollutionKeys checks getOwnPropertyNames
+    const evil = Object.create(null) as Record<string, unknown>;
+    evil['__proto__'] = { admin: true };
+    evil['passport_version'] = '0.1';
+    evil['identity'] = { passport_id: 'tp-1', agent_id: 'a', issuer: 'x' };
+    evil['validity'] = { issued_at: '2025-01-01T00:00:00Z', expires_at: '2025-04-01T00:00:00Z' };
+    evil['revocation'] = { revoked: false };
+    evil['attestation'] = { issuer: 'x' };
+    const result = validateTrustPassport(evil);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes('prototype-pollution'))).toBe(true);
+  });
+
+  test('nested prototype-pollution key rejected', () => {
+    const data = makeValidPassport();
+    (data['identity'] as Record<string, unknown>)['constructor'] = {};
+    const result = validateTrustPassport(data);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes('prototype-pollution'))).toBe(true);
+  });
+
+  test('revocation_triggers must be array', () => {
+    const data = makeValidPassport();
+    (data['revocation'] as Record<string, unknown>)['revocation_triggers'] = 'not-array';
+    const result = validateTrustPassport(data);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes('revocation_triggers'))).toBe(true);
+  });
+});
+
+// ---------- isExpired ----------
+
+describe('passport/isExpired', () => {
+  test('returns true for expired passport', () => {
+    const p = issue({ report: MOCK_REPORT, agentId: 'a' });
+    p.validity.expires_at = '2020-01-01T00:00:00.000Z';
+    expect(isExpired(p)).toBe(true);
+  });
+
+  test('returns false for non-expired passport', () => {
+    const p = issue({ report: MOCK_REPORT, agentId: 'a' });
+    expect(isExpired(p)).toBe(false);
+  });
+
+  test('returns false when expires_at is absent', () => {
+    const p = issue({ report: MOCK_REPORT, agentId: 'a' });
+    // Delete the field to simulate absence
+    delete (p.validity as Partial<Pick<typeof p.validity, 'expires_at'>>).expires_at;
+    expect(isExpired(p)).toBe(false);
+  });
+});
+
+// ---------- hashEvidence ----------
+
+describe('passport/hashEvidence', () => {
+  test('deterministic for same string', () => {
+    const a = hashEvidence('hello');
+    const b = hashEvidence('hello');
+    expect(a).toBe(b);
+    expect(a).toStartWith('sha256:');
+  });
+
+  test('non-string content is JSON.stringified', () => {
+    const obj = { foo: 'bar' };
+    const hash = hashEvidence(obj);
+    expect(hash).toStartWith('sha256:');
+    // Should equal hashing the stringified form
+    expect(hash).toBe(hashEvidence(JSON.stringify(obj)));
+  });
+});
+
+// ---------- addFact ----------
+
+describe('passport/addFact', () => {
+  test('adds a fact to passport', () => {
+    const p = issue({ report: MOCK_REPORT, agentId: 'a' });
+    const result = addFact(p, 'fact-1', 'evidence content');
+    expect(result.evidence_facts['fact-1']).toBeDefined();
+    expect(result.evidence_facts['fact-1']!.content_hash).toStartWith('sha256:');
+  });
+
+  test('recorded_at is ISO 8601 UTC', () => {
+    const p = issue({ report: MOCK_REPORT, agentId: 'a' });
+    const result = addFact(p, 'fact-2', { data: 123 });
+    const recorded = result.evidence_facts['fact-2']!.recorded_at;
+    expect(recorded).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/);
+  });
+
+  test('multiple facts coexist', () => {
+    const p = issue({ report: MOCK_REPORT, agentId: 'a' });
+    addFact(p, 'a', 'x');
+    addFact(p, 'b', 'y');
+    expect(Object.keys(p.evidence_facts!)).toHaveLength(2);
   });
 });
