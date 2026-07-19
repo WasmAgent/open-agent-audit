@@ -1,6 +1,6 @@
 {
   "name": "@openagentaudit/passport",
-  "version": "0.1.0",
+  "version": "0.2.5",
   "description": "Trust Passport: signed audit certificates for AI agents",
   "license": "Apache-2.0",
   "type": "module",
@@ -12,7 +12,10 @@
       "types": "./dist/index.d.ts"
     }
   },
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -23,7 +26,7 @@
     "stability": "alpha"
   },
   "dependencies": {
-    "@openagentaudit/core": "0.2.2",
+    "@openagentaudit/core": "0.2.5",
     "@openagentaudit/schema": "0.2.0"
   },
   "devDependencies": {
