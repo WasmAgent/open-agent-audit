@@ -23,14 +23,20 @@ function computeTraceCompleteness(events: CanonicalEvent[]): number {
 
   let score = 100;
 
+  let missingCount = 0;
+  let missingTimestamps = 0;
+
   for (const ev of events) {
     if (!ev.evidence?.evidence_id) {
-      score -= 5;
+      missingCount++;
     }
     if (!ev.timestamp || Number.isNaN(Date.parse(ev.timestamp))) {
-      score -= 10;
+      missingTimestamps++;
     }
   }
+
+  score -= (missingCount / events.length) * 50;
+  score -= (missingTimestamps / events.length) * 30;
 
   // Detect unpaired tool_call events: a tool_call with no subsequent observation
   // referencing the same tool name in the same run_id.

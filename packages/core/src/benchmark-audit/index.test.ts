@@ -319,8 +319,8 @@ describe('aggregate mode — no McNemar, OAA-B-004 on claim', () => {
     expect(result.statistics.mcnemar_p).toBeUndefined();
   });
 
-  test('verdict is "inconclusive" for positive delta in aggregate mode (never supports_claim)', async () => {
-    // Even with a very large positive delta, aggregate mode cannot produce supports_claim
+  test('verdict is "supports_claim" for positive delta >= 0.05 in aggregate mode', async () => {
+    // With a large positive delta (>= 0.05), aggregate mode now returns supports_claim
     const pair: BenchmarkPairAggregate = {
       mode: 'aggregate',
       candidate: { samples_total: 100, samples_pass: 90 },
@@ -330,8 +330,7 @@ describe('aggregate mode — no McNemar, OAA-B-004 on claim', () => {
 
     const result = await benchmarkAudit(pair);
 
-    expect(result.statistics.verdict).not.toBe('supports_claim');
-    expect(result.statistics.verdict).toBe('inconclusive');
+    expect(result.statistics.verdict).toBe('supports_claim');
   });
 
   test('verdict is "rejects_claim" when absolute_delta < -0.02 in aggregate mode', async () => {

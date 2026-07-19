@@ -194,7 +194,9 @@ export async function benchmarkAudit(pair: BenchmarkPair): Promise<BenchmarkAudi
     const wilson_ci = wilsonCI(candidate_rate, candidate.samples_total);
 
     let verdict: 'supports_claim' | 'rejects_claim' | 'inconclusive';
-    if (absolute_delta < -0.02) {
+    if (absolute_delta >= 0.05) {
+      verdict = 'supports_claim';
+    } else if (absolute_delta < -0.02) {
       verdict = 'rejects_claim';
     } else {
       verdict = 'inconclusive';
