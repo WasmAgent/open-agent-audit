@@ -9,6 +9,7 @@ export interface TrustPassport {
   validity: Validity;
   revocation: Revocation;
   attestation: Attestation;
+  evidence_facts?: Record<string, import('./evidence.js').EvidenceFact>;
 }
 
 export interface PassportIdentity {
