@@ -1,5 +1,11 @@
 # @openagentaudit/core
 
+## 0.2.5
+
+### Patch Changes
+
+- [`de315b8`](https://github.com/WasmAgent/open-agent-audit/commit/de315b81ee14146b4e93117ab163ccb37e7a9d3f) Thanks [@robotdawn](https://github.com/robotdawn)! - fix: proportion-based scoring, supports_claim verdict, minhash escalation, dynamic drift denominator
+
 ## 0.2.2
 
 ### Patch Changes
