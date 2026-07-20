@@ -5,19 +5,19 @@
  * Storage bindings (R2, D1, Queues, DO) are injected via WorkerEnv.
  */
 
+import { aepV0_2 } from '@openagentaudit/adapters';
 import {
-  validate,
+  computeRiskScore,
   inventory,
   policyAudit,
-  computeRiskScore,
   renderReport,
+  validate,
 } from '@openagentaudit/core';
-import type { PolicyAuditContext, ReportMeta, AepProvenanceForScoring } from '@openagentaudit/core';
-import { validateEvents } from '@openagentaudit/schema';
-import type { CanonicalEvent, Finding, RiskScore } from '@openagentaudit/schema';
-import { aepV0_2 } from '@openagentaudit/adapters';
+import type { AepProvenanceForScoring, PolicyAuditContext, ReportMeta } from '@openagentaudit/core';
 import { issue, revoke, status } from '@openagentaudit/passport';
 import type { TrustPassport } from '@openagentaudit/passport';
+import { validateEvents } from '@openagentaudit/schema';
+import type { CanonicalEvent, Finding, RiskScore } from '@openagentaudit/schema';
 
 // ---------------------------------------------------------------------------
 // Job message shapes
@@ -96,7 +96,7 @@ export interface WorkerEnv {
 function corsHeaders(env: WorkerEnv): Record<string, string> {
   return {
     'Access-Control-Allow-Origin': env.CORS_ORIGIN ?? '*',
-    'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+    'Access-Control-Allow-Methods': 'GET,POST,PUT,OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Tenant-Id, X-Source-File',
   };
 }
@@ -128,11 +128,311 @@ function checkAuth(request: Request, env: WorkerEnv): boolean {
 // ---------------------------------------------------------------------------
 
 /** Extract a named capture from a URL pathname using a simple pattern. */
-function matchRoute(
-  pathname: string,
-  pattern: RegExp,
-): RegExpExecArray | null {
+function matchRoute(pathname: string, pattern: RegExp): RegExpExecArray | null {
   return pattern.exec(pathname);
+}
+
+// ---------------------------------------------------------------------------
+// Bitstring helpers for BitstringStatusList (hex-encoded)
+// ---------------------------------------------------------------------------
+
+function encodeBitstring(bits: boolean[]): string {
+  if (bits.length === 0) return '';
+  const padded = [...bits];
+  while (padded.length % 4 !== 0) {
+    padded.push(false);
+  }
+  let hex = '';
+  for (let i = 0; i < padded.length; i += 4) {
+    let nibble = 0;
+    if (padded[i]) nibble |= 8;
+    if (padded[i + 1]) nibble |= 4;
+    if (padded[i + 2]) nibble |= 2;
+    if (padded[i + 3]) nibble |= 1;
+    hex += nibble.toString(16);
+  }
+  return hex;
+}
+
+function decodeBitstring(encoded: string): boolean[] {
+  if (encoded === '') return [];
+  const bits: boolean[] = [];
+  for (const ch of encoded) {
+    const nibble = Number.parseInt(ch, 16);
+    bits.push((nibble & 8) !== 0);
+    bits.push((nibble & 4) !== 0);
+    bits.push((nibble & 2) !== 0);
+    bits.push((nibble & 1) !== 0);
+  }
+  return bits;
+}
+
+function setBit(encoded: string, index: number): string {
+  const bits = decodeBitstring(encoded);
+  while (bits.length <= index) {
+    bits.push(false);
+  }
+  bits[index] = true;
+  return encodeBitstring(bits);
+}
+
+function _getBit(encoded: string, index: number): boolean {
+  const bits = decodeBitstring(encoded);
+  if (index >= bits.length) return false;
+  return bits[index] ?? false;
+}
+
+// ---------------------------------------------------------------------------
+// Federation types
+// ---------------------------------------------------------------------------
+
+interface RegisteredPassportRow {
+  id: string;
+  agent_id: string;
+  org_id: string;
+  status_list_id: string;
+  status_list_index: number;
+  is_revoked: number;
+  issued_at: string;
+  expires_at: string | null;
+  revoked_at: string | null;
+  passport_jwt: string;
+  metadata: string | null;
+}
+
+interface StatusListRow {
+  id: string;
+  bitstring: string;
+  credential_count: number;
+  last_updated: string;
+}
+
+// ---------------------------------------------------------------------------
+// Federation route handlers
+// ---------------------------------------------------------------------------
+
+function handleWellKnownAgentPassport(env: WorkerEnv): Response {
+  const body = {
+    registry: env.PUBLIC_URL,
+    version: '1.0',
+    endpoints: {
+      register: '/v1/passports/register',
+      query: '/v1/passports/agent/{agentId}',
+      status_list: '/v1/status/{listId}',
+      did: '/agents/{agentId}/did.json',
+    },
+    supported_algorithms: ['EdDSA'],
+    status_mechanism: 'BitstringStatusList2021',
+  };
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: {
+      'content-type': 'application/json',
+      'cache-control': 'max-age=3600, s-maxage=86400',
+      ...corsHeaders(env),
+    },
+  });
+}
+
+function handleAgentDid(agentId: string, env: WorkerEnv): Response {
+  const host = new URL(env.PUBLIC_URL).host;
+  const body = {
+    '@context': ['https://www.w3.org/ns/did/v1'],
+    id: `did:web:${host}:agents:${agentId}`,
+    service: [
+      {
+        id: '#passport',
+        type: 'TrustPassport',
+        serviceEndpoint: `/v1/passports/agent/${agentId}`,
+      },
+    ],
+  };
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: {
+      'content-type': 'application/json',
+      'cache-control': 'max-age=3600',
+      ...corsHeaders(env),
+    },
+  });
+}
+
+async function handleFederationRegister(request: Request, env: WorkerEnv): Promise<Response> {
+  let body: Record<string, unknown>;
+  try {
+    body = (await request.json()) as Record<string, unknown>;
+  } catch {
+    return corsError('Invalid JSON body', 400, env);
+  }
+
+  const { passport_jwt, agent_id, org_id, metadata } = body as {
+    passport_jwt?: string;
+    agent_id?: string;
+    org_id?: string;
+    metadata?: object;
+  };
+
+  if (!passport_jwt || !agent_id || !org_id) {
+    return corsError('Missing required fields: passport_jwt, agent_id, org_id', 400, env);
+  }
+
+  const registryId = crypto.randomUUID();
+  const now = new Date().toISOString();
+
+  const statusList = await env.DB.prepare('SELECT credential_count FROM status_lists WHERE id = ?')
+    .bind('default')
+    .first<{ credential_count: number }>();
+
+  const nextIndex = statusList?.credential_count ?? 0;
+
+  await env.DB.prepare(
+    'UPDATE status_lists SET credential_count = ?, last_updated = ? WHERE id = ?',
+  )
+    .bind(nextIndex + 1, now, 'default')
+    .run();
+
+  await env.DB.prepare(
+    `INSERT INTO registered_passports
+       (id, agent_id, org_id, status_list_id, status_list_index, is_revoked, issued_at, passport_jwt, metadata)
+     VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)`,
+  )
+    .bind(
+      registryId,
+      agent_id,
+      org_id,
+      'default',
+      nextIndex,
+      now,
+      passport_jwt,
+      metadata !== undefined ? JSON.stringify(metadata) : null,
+    )
+    .run();
+
+  return corsJson(
+    { registry_id: registryId, agent_id, status_list_id: 'default', status_list_index: nextIndex },
+    env,
+    201,
+  );
+}
+
+async function handleFederationGetById(registryId: string, env: WorkerEnv): Promise<Response> {
+  const row = await env.DB.prepare('SELECT * FROM registered_passports WHERE id = ?')
+    .bind(registryId)
+    .first<RegisteredPassportRow>();
+
+  if (row === null) {
+    return corsError('Registered passport not found', 404, env);
+  }
+
+  return new Response(JSON.stringify(row), {
+    status: 200,
+    headers: {
+      'content-type': 'application/json',
+      'cache-control': 'max-age=300',
+      ...corsHeaders(env),
+    },
+  });
+}
+
+async function handleFederationGetByAgent(agentId: string, env: WorkerEnv): Promise<Response> {
+  const row = await env.DB.prepare('SELECT * FROM registered_passports WHERE agent_id = ?')
+    .bind(agentId)
+    .first<RegisteredPassportRow>();
+
+  if (row === null) {
+    return corsError('No passport registered for this agent', 404, env);
+  }
+
+  return new Response(JSON.stringify(row), {
+    status: 200,
+    headers: {
+      'content-type': 'application/json',
+      'cache-control': 'max-age=300',
+      ...corsHeaders(env),
+    },
+  });
+}
+
+async function handleFederationRevoke(
+  registryId: string,
+  request: Request,
+  env: WorkerEnv,
+): Promise<Response> {
+  let body: Record<string, unknown>;
+  try {
+    body = (await request.json()) as Record<string, unknown>;
+  } catch {
+    return corsError('Invalid JSON body', 400, env);
+  }
+
+  const { reason } = body as { reason?: string };
+  if (!reason) {
+    return corsError('Missing required field: reason', 400, env);
+  }
+
+  const row = await env.DB.prepare('SELECT * FROM registered_passports WHERE id = ?')
+    .bind(registryId)
+    .first<RegisteredPassportRow>();
+
+  if (row === null) {
+    return corsError('Registered passport not found', 404, env);
+  }
+
+  const now = new Date().toISOString();
+
+  await env.DB.prepare(
+    'UPDATE registered_passports SET is_revoked = 1, revoked_at = ? WHERE id = ?',
+  )
+    .bind(now, registryId)
+    .run();
+
+  const statusListRow = await env.DB.prepare('SELECT * FROM status_lists WHERE id = ?')
+    .bind(row.status_list_id)
+    .first<StatusListRow>();
+
+  const currentBitstring = statusListRow?.bitstring ?? '';
+  const updatedBitstring = setBit(currentBitstring, row.status_list_index);
+
+  await env.DB.prepare('UPDATE status_lists SET bitstring = ?, last_updated = ? WHERE id = ?')
+    .bind(updatedBitstring, now, row.status_list_id)
+    .run();
+
+  return corsJson({ ...row, is_revoked: 1, revoked_at: now }, env);
+}
+
+async function handleStatusList(listId: string, env: WorkerEnv): Promise<Response> {
+  const row = await env.DB.prepare('SELECT * FROM status_lists WHERE id = ?')
+    .bind(listId)
+    .first<StatusListRow>();
+
+  if (row === null) {
+    return corsError('Status list not found', 404, env);
+  }
+
+  const hexBytes = new TextEncoder().encode(row.bitstring);
+  const binStr = Array.from(hexBytes)
+    .map((b) => String.fromCharCode(b))
+    .join('');
+  const base64 = btoa(binStr);
+  const encodedList = base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+  const body = {
+    type: 'BitstringStatusList',
+    id: `/v1/status/${listId}`,
+    statusPurpose: 'revocation',
+    encodedList,
+    credentialCount: row.credential_count,
+    lastUpdated: row.last_updated,
+  };
+
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: {
+      'content-type': 'application/json',
+      'cache-control': 'max-age=300, s-maxage=3600',
+      ...corsHeaders(env),
+    },
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -151,11 +451,7 @@ async function handleGetRuns(env: WorkerEnv): Promise<Response> {
 }
 
 async function handleGetRun(runId: string, env: WorkerEnv): Promise<Response> {
-  const row = await env.DB.prepare(
-    'SELECT * FROM audit_runs WHERE run_id = ?',
-  )
-    .bind(runId)
-    .first();
+  const row = await env.DB.prepare('SELECT * FROM audit_runs WHERE run_id = ?').bind(runId).first();
   if (row === null) {
     return corsError('Run not found', 404, env);
   }
@@ -164,18 +460,14 @@ async function handleGetRun(runId: string, env: WorkerEnv): Promise<Response> {
 
 async function handleGetFindings(runId: string, env: WorkerEnv): Promise<Response> {
   const result = await env.DB.prepare(
-    `SELECT * FROM findings WHERE run_id = ? ORDER BY severity DESC LIMIT 100`,
+    'SELECT * FROM findings WHERE run_id = ? ORDER BY severity DESC LIMIT 100',
   )
     .bind(runId)
     .all();
   return corsJson({ findings: result.results }, env);
 }
 
-async function handleGetReport(
-  runId: string,
-  format: string,
-  env: WorkerEnv,
-): Promise<Response> {
+async function handleGetReport(runId: string, format: string, env: WorkerEnv): Promise<Response> {
   const validFormats = new Set(['md', 'html', 'json']);
   const fmt = validFormats.has(format) ? format : 'md';
 
@@ -205,7 +497,7 @@ function retentionDate(fromIso: string): string {
 }
 
 async function handlePostRun(request: Request, env: WorkerEnv): Promise<Response> {
-  const maxMb = parseInt(env.MAX_UPLOAD_MB, 10) || 100;
+  const maxMb = Number.parseInt(env.MAX_UPLOAD_MB, 10) || 100;
   const maxBytes = maxMb * 1024 * 1024;
 
   // Rate-limit check via TenantLimiter Durable Object
@@ -217,7 +509,12 @@ async function handlePostRun(request: Request, env: WorkerEnv): Promise<Response
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ tenant_id }),
   });
-  const { allowed } = await limiterResp.json<{ allowed: boolean; remaining: number; reset_at: number; count: number }>();
+  const { allowed } = await limiterResp.json<{
+    allowed: boolean;
+    remaining: number;
+    reset_at: number;
+    count: number;
+  }>();
   if (!allowed) {
     const errResp = corsError('Rate limit exceeded', 429, env);
     const headers = new Headers(errResp.headers);
@@ -268,16 +565,20 @@ async function handlePostRun(request: Request, env: WorkerEnv): Promise<Response
     if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
       singleObject = parsed as Record<string, unknown>;
     }
-  } catch { /* not a single JSON object — try JSONL below */ }
+  } catch {
+    /* not a single JSON object — try JSONL below */
+  }
 
   const isAepRecord =
     singleObject !== undefined &&
-    (singleObject['schema_version'] === 'aep/v0.2' || singleObject['schema_version'] === 'aep/v0.1');
+    (singleObject.schema_version === 'aep/v0.2' || singleObject.schema_version === 'aep/v0.1');
 
   if (isAepRecord && singleObject !== undefined) {
     inputFormat = 'aep';
     try {
-      const aepRecord = singleObject as unknown as Parameters<typeof aepV0_2.AepV0_2Adapter.toEvents>[0];
+      const aepRecord = singleObject as unknown as Parameters<
+        typeof aepV0_2.AepV0_2Adapter.toEvents
+      >[0];
       events = aepV0_2.AepV0_2Adapter.toEvents(aepRecord);
       const prov = aepV0_2.getProvenance(aepRecord);
       if (Object.keys(prov).length > 0) {
@@ -293,8 +594,11 @@ async function handlePostRun(request: Request, env: WorkerEnv): Promise<Response
     const rawEvents: unknown[] = [];
     parseFailures = [];
     for (const [idx, line] of lines.entries()) {
-      try { rawEvents.push(JSON.parse(line) as unknown); }
-      catch { parseFailures.push(idx + 1); }
+      try {
+        rawEvents.push(JSON.parse(line) as unknown);
+      } catch {
+        parseFailures.push(idx + 1);
+      }
     }
     const { valid } = validateEvents(rawEvents);
     events = valid;
@@ -309,8 +613,8 @@ async function handlePostRun(request: Request, env: WorkerEnv): Promise<Response
     ...new Set(
       events
         .filter((e) => e.type === 'tool_call' && e.tool)
-        .map((e) => e.tool!.capability ?? e.tool!.name)
-        .filter(Boolean),
+        .map((e) => e.tool?.capability ?? e.tool?.name)
+        .filter((v): v is string => Boolean(v)),
     ),
   ];
 
@@ -329,7 +633,12 @@ async function handlePostRun(request: Request, env: WorkerEnv): Promise<Response
     inventory(events),
     policyAudit(events, ctx),
   ]);
-  const score = await computeRiskScore(events, run_id, aepProvenance, validationResult.crypto_summary);
+  const score = await computeRiskScore(
+    events,
+    run_id,
+    aepProvenance,
+    validationResult.crypto_summary,
+  );
 
   const findings: Finding[] = [...auditFindings];
 
@@ -345,7 +654,8 @@ async function handlePostRun(request: Request, env: WorkerEnv): Promise<Response
       title: 'Trace parse errors',
       description: `${parseFailures.length} line(s) in the uploaded trace could not be parsed as JSON (lines: ${parseFailures.slice(0, 5).join(', ')}${parseFailures.length > 5 ? '…' : ''}).`,
       evidence_ids: [],
-      recommendation: 'Review the trace file for malformed JSON lines. Each line must be a complete, valid JSON object.',
+      recommendation:
+        'Review the trace file for malformed JSON lines. Each line must be a complete, valid JSON object.',
     });
   }
 
@@ -366,30 +676,56 @@ async function handlePostRun(request: Request, env: WorkerEnv): Promise<Response
 
   // Store all report formats in R2
   await Promise.all([
-    env.REPORTS.put(`runs/${run_id}/report.html`, bundle.html, { httpMetadata: { contentType: 'text/html; charset=utf-8' } }),
-    env.REPORTS.put(`runs/${run_id}/report.md`, bundle.markdown, { httpMetadata: { contentType: 'text/markdown; charset=utf-8' } }),
-    env.REPORTS.put(`runs/${run_id}/report.json`, bundle.json, { httpMetadata: { contentType: 'application/json; charset=utf-8' } }),
-    env.REPORTS.put(`runs/${run_id}/report.csv`, bundle.csv, { httpMetadata: { contentType: 'text/csv; charset=utf-8' } }),
+    env.REPORTS.put(`runs/${run_id}/report.html`, bundle.html, {
+      httpMetadata: { contentType: 'text/html; charset=utf-8' },
+    }),
+    env.REPORTS.put(`runs/${run_id}/report.md`, bundle.markdown, {
+      httpMetadata: { contentType: 'text/markdown; charset=utf-8' },
+    }),
+    env.REPORTS.put(`runs/${run_id}/report.json`, bundle.json, {
+      httpMetadata: { contentType: 'application/json; charset=utf-8' },
+    }),
+    env.REPORTS.put(`runs/${run_id}/report.csv`, bundle.csv, {
+      httpMetadata: { contentType: 'text/csv; charset=utf-8' },
+    }),
     env.ARTIFACTS.put(`runs/${run_id}/findings.json`, JSON.stringify(findings, null, 2)),
     env.ARTIFACTS.put(`runs/${run_id}/score.json`, JSON.stringify(score, null, 2)),
   ]);
 
   // Write run and findings to D1 so GET /api/v1/runs reflects this run
   const completedAt = new Date().toISOString();
-  await writeRunToD1(env, run_id, tenant_id, r2Key, inputFormat, events.length, findings, score, completedAt);
-
-  return corsJson({
+  await writeRunToD1(
+    env,
     run_id,
-    status: 'completed',
-    event_count: events.length,
-    error_count: validationResult.errors.length,
-    finding_count: findings.length,
-    eas_score: score.evidence_admission_score.score,
-    eas_grade: score.evidence_admission_score.grade,
-  }, env, 201);
+    tenant_id,
+    r2Key,
+    inputFormat,
+    events.length,
+    findings,
+    score,
+    completedAt,
+  );
+
+  return corsJson(
+    {
+      run_id,
+      status: 'completed',
+      event_count: events.length,
+      error_count: validationResult.errors.length,
+      finding_count: findings.length,
+      eas_score: score.evidence_admission_score.score,
+      eas_grade: score.evidence_admission_score.grade,
+    },
+    env,
+    201,
+  );
 }
 
-async function handlePublicReportLink(runId: string, env: WorkerEnv, request: Request): Promise<Response> {
+async function handlePublicReportLink(
+  runId: string,
+  env: WorkerEnv,
+  request: Request,
+): Promise<Response> {
   const isPrivate = (env.REPORT_VISIBILITY ?? 'public') === 'private';
   if (isPrivate && !checkAuth(request, env)) {
     return new Response('Unauthorized', { status: 401 });
@@ -402,17 +738,7 @@ async function handlePublicReportLink(runId: string, env: WorkerEnv, request: Re
 
   if (object === null) {
     return new Response(
-      `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Report Not Found — ${issuerName}</title>` +
-      `<style>body{font-family:sans-serif;max-width:520px;margin:80px auto;text-align:center;color:#374151;padding:0 20px}` +
-      `h1{color:#4f46e5;font-size:1.6rem;margin-bottom:8px}p{color:#6b7280;margin:8px 0}` +
-      `a{color:#4f46e5;text-decoration:none}a:hover{text-decoration:underline}` +
-      `code{background:#f3f4f6;padding:2px 6px;border-radius:4px;font-size:.85em}</style></head><body>` +
-      `<h1>OpenAgentAudit</h1>` +
-      `<p>Report <code>${runId.slice(0, 8)}…</code> was not found.</p>` +
-      `<p>It may have expired or the ID may be incorrect.</p>` +
-      `<p>Contact: <a href="mailto:${issuerEmail}">${issuerEmail}</a></p>` +
-      `<p style="margin-top:24px"><a href="${publicUrl}/">← Go to ${issuerName}</a></p>` +
-      `</body></html>`,
+      `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Report Not Found — ${issuerName}</title><style>body{font-family:sans-serif;max-width:520px;margin:80px auto;text-align:center;color:#374151;padding:0 20px}h1{color:#4f46e5;font-size:1.6rem;margin-bottom:8px}p{color:#6b7280;margin:8px 0}a{color:#4f46e5;text-decoration:none}a:hover{text-decoration:underline}code{background:#f3f4f6;padding:2px 6px;border-radius:4px;font-size:.85em}</style></head><body><h1>OpenAgentAudit</h1><p>Report <code>${runId.slice(0, 8)}…</code> was not found.</p><p>It may have expired or the ID may be incorrect.</p><p>Contact: <a href="mailto:${issuerEmail}">${issuerEmail}</a></p><p style="margin-top:24px"><a href="${publicUrl}/">← Go to ${issuerName}</a></p></body></html>`,
       { status: 404, headers: { 'content-type': 'text/html; charset=utf-8' } },
     );
   }
@@ -462,10 +788,7 @@ async function handlePassportIssue(request: Request, env: WorkerEnv): Promise<Re
     issuanceContext: 'trustavo',
   });
 
-  await env.PASSPORTS.put(
-    passport.identity.passport_id,
-    JSON.stringify(passport),
-  );
+  await env.PASSPORTS.put(passport.identity.passport_id, JSON.stringify(passport));
 
   return corsJson(passport, env, 201);
 }
@@ -478,7 +801,11 @@ async function handlePassportGet(passportId: string, env: WorkerEnv): Promise<Re
   return corsJson(JSON.parse(raw), env);
 }
 
-async function handlePassportRevoke(passportId: string, request: Request, env: WorkerEnv): Promise<Response> {
+async function handlePassportRevoke(
+  passportId: string,
+  request: Request,
+  env: WorkerEnv,
+): Promise<Response> {
   let body: Record<string, unknown>;
   try {
     body = (await request.json()) as Record<string, unknown>;
@@ -513,14 +840,21 @@ async function handlePassportStatus(passportId: string, env: WorkerEnv): Promise
   const passport = JSON.parse(raw) as TrustPassport;
   const currentStatus = status(passport);
 
-  return corsJson({
-    status: currentStatus,
-    passport_id: passport.identity.passport_id,
-    expires_at: passport.validity.expires_at,
-  }, env);
+  return corsJson(
+    {
+      status: currentStatus,
+      passport_id: passport.identity.passport_id,
+      expires_at: passport.validity.expires_at,
+    },
+    env,
+  );
 }
 
-async function handlePassportRenew(passportId: string, request: Request, env: WorkerEnv): Promise<Response> {
+async function handlePassportRenew(
+  passportId: string,
+  request: Request,
+  env: WorkerEnv,
+): Promise<Response> {
   let body: Record<string, unknown>;
   try {
     body = (await request.json()) as Record<string, unknown>;
@@ -544,7 +878,8 @@ async function handlePassportRenew(passportId: string, request: Request, env: Wo
   const issuedAt = new Date(passport.validity.issued_at).getTime();
   const expiresAt = new Date(passport.validity.expires_at).getTime();
   const originalDurationMs = expiresAt - issuedAt;
-  const extensionDays = (body['validityDays'] as number | undefined) ??
+  const extensionDays =
+    (body.validityDays as number | undefined) ??
     Math.round(originalDurationMs / (24 * 60 * 60 * 1000));
 
   const now = new Date();
@@ -758,7 +1093,14 @@ async function handleFetch(request: Request, env: WorkerEnv): Promise<Response> 
   const method = request.method.toUpperCase();
 
   // OPTIONS pre-flight for CORS
-  if (method === 'OPTIONS' && (pathname.startsWith('/api/') || pathname.startsWith('/passport/'))) {
+  if (
+    method === 'OPTIONS' &&
+    (pathname.startsWith('/api/') ||
+      pathname.startsWith('/passport/') ||
+      pathname.startsWith('/v1/') ||
+      pathname.startsWith('/agents/') ||
+      pathname === '/.well-known/agent-passport')
+  ) {
     return new Response(null, { status: 204, headers: corsHeaders(env) });
   }
 
@@ -774,11 +1116,14 @@ async function handleFetch(request: Request, env: WorkerEnv): Promise<Response> 
   // GET /api/v1/config — site branding config for the SPA
   if (method === 'GET' && pathname === '/api/v1/config') {
     const siteName = env.ISSUER_NAME.replace(/\s*\(.*?\)\s*$/, '').trim();
-    return corsJson({
-      site_name: siteName,
-      site_tagline: 'Evidence-grade audit for enterprise AI agents',
-      powered_by: 'OpenAgentAudit',
-    }, env);
+    return corsJson(
+      {
+        site_name: siteName,
+        site_tagline: 'Evidence-grade audit for enterprise AI agents',
+        powered_by: 'OpenAgentAudit',
+      },
+      env,
+    );
   }
 
   // GET /api/v1/runs
@@ -862,6 +1207,53 @@ async function handleFetch(request: Request, env: WorkerEnv): Promise<Response> 
     return handlePublicReportLink(reportId, env, request);
   }
 
+  // --- Federation API (Cross-org Trust Passport) ---
+
+  if (method === 'GET' && pathname === '/.well-known/agent-passport') {
+    return handleWellKnownAgentPassport(env);
+  }
+
+  const agentDidMatch = matchRoute(pathname, /^\/agents\/([^/]+)\/did\.json$/);
+  if (agentDidMatch !== null && method === 'GET') {
+    const agentId = agentDidMatch[1];
+    if (agentId === undefined) return corsError('Bad route', 400, env);
+    return handleAgentDid(agentId, env);
+  }
+
+  if (method === 'POST' && pathname === '/v1/passports/register') {
+    if (!checkAuth(request, env)) return corsError('Unauthorized', 401, env);
+    return handleFederationRegister(request, env);
+  }
+
+  const fedAgentMatch = matchRoute(pathname, /^\/v1\/passports\/agent\/([^/]+)$/);
+  if (fedAgentMatch !== null && method === 'GET') {
+    const agentId = fedAgentMatch[1];
+    if (agentId === undefined) return corsError('Bad route', 400, env);
+    return handleFederationGetByAgent(agentId, env);
+  }
+
+  const fedRevokeMatch = matchRoute(pathname, /^\/v1\/passports\/([^/]+)\/revoke$/);
+  if (fedRevokeMatch !== null && method === 'PUT') {
+    if (!checkAuth(request, env)) return corsError('Unauthorized', 401, env);
+    const registryId = fedRevokeMatch[1];
+    if (registryId === undefined) return corsError('Bad route', 400, env);
+    return handleFederationRevoke(registryId, request, env);
+  }
+
+  const fedGetMatch = matchRoute(pathname, /^\/v1\/passports\/([^/]+)$/);
+  if (fedGetMatch !== null && method === 'GET') {
+    const registryId = fedGetMatch[1];
+    if (registryId === undefined) return corsError('Bad route', 400, env);
+    return handleFederationGetById(registryId, env);
+  }
+
+  const statusListMatch = matchRoute(pathname, /^\/v1\/status\/([^/]+)$/);
+  if (statusListMatch !== null && method === 'GET') {
+    const listId = statusListMatch[1];
+    if (listId === undefined) return corsError('Bad route', 400, env);
+    return handleStatusList(listId, env);
+  }
+
   // POST /passport/issue
   if (method === 'POST' && pathname === '/passport/issue') {
     return handlePassportIssue(request, env);
@@ -935,10 +1327,10 @@ async function writeRunToD1(
   // Ensure the tenant and default project exist (single-tenant deployments use 'default').
   await env.DB.batch([
     env.DB.prepare(
-      `INSERT OR IGNORE INTO tenants (tenant_id, name, plan, created_at) VALUES (?, ?, ?, ?)`,
+      'INSERT OR IGNORE INTO tenants (tenant_id, name, plan, created_at) VALUES (?, ?, ?, ?)',
     ).bind(tenant_id, tenant_id, 'pilot', completedAt),
     env.DB.prepare(
-      `INSERT OR IGNORE INTO projects (project_id, tenant_id, name, created_at) VALUES (?, ?, ?, ?)`,
+      'INSERT OR IGNORE INTO projects (project_id, tenant_id, name, created_at) VALUES (?, ?, ?, ?)',
     ).bind('default', tenant_id, 'default', completedAt),
   ]);
 
@@ -999,10 +1391,7 @@ async function writeRunToD1(
   }
 }
 
-async function processAuditJob(
-  msg: AuditJobMessage,
-  env: WorkerEnv,
-): Promise<void> {
+async function processAuditJob(msg: AuditJobMessage, env: WorkerEnv): Promise<void> {
   const { run_id, r2_key, manifest } = msg;
 
   // 1. Fetch JSONL from R2
@@ -1017,11 +1406,16 @@ async function processAuditJob(
   const rawParsed: unknown[] = [];
   let parseFailureCount = 0;
   for (const line of lines) {
-    try { rawParsed.push(JSON.parse(line) as unknown); }
-    catch { parseFailureCount++; }
+    try {
+      rawParsed.push(JSON.parse(line) as unknown);
+    } catch {
+      parseFailureCount++;
+    }
   }
   if (parseFailureCount > 0) {
-    console.warn(`processAuditJob: ${parseFailureCount} line(s) could not be parsed as JSON for run ${run_id}`);
+    console.warn(
+      `processAuditJob: ${parseFailureCount} line(s) could not be parsed as JSON for run ${run_id}`,
+    );
   }
   const { valid: events } = validateEvents(rawParsed);
 
@@ -1039,58 +1433,58 @@ async function processAuditJob(
   const findings: Finding[] = await policyAudit(events, policyCtx);
   // contamination check requires a separate training event set (pass via contamination_result param)
   // currently deferred — computeRiskScore uses neutral score (100) when no result is provided
-  const score: RiskScore = await computeRiskScore(events, run_id, undefined, validationResult.crypto_summary);
-  const reportBundle = await renderReport(events, findings, score, inv, { crypto_summary: validationResult.crypto_summary });
+  const score: RiskScore = await computeRiskScore(
+    events,
+    run_id,
+    undefined,
+    validationResult.crypto_summary,
+  );
+  const reportBundle = await renderReport(events, findings, score, inv, {
+    crypto_summary: validationResult.crypto_summary,
+  });
 
   // 4. Store results in ARTIFACTS R2
-  await env.ARTIFACTS.put(
-    `runs/${run_id}/inventory.json`,
-    JSON.stringify(inv),
-    { httpMetadata: { contentType: 'application/json' } },
-  );
-  await env.ARTIFACTS.put(
-    `runs/${run_id}/findings.json`,
-    JSON.stringify(findings),
-    { httpMetadata: { contentType: 'application/json' } },
-  );
-  await env.ARTIFACTS.put(
-    `runs/${run_id}/score.json`,
-    JSON.stringify(score),
-    { httpMetadata: { contentType: 'application/json' } },
-  );
-  await env.ARTIFACTS.put(
-    `runs/${run_id}/validation.json`,
-    JSON.stringify(validationResult),
-    { httpMetadata: { contentType: 'application/json' } },
-  );
+  await env.ARTIFACTS.put(`runs/${run_id}/inventory.json`, JSON.stringify(inv), {
+    httpMetadata: { contentType: 'application/json' },
+  });
+  await env.ARTIFACTS.put(`runs/${run_id}/findings.json`, JSON.stringify(findings), {
+    httpMetadata: { contentType: 'application/json' },
+  });
+  await env.ARTIFACTS.put(`runs/${run_id}/score.json`, JSON.stringify(score), {
+    httpMetadata: { contentType: 'application/json' },
+  });
+  await env.ARTIFACTS.put(`runs/${run_id}/validation.json`, JSON.stringify(validationResult), {
+    httpMetadata: { contentType: 'application/json' },
+  });
 
   // 5. Store reports in REPORTS R2
-  await env.REPORTS.put(
-    `runs/${run_id}/report.md`,
-    reportBundle.markdown,
-    { httpMetadata: { contentType: 'text/markdown' } },
-  );
-  await env.REPORTS.put(
-    `runs/${run_id}/report.html`,
-    reportBundle.html,
-    { httpMetadata: { contentType: 'text/html' } },
-  );
-  await env.REPORTS.put(
-    `runs/${run_id}/report.json`,
-    reportBundle.json,
-    { httpMetadata: { contentType: 'application/json' } },
-  );
+  await env.REPORTS.put(`runs/${run_id}/report.md`, reportBundle.markdown, {
+    httpMetadata: { contentType: 'text/markdown' },
+  });
+  await env.REPORTS.put(`runs/${run_id}/report.html`, reportBundle.html, {
+    httpMetadata: { contentType: 'text/html' },
+  });
+  await env.REPORTS.put(`runs/${run_id}/report.json`, reportBundle.json, {
+    httpMetadata: { contentType: 'application/json' },
+  });
 
   const completedAt = new Date().toISOString();
 
   // 6. Write run and findings to D1
-  await writeRunToD1(env, run_id, msg.tenant_id, r2_key, 'jsonl', events.length, findings, score, completedAt);
+  await writeRunToD1(
+    env,
+    run_id,
+    msg.tenant_id,
+    r2_key,
+    'jsonl',
+    events.length,
+    findings,
+    score,
+    completedAt,
+  );
 }
 
-async function processReportJob(
-  msg: ReportJobMessage,
-  env: WorkerEnv,
-): Promise<void> {
+async function processReportJob(msg: ReportJobMessage, env: WorkerEnv): Promise<void> {
   const { run_id, format } = msg;
 
   // Fetch findings and score from ARTIFACTS
@@ -1162,11 +1556,7 @@ const GH_FETCH_TIMEOUT_MS = 30_000;
  * Fetch GitHub issues for a repo with a label filter.
  * Throws on timeout (AbortError) or HTTP 408.
  */
-async function fetchGitHubIssues(
-  repo: string,
-  label: string,
-  token: string,
-): Promise<unknown[]> {
+async function fetchGitHubIssues(repo: string, label: string, token: string): Promise<unknown[]> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), GH_FETCH_TIMEOUT_MS);
 
@@ -1270,7 +1660,9 @@ async function handleScheduled(
     const issues = await fetchIssuesWithRetry(repo, label, token);
     if (issues.length === 0) continue;
 
-    console.info(`[scheduler] ${repo}: found ${issues.length} open issue(s) with label '${label}'.`);
+    console.info(
+      `[scheduler] ${repo}: found ${issues.length} open issue(s) with label '${label}'.`,
+    );
 
     // TODO: Enqueue discovered issues as audit jobs.
     // For now, log them. Full job-enqueueing logic to be added in a follow-up.
