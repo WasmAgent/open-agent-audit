@@ -7,6 +7,7 @@ name: Deploy
 #   CLOUDFLARE_ACCOUNT_ID — Cloudflare account ID
 #   CF_D1_DATABASE_ID     — D1 database ID for "oaa-meta"
 #   CF_KV_PASSPORTS_ID   — KV namespace ID for "PASSPORTS"
+#   CF_KV_APPROVALS_ID   — KV namespace ID for "APPROVALS"
 
 on:
   push:
@@ -51,6 +52,7 @@ jobs:
         env:
           CF_D1_DATABASE_ID: ${{ secrets.CF_D1_DATABASE_ID }}
           CF_KV_PASSPORTS_ID: ${{ secrets.CF_KV_PASSPORTS_ID }}
+          CF_KV_APPROVALS_ID: ${{ secrets.CF_KV_APPROVALS_ID }}
         run: |
           python3 - <<'EOF'
           import os, re
@@ -58,8 +60,10 @@ jobs:
           src = open("examples/cloudflare/wrangler.example.jsonc").read()
           d1_id = os.environ["CF_D1_DATABASE_ID"]
           kv_id = os.environ["CF_KV_PASSPORTS_ID"]
+          kv_approvals_id = os.environ["CF_KV_APPROVALS_ID"]
           out = src.replace("REPLACE_ME_D1_ID", d1_id)
           out = out.replace("REPLACE_ME_KV_PASSPORTS_ID", kv_id)
+          out = out.replace("REPLACE_ME_KV_APPROVALS_ID", kv_approvals_id)
           open("wrangler.jsonc", "w").write(out)
           print("wrangler.jsonc written")
           # Sanity check — abort if placeholder still present

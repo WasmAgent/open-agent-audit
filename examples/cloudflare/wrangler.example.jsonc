@@ -35,7 +35,8 @@
   ],
 
   "kv_namespaces": [
-    { "binding": "PASSPORTS", "id": "REPLACE_ME_KV_PASSPORTS_ID" }
+    { "binding": "PASSPORTS", "id": "REPLACE_ME_KV_PASSPORTS_ID" },
+    { "binding": "APPROVALS", "id": "REPLACE_ME_KV_APPROVALS_ID" }
   ],
 
   "d1_databases": [
