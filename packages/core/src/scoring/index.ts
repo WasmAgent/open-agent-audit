@@ -132,6 +132,29 @@ function computeProvenanceIntegrity(
   return base;
 }
 
+/**
+ * Compute the objective_verification EAS component from the event stream.
+ *
+ * Returns a 0–100 score based on the ratio of verifier observations to
+ * tool_call events:
+ * - 100: verifier coverage >= 80% of tool calls
+ * -  80: no tool_call events at all (non-agentic run)
+ * -  70: verifier coverage >= 50%
+ * -  50: **default / neutral** — tool calls exist but NO verifier results
+ * -  40: some verifier results exist but coverage < 50%
+ *
+ * NOTE: The score defaults to 50 (neutral) when no verifier results are
+ * present in the event stream. For tool-calling agents this means the
+ * objective_verification component will always be 50 unless verifier
+ * observations (source prefixed with "verifier:") are present.
+ *
+ * To get a meaningful score, ensure verifier results are added to tool_call
+ * events before passing them to {@link computeRiskScore}. If using the AEP
+ * adapter, populate the `verifier_results` field on AEP records so that the
+ * adapter emits verifier observations into the canonical event stream.
+ *
+ * @see computeRiskScore — the top-level scoring function that uses this component
+ */
 function computeObjectiveVerification(events: CanonicalEvent[]): number {
   const toolCallCount = events.filter((ev) => ev.type === 'tool_call').length;
 
@@ -255,6 +278,37 @@ function computeAgentRiskScore(events: CanonicalEvent[]): number {
   return Math.max(0, 100 - penalty);
 }
 
+/**
+ * Compute the Evidence Admission Score (EAS) and Agent Risk Score (ARS) for
+ * a set of canonical events.
+ *
+ * EAS formula:
+ *   0.20 * trace_completeness
+ * + 0.20 * provenance_integrity
+ * + 0.20 * objective_verification
+ * + 0.15 * policy_coverage
+ * + 0.15 * human_oversight_evidence
+ * + 0.10 * contamination_risk_inverted
+ *
+ * NOTE: The `objective_verification` component defaults to 50 (neutral)
+ * when no verifier results are present in the event stream. For tool-calling
+ * agents this means the component always contributes 10 points (0.20 * 50)
+ * unless verifier observations exist. To get a meaningful score, ensure
+ * verifier observations (type "observation" with source prefixed "verifier:")
+ * are present in the events array before calling this function.
+ *
+ * If using the AEP v0.2 adapter, populate `verifier_results` on AEP records
+ * so that the adapter emits verifier observations into the canonical stream.
+ *
+ * @param events - Array of canonical events representing the agent run
+ * @param runId - Optional run ID override (used if events[0].run_id is missing)
+ * @param aepProvenance - Optional AEP provenance fields for provenance_integrity bonus
+ * @param cryptoSummary - Optional crypto verification summary from validate()
+ * @param contaminationResult - Optional contamination detection result
+ * @returns RiskScore containing EAS, ARS, and component breakdowns
+ *
+ * @see computeObjectiveVerification — details on the 50-point default
+ */
 export async function computeRiskScore(
   events: CanonicalEvent[],
   runId?: string,

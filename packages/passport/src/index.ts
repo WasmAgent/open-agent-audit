@@ -1,4 +1,4 @@
-export { issue } from './issue.js';
+export { issue, EVIDENCE_QUALITY_THRESHOLDS } from './issue.js';
 export { renew, revoke, status } from './lifecycle.js';
 export { validateTrustPassport, isExpired } from './validate.js';
 export { hashEvidence, addFact } from './evidence.js';

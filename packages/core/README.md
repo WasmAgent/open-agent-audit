@@ -58,6 +58,25 @@ A misbehaving agent with a perfect trace gets a high EAS and a low ARS.
 
 See [`docs/evidence-admission-score.md`](../../docs/evidence-admission-score.md) for component definitions.
 
+### Prerequisites: objective_verification and verifier results
+
+The `objective_verification` EAS component defaults to **50 (neutral)** when no
+verifier results are present in the event stream. This means tool-calling agents
+always receive a neutral score for this component unless verifier observations
+exist.
+
+To get a meaningful `objective_verification` score:
+
+1. **AEP v0.2 adapter users**: Populate the `verifier_results` field on AEP
+   records. The adapter maps failed verifier results to canonical `observation`
+   events with `source: "verifier:<verifier_id>"`.
+
+2. **Direct canonical event producers**: Emit `observation` events with
+   `source` prefixed by `"verifier:"` after tool_call events.
+
+Without verifier observations, `objective_verification` contributes a fixed
+10 points (0.20 * 50) to the overall EAS regardless of agent behavior.
+
 ## Compliance coverage
 
 The report engine maps trace evidence to four regulatory frameworks automatically:
