@@ -30,6 +30,7 @@ jobs:
           npx tsc -p packages/schema/tsconfig.json
           npx tsc -p packages/core/tsconfig.json
           npx tsc -p packages/adapters/tsconfig.json
+          npx tsc -p packages/passport/tsconfig.json
 
       - name: Create Release Pull Request or Publish
         uses: changesets/action@v1
