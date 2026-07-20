@@ -1,5 +1,11 @@
 # @openagentaudit/passport
 
+## 0.4.0
+
+### Minor Changes
+
+- [#67](https://github.com/WasmAgent/open-agent-audit/pull/67) [`1129e45`](https://github.com/WasmAgent/open-agent-audit/commit/1129e45e5d3e099d7bb112b6fb14bd584047c909) Thanks [@HainingYin](https://github.com/HainingYin)! - feat(passport): EdDSA signing, verification, inspect, and renew endpoint — completes migration from agent-trust-infra
+
 ## 0.3.2
 
 ### Patch Changes
