@@ -1,18 +1,44 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { FrameworkMapping, IssueOptions, TrustPassport } from './types.js';
 
+/**
+ * Evidence quality thresholds used by {@link deriveEvidenceQuality}.
+ *
+ * Maps EAS (Evidence Admission Score) numeric values to quality levels:
+ * - high:         score >= 90
+ * - medium:       score >= 60
+ * - low:          score >= 30
+ * - insufficient: score < 30 (or missing)
+ */
+export const EVIDENCE_QUALITY_THRESHOLDS = {
+  high: 90,
+  medium: 60,
+  low: 30,
+} as const;
+
 function sha256(data: string): string {
   return createHash('sha256').update(data).digest('hex');
 }
 
+/**
+ * Derive a qualitative evidence quality level from the report's EAS score.
+ *
+ * Evidence quality thresholds:
+ * - high:         score >= 90
+ * - medium:       score >= 60
+ * - low:          score >= 30
+ * - insufficient: score < 30 (or missing)
+ *
+ * @see EVIDENCE_QUALITY_THRESHOLDS — exported constants for programmatic access
+ */
 function deriveEvidenceQuality(
   report: Record<string, unknown>,
 ): 'high' | 'medium' | 'low' | 'insufficient' {
   const eas = report.evidence_admission_score as { score?: number } | undefined;
   if (!eas?.score) return 'insufficient';
-  if (eas.score >= 90) return 'high';
-  if (eas.score >= 60) return 'medium';
-  if (eas.score >= 30) return 'low';
+  if (eas.score >= EVIDENCE_QUALITY_THRESHOLDS.high) return 'high';
+  if (eas.score >= EVIDENCE_QUALITY_THRESHOLDS.medium) return 'medium';
+  if (eas.score >= EVIDENCE_QUALITY_THRESHOLDS.low) return 'low';
   return 'insufficient';
 }
 
