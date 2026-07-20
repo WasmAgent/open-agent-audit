@@ -1,5 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { FrameworkMapping, IssueOptions, TrustPassport } from './types.js';
+import { signPassport } from './sign.js';
+import type { SignedPassport } from './sign.js';
 
 /**
  * Evidence quality thresholds used by {@link deriveEvidenceQuality}.
@@ -106,7 +108,7 @@ function deriveRiskSummary(report: Record<string, unknown>): {
   return { critical, high, medium, low, open_findings: critical + high + medium + low };
 }
 
-export function issue(options: IssueOptions): TrustPassport {
+export async function issue(options: IssueOptions): Promise<TrustPassport | SignedPassport> {
   const {
     report,
     agentId,
@@ -116,6 +118,7 @@ export function issue(options: IssueOptions): TrustPassport {
     validityDays = 90,
     issuer = 'trustavo.com',
     issuanceContext = 'self-issued',
+    signer,
   } = options;
 
   const reportJson = JSON.stringify(report);
@@ -191,6 +194,10 @@ export function issue(options: IssueOptions): TrustPassport {
       snapshot_hash: sha256(postureJson),
       captured_at: now.toISOString(),
     };
+  }
+
+  if (signer) {
+    return signPassport(passport, signer);
   }
 
   return passport;
