@@ -1,5 +1,14 @@
 # @openagentaudit/passport
 
+## 0.3.1
+
+### Patch Changes
+
+- [#62](https://github.com/WasmAgent/open-agent-audit/pull/62) [`0081193`](https://github.com/WasmAgent/open-agent-audit/commit/0081193bdbe2ef57ee576229ef5f1689513c050b) Thanks [@HainingYin](https://github.com/HainingYin)! - fix: renderReport null crash, tool_name alias, structured validation errors
+
+- Updated dependencies [[`0081193`](https://github.com/WasmAgent/open-agent-audit/commit/0081193bdbe2ef57ee576229ef5f1689513c050b)]:
+  - @openagentaudit/core@0.3.1
+
 ## 0.3.0
 
 ### Minor Changes
