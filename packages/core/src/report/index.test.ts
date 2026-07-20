@@ -205,3 +205,32 @@ describe('golden report fixture', () => {
     expect(hasScoreDisplay).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Bug #57: renderReport does not crash when inventoryReport is null
+// ---------------------------------------------------------------------------
+
+describe('renderReport null inventoryReport (#57)', () => {
+  it('does not crash when inventoryReport is null', async () => {
+    const score = await computeRiskScore(GOLDEN_EVENTS);
+    const findings = await policyAudit(GOLDEN_EVENTS, {
+      manifest: {
+        declared_capabilities: [],
+        high_risk_capabilities: [],
+        denied_capabilities: [],
+      },
+    });
+
+    // Passing null explicitly — this previously threw TypeError
+    const bundle = await renderReport(GOLDEN_EVENTS, findings, score, null);
+
+    expect(bundle.markdown).toContain('Evidence Admission Score');
+    expect(bundle.html).toBeDefined();
+    expect(bundle.json).toBeDefined();
+    expect(bundle.csv).toBeDefined();
+
+    // The JSON report should not have an inventory section
+    const report = JSON.parse(bundle.json) as { inventory?: unknown };
+    expect(report.inventory).toBeUndefined();
+  });
+});

@@ -9,7 +9,7 @@ import {
   hashEvidence,
   addFact,
 } from './index.js';
-import type { TrustPassport } from './index.js';
+import type { TrustPassport, ValidationError } from './index.js';
 
 const MOCK_REPORT = {
   run_id: 'run-001',
@@ -283,5 +283,92 @@ describe('passport/addFact', () => {
     addFact(p, 'a', 'x');
     addFact(p, 'b', 'y');
     expect(Object.keys(p.evidence_facts!)).toHaveLength(2);
+  });
+});
+
+// ---------- structuredErrors (#60) ----------
+
+describe('passport/validateTrustPassport — structuredErrors (#60)', () => {
+  function makeValidPassport(): Record<string, unknown> {
+    return {
+      passport_version: '0.1',
+      identity: { passport_id: 'tp-1', agent_id: 'a', issuer: 'trustavo.com' },
+      validity: {
+        issued_at: '2025-01-01T00:00:00Z',
+        expires_at: '2025-04-01T00:00:00Z',
+      },
+      revocation: { revoked: false },
+      attestation: { issuer: 'trustavo.com', signing_method: 'none' },
+    };
+  }
+
+  test('valid passport has empty structuredErrors array', () => {
+    const result = validateTrustPassport(makeValidPassport());
+    expect(result.valid).toBe(true);
+    expect(result.structuredErrors).toHaveLength(0);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  test('structuredErrors includes field paths for missing sections', () => {
+    const result = validateTrustPassport({ passport_version: '0.1' });
+    expect(result.valid).toBe(false);
+    expect(result.structuredErrors.length).toBeGreaterThan(0);
+
+    const fields = result.structuredErrors.map((e) => e.field);
+    expect(fields).toContain('identity');
+    expect(fields).toContain('validity');
+    expect(fields).toContain('revocation');
+    expect(fields).toContain('attestation');
+
+    // All required-field errors use 'required' errorCode
+    const requiredErrors = result.structuredErrors.filter((e) => e.errorCode === 'required');
+    expect(requiredErrors.length).toBe(4);
+  });
+
+  test('structuredErrors includes field path for invalid timestamp', () => {
+    const data = makeValidPassport();
+    (data['validity'] as Record<string, unknown>)['issued_at'] = '2025-01-01T00:00:00+05:00';
+    const result = validateTrustPassport(data);
+    expect(result.valid).toBe(false);
+
+    const tsError = result.structuredErrors.find((e) => e.field === 'validity.issued_at');
+    expect(tsError).toBeDefined();
+    expect(tsError!.errorCode).toBe('invalid_format');
+    expect(tsError!.received).toBe('2025-01-01T00:00:00+05:00');
+  });
+
+  test('structuredErrors uses prototype_pollution errorCode', () => {
+    const evil = Object.create(null) as Record<string, unknown>;
+    evil['__proto__'] = { admin: true };
+    evil['passport_version'] = '0.1';
+    evil['identity'] = { passport_id: 'tp-1', agent_id: 'a', issuer: 'x' };
+    evil['validity'] = { issued_at: '2025-01-01T00:00:00Z', expires_at: '2025-04-01T00:00:00Z' };
+    evil['revocation'] = { revoked: false };
+    evil['attestation'] = { issuer: 'x' };
+    const result = validateTrustPassport(evil);
+    expect(result.valid).toBe(false);
+
+    const pollError = result.structuredErrors.find((e) => e.errorCode === 'prototype_pollution');
+    expect(pollError).toBeDefined();
+    expect(pollError!.field).toBe('data');
+  });
+
+  test('errors and structuredErrors stay in sync', () => {
+    const data = makeValidPassport();
+    (data['validity'] as Record<string, unknown>)['issued_at'] = 'bad-date';
+    (data['validity'] as Record<string, unknown>)['expires_at'] = 'bad-date-2';
+    const result = validateTrustPassport(data);
+
+    expect(result.errors.length).toBe(result.structuredErrors.length);
+    for (let i = 0; i < result.errors.length; i++) {
+      expect(result.errors[i]).toBe(result.structuredErrors[i]!.message);
+    }
+  });
+
+  test('non-object data returns invalid_type errorCode', () => {
+    const result = validateTrustPassport('not an object');
+    expect(result.valid).toBe(false);
+    expect(result.structuredErrors[0]!.errorCode).toBe('invalid_type');
+    expect(result.structuredErrors[0]!.field).toBe('data');
   });
 });
