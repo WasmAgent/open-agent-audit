@@ -39,6 +39,8 @@ export interface CanonicalEvent {
   timestamp: string;
   type: EventType;
   actor: Actor;
+  /** Top-level alias for tool.name — convenient shorthand for consumers. */
+  tool_name?: string;
   tool?: {
     name: string;
     capability?: string;
@@ -168,6 +170,7 @@ export const CanonicalEventSchema = z.object({
     'error',
   ]),
   actor: z.enum(['agent', 'user', 'system', 'tool', 'human_reviewer']),
+  tool_name: z.string().optional(),
   tool: z
     .object({
       name: z.string(),

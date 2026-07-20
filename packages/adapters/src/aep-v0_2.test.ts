@@ -34,6 +34,17 @@ describe('aep-v0_2 adapter — wasmagent-js fixture', () => {
     expect(toolCalls[1]?.tool?.name).toBe('write_file');
   });
 
+  it('tool_call events have top-level tool_name alias (#58)', () => {
+    const events = AepV0_2Adapter.toEvents(record);
+    const toolCalls = events.filter((e) => e.type === 'tool_call');
+    expect(toolCalls[0]?.tool_name).toBe('bash');
+    expect(toolCalls[1]?.tool_name).toBe('write_file');
+    // Confirm it matches tool.name
+    for (const tc of toolCalls) {
+      expect(tc.tool_name).toBe(tc.tool?.name);
+    }
+  });
+
   it('toEvents emits one policy_decision event', () => {
     const events = AepV0_2Adapter.toEvents(record);
     const decisions = events.filter((e) => e.type === 'policy_decision');

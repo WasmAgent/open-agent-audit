@@ -2768,10 +2768,13 @@ export async function renderReport(
   events: CanonicalEvent[],
   findings: Finding[],
   score: RiskScore,
-  inventoryReport?: InventoryReport,
+  inventoryReport?: InventoryReport | null,
   meta?: ReportMeta,
   benchmarkResult?: BenchmarkAuditResult,
 ): Promise<ReportBundle> {
+  // Normalize null to undefined so downstream guards (`if (inv !== undefined)`) work correctly.
+  const inv = inventoryReport ?? undefined;
+
   const generatedAt = new Date().toISOString();
   const resolved = resolveMeta(events, score, generatedAt, meta);
   const complianceMappings = buildComplianceMappings(events, findings, meta, benchmarkResult);
@@ -2780,9 +2783,9 @@ export async function renderReport(
   const narrativeIntro = meta?.narrative?.intro ?? meta?.narrative_intro;
   const narrativeConclusion = meta?.narrative?.conclusion ?? meta?.narrative_conclusion;
 
-  const markdown = buildMarkdown(events, findings, score, inventoryReport, generatedAt, resolved, complianceMappings, cryptoSummary, narrativeIntro, narrativeConclusion);
-  const html = buildHtml(events, findings, score, inventoryReport, generatedAt, resolved, complianceMappings, cryptoSummary, narrativeIntro, narrativeConclusion);
-  const json = buildJson(events, findings, score, inventoryReport, generatedAt, resolved, complianceMappings, cryptoSummary);
+  const markdown = buildMarkdown(events, findings, score, inv, generatedAt, resolved, complianceMappings, cryptoSummary, narrativeIntro, narrativeConclusion);
+  const html = buildHtml(events, findings, score, inv, generatedAt, resolved, complianceMappings, cryptoSummary, narrativeIntro, narrativeConclusion);
+  const json = buildJson(events, findings, score, inv, generatedAt, resolved, complianceMappings, cryptoSummary);
   const csv = buildCsv(events, findings);
 
   return { markdown, html, json, csv };

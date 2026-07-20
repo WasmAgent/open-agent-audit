@@ -315,6 +315,7 @@ function toEvents(record: AEPRecordInput, opts?: { prevHash?: string }): Canonic
       timestamp: msToIso(action.timestamp_ms),
       type: 'tool_call',
       actor: 'agent',
+      tool_name: action.tool_name,
       tool: toolObj,
       ...(hasApprovalSignal ? { human_approval: true } : {}),
     });
