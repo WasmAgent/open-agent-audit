@@ -34,10 +34,11 @@ jobs:
       - name: Install all dependencies
         run: npm install
 
-      - name: Build packages (schema → core → adapters)
+      - name: Build packages (schema → core → passport → adapters)
         run: |
           npx tsc -p packages/schema/tsconfig.json
           npx tsc -p packages/core/tsconfig.json
+          npx tsc -p packages/passport/tsconfig.json
           npx tsc -p packages/adapters/tsconfig.json
 
       - name: Build dashboard
