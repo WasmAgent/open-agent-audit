@@ -1,5 +1,14 @@
 # @openagentaudit/passport
 
+## 0.3.2
+
+### Patch Changes
+
+- [#64](https://github.com/WasmAgent/open-agent-audit/pull/64) [`7189e2a`](https://github.com/WasmAgent/open-agent-audit/commit/7189e2a8eaaf9840a6458a521515516eb79260eb) Thanks [@HainingYin](https://github.com/HainingYin)! - docs: document evidence_quality thresholds and computeRiskScore verifier dependency
+
+- Updated dependencies [[`7189e2a`](https://github.com/WasmAgent/open-agent-audit/commit/7189e2a8eaaf9840a6458a521515516eb79260eb)]:
+  - @openagentaudit/core@0.3.2
+
 ## 0.3.1
 
 ### Patch Changes
