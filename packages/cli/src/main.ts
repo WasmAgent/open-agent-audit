@@ -588,7 +588,7 @@ async function cmdPassportIssue(flags: Map<string, string | true>): Promise<void
 
   const agentNameValue = agentName && agentName !== true ? agentName : undefined;
 
-  const passport = issue({
+  const passport = await issue({
     report,
     agentId: agentId as string,
     ...(agentNameValue !== undefined ? { agentName: agentNameValue } : {}),
