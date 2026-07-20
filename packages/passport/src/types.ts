@@ -61,6 +61,8 @@ export interface Validity {
   issued_at: string;
   expires_at: string;
   renewal_triggers?: string[];
+  renewed_at?: string;
+  renewal_count?: number;
 }
 
 export interface Revocation {
@@ -75,6 +77,8 @@ export interface Attestation {
   signing_method?: 'none' | 'sigstore' | 'ed25519';
   passport_hash?: string;
   signature?: string;
+  key_id?: string;
+  signed_at?: string;
 }
 
 export interface IssueOptions {
@@ -86,6 +90,7 @@ export interface IssueOptions {
   validityDays?: number;
   issuer?: string;
   issuanceContext?: 'self-issued' | 'trustavo';
+  signer?: import('./sign.js').PassportSigner;
 }
 
 export interface RenewOptions {

@@ -450,7 +450,7 @@ async function handlePassportIssue(request: Request, env: WorkerEnv): Promise<Re
     return corsError('Missing required fields: report, agentId', 400, env);
   }
 
-  const passport = issue({
+  const passport = await issue({
     report,
     agentId,
     ...(agentName !== undefined && { agentName }),
@@ -517,6 +517,53 @@ async function handlePassportStatus(passportId: string, env: WorkerEnv): Promise
     passport_id: passport.identity.passport_id,
     expires_at: passport.validity.expires_at,
   }, env);
+}
+
+async function handlePassportRenew(passportId: string, request: Request, env: WorkerEnv): Promise<Response> {
+  let body: Record<string, unknown>;
+  try {
+    body = (await request.json()) as Record<string, unknown>;
+  } catch {
+    body = {};
+  }
+
+  const raw = await env.PASSPORTS.get(passportId);
+  if (raw === null) {
+    return corsError('Passport not found', 404, env);
+  }
+
+  const passport = JSON.parse(raw) as TrustPassport;
+  const currentStatus = status(passport);
+
+  if (currentStatus === 'revoked') {
+    return corsError('Cannot renew a revoked passport', 409, env);
+  }
+
+  // Compute original duration or use provided/default
+  const issuedAt = new Date(passport.validity.issued_at).getTime();
+  const expiresAt = new Date(passport.validity.expires_at).getTime();
+  const originalDurationMs = expiresAt - issuedAt;
+  const extensionDays = (body['validityDays'] as number | undefined) ??
+    Math.round(originalDurationMs / (24 * 60 * 60 * 1000));
+
+  const now = new Date();
+  const newExpiresAt = new Date(now.getTime() + extensionDays * 24 * 60 * 60 * 1000);
+
+  const currentRenewalCount = passport.validity.renewal_count ?? 0;
+
+  const renewed: TrustPassport = {
+    ...passport,
+    validity: {
+      ...passport.validity,
+      expires_at: newExpiresAt.toISOString(),
+      renewed_at: now.toISOString(),
+      renewal_count: currentRenewalCount + 1,
+    },
+  };
+
+  await env.PASSPORTS.put(passportId, JSON.stringify(renewed));
+
+  return corsJson(renewed, env);
 }
 
 // ---------------------------------------------------------------------------
@@ -624,6 +671,15 @@ async function handleFetch(request: Request, env: WorkerEnv): Promise<Response> 
     const passportId = passportStatusMatch[1];
     if (passportId === undefined) return corsError('Bad route', 400, env);
     return handlePassportStatus(passportId, env);
+  }
+
+  // POST /passport/:id/renew
+  const passportRenewMatch = matchRoute(pathname, /^\/passport\/([^/]+)\/renew$/);
+  if (passportRenewMatch !== null && method === 'POST') {
+    if (!checkAuth(request, env)) return corsError('Unauthorized', 401, env);
+    const passportId = passportRenewMatch[1];
+    if (passportId === undefined) return corsError('Bad route', 400, env);
+    return handlePassportRenew(passportId, request, env);
   }
 
   // Fall through: serve SPA for all other GET requests (client-side routing)
