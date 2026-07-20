@@ -5,6 +5,7 @@ import { Breadcrumb, type Crumb } from './Breadcrumb'
 import { parseJsonl, isAepJson, buildAepMeta } from './utils'
 import { useSortable } from './hooks/useSortable'
 import { RunsPage } from './pages/RunsPage'
+import { ApprovalsPage } from './pages/ApprovalsPage'
 
 // ---------- Site config ----------
 
@@ -1139,6 +1140,12 @@ function AppShell() {
         { label: 'Runs' },
       ]
     }
+    if (location === '/approvals') {
+      return [
+        { label: 'Home', href: '/' },
+        { label: 'Approvals' },
+      ]
+    }
     if (location === '/audit') {
       return [
         { label: 'Home', href: '/' },
@@ -1181,6 +1188,12 @@ function AppShell() {
             >
               Runs
             </button>
+            <button
+              onClick={() => navigate('/approvals')}
+              className="text-xs font-medium text-slate-500 hover:text-indigo-600 transition-colors"
+            >
+              Approvals
+            </button>
           </nav>
 
           <div className="ml-auto shrink-0">
@@ -1199,6 +1212,7 @@ function AppShell() {
           <Route path="/" component={HomePage} />
           <Route path="/audit" component={AuditPage} />
           <Route path="/runs" component={RunsPage} />
+          <Route path="/approvals" component={ApprovalsPage} />
           <Route path="/runs/:runId" component={ReportPage} />
         </Switch>
       </main>

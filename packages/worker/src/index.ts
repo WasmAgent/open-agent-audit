@@ -58,6 +58,7 @@ export interface WorkerEnv {
   ARTIFACTS: R2Bucket;
   REPORTS: R2Bucket;
   PASSPORTS: KVNamespace;
+  APPROVALS: KVNamespace;
   DB: D1Database;
   AUDIT_JOBS: Queue<AuditJobMessage>;
   CHUNK_JOBS: Queue<ChunkJobMessage>;
@@ -567,6 +568,187 @@ async function handlePassportRenew(passportId: string, request: Request, env: Wo
 }
 
 // ---------------------------------------------------------------------------
+// Approval types and route handlers
+// ---------------------------------------------------------------------------
+
+interface ApprovalRequest {
+  id: string;
+  agentId: string;
+  toolName: string;
+  input: Record<string, unknown>;
+  status: 'pending' | 'approved' | 'denied';
+  createdAt: string;
+  decidedAt?: string;
+  decidedBy?: string;
+  reason?: string;
+}
+
+async function handleListApprovals(url: URL, env: WorkerEnv): Promise<Response> {
+  const statusFilter = url.searchParams.get('status') as ApprovalRequest['status'] | null;
+  const agentIdFilter = url.searchParams.get('agentId');
+
+  const listResult = await env.APPROVALS.list({ prefix: 'approval:' });
+  const keys = listResult.keys;
+
+  if (keys.length === 0) {
+    return corsJson({ approvals: [] }, env);
+  }
+
+  const approvals: ApprovalRequest[] = [];
+  for (const key of keys) {
+    const raw = await env.APPROVALS.get(key.name);
+    if (raw === null) continue;
+    const approval = JSON.parse(raw) as ApprovalRequest;
+    if (statusFilter && approval.status !== statusFilter) continue;
+    if (agentIdFilter && approval.agentId !== agentIdFilter) continue;
+    approvals.push(approval);
+  }
+
+  return corsJson({ approvals }, env);
+}
+
+async function handleGetApproval(id: string, env: WorkerEnv): Promise<Response> {
+  const raw = await env.APPROVALS.get(`approval:${id}`);
+  if (raw === null) {
+    return corsError('Approval not found', 404, env);
+  }
+  return corsJson(JSON.parse(raw), env);
+}
+
+async function handleCreateApproval(request: Request, env: WorkerEnv): Promise<Response> {
+  let body: Record<string, unknown>;
+  try {
+    body = (await request.json()) as Record<string, unknown>;
+  } catch {
+    return corsError('Invalid JSON body', 400, env);
+  }
+
+  const { agentId, toolName, input } = body as {
+    agentId?: string;
+    toolName?: string;
+    input?: Record<string, unknown>;
+  };
+
+  if (!agentId || !toolName) {
+    return corsError('Missing required fields: agentId, toolName', 400, env);
+  }
+
+  const id = crypto.randomUUID();
+  const approval: ApprovalRequest = {
+    id,
+    agentId,
+    toolName,
+    input: input ?? {},
+    status: 'pending',
+    createdAt: new Date().toISOString(),
+  };
+
+  await env.APPROVALS.put(`approval:${id}`, JSON.stringify(approval));
+  return corsJson(approval, env, 201);
+}
+
+async function handleApprovalDecision(id: string, request: Request, env: WorkerEnv): Promise<Response> {
+  let body: Record<string, unknown>;
+  try {
+    body = (await request.json()) as Record<string, unknown>;
+  } catch {
+    return corsError('Invalid JSON body', 400, env);
+  }
+
+  const { decision, reason } = body as {
+    decision?: 'approved' | 'denied';
+    reason?: string;
+  };
+
+  if (!decision || (decision !== 'approved' && decision !== 'denied')) {
+    return corsError('Missing or invalid field: decision (must be "approved" or "denied")', 400, env);
+  }
+
+  const raw = await env.APPROVALS.get(`approval:${id}`);
+  if (raw === null) {
+    return corsError('Approval not found', 404, env);
+  }
+
+  const approval = JSON.parse(raw) as ApprovalRequest;
+  if (approval.status !== 'pending') {
+    return corsError('Approval already decided', 409, env);
+  }
+
+  approval.status = decision;
+  approval.decidedAt = new Date().toISOString();
+  approval.decidedBy = 'api';
+  if (reason) {
+    approval.reason = reason;
+  }
+
+  await env.APPROVALS.put(`approval:${id}`, JSON.stringify(approval));
+  return corsJson(approval, env);
+}
+
+interface BatchDecisionItem {
+  id: string;
+  decision: 'approved' | 'denied';
+  reason?: string;
+}
+
+interface BatchResultItem {
+  id: string;
+  status: number;
+  body: unknown;
+}
+
+async function handleBatchDecision(request: Request, env: WorkerEnv): Promise<Response> {
+  let body: Record<string, unknown>;
+  try {
+    body = (await request.json()) as Record<string, unknown>;
+  } catch {
+    return corsError('Invalid JSON body', 400, env);
+  }
+
+  const { decisions } = body as { decisions?: BatchDecisionItem[] };
+  if (!decisions || !Array.isArray(decisions)) {
+    return corsError('Missing required field: decisions (array)', 400, env);
+  }
+
+  if (decisions.length > 100) {
+    return corsError('Batch limited to 100 items', 400, env);
+  }
+
+  const results: BatchResultItem[] = [];
+
+  for (const item of decisions) {
+    if (!item.id || !item.decision || (item.decision !== 'approved' && item.decision !== 'denied')) {
+      results.push({ id: item.id ?? '', status: 400, body: { error: 'Invalid decision item' } });
+      continue;
+    }
+
+    const raw = await env.APPROVALS.get(`approval:${item.id}`);
+    if (raw === null) {
+      results.push({ id: item.id, status: 404, body: { error: 'Approval not found' } });
+      continue;
+    }
+
+    const approval = JSON.parse(raw) as ApprovalRequest;
+    if (approval.status !== 'pending') {
+      results.push({ id: item.id, status: 409, body: { error: 'Approval already decided' } });
+      continue;
+    }
+
+    approval.status = item.decision;
+    approval.decidedAt = new Date().toISOString();
+    approval.decidedBy = 'api';
+    if (item.reason) {
+      approval.reason = item.reason;
+    }
+
+    await env.APPROVALS.put(`approval:${item.id}`, JSON.stringify(approval));
+    results.push({ id: item.id, status: 200, body: approval });
+  }
+
+  return corsJson({ results }, env, 207);
+}
+
+// ---------------------------------------------------------------------------
 // Fetch handler
 // ---------------------------------------------------------------------------
 
@@ -633,6 +815,42 @@ async function handleFetch(request: Request, env: WorkerEnv): Promise<Response> 
     if (runId === undefined) return corsError('Bad route', 400, env);
     const format = url.searchParams.get('format') ?? 'md';
     return handleGetReport(runId, format, env);
+  }
+
+  // --- Approvals API ---
+
+  // GET /api/v1/approvals
+  if (method === 'GET' && pathname === '/api/v1/approvals') {
+    return handleListApprovals(url, env);
+  }
+
+  // POST /api/v1/approvals
+  if (method === 'POST' && pathname === '/api/v1/approvals') {
+    if (!checkAuth(request, env)) return corsError('Unauthorized', 401, env);
+    return handleCreateApproval(request, env);
+  }
+
+  // POST /api/v1/approvals/batch
+  if (method === 'POST' && pathname === '/api/v1/approvals/batch') {
+    if (!checkAuth(request, env)) return corsError('Unauthorized', 401, env);
+    return handleBatchDecision(request, env);
+  }
+
+  // GET /api/v1/approvals/:id
+  const approvalGetMatch = matchRoute(pathname, /^\/api\/v1\/approvals\/([^/]+)$/);
+  if (approvalGetMatch !== null && method === 'GET') {
+    const approvalId = approvalGetMatch[1];
+    if (approvalId === undefined) return corsError('Bad route', 400, env);
+    return handleGetApproval(approvalId, env);
+  }
+
+  // POST /api/v1/approvals/:id/decision
+  const approvalDecisionMatch = matchRoute(pathname, /^\/api\/v1\/approvals\/([^/]+)\/decision$/);
+  if (approvalDecisionMatch !== null && method === 'POST') {
+    if (!checkAuth(request, env)) return corsError('Unauthorized', 401, env);
+    const approvalId = approvalDecisionMatch[1];
+    if (approvalId === undefined) return corsError('Bad route', 400, env);
+    return handleApprovalDecision(approvalId, request, env);
   }
 
   // GET /r/:reportId — public short link for QR code scan
