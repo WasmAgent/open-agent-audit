@@ -17,6 +17,8 @@
 > OpenAgentAudit. In audit, evidence only counts when it is trusted; Trustavo
 > exists to make that trust legible.
 
+> **Status:** Beta — APIs may change in minor versions. Production use requires pinning exact versions.
+
 ![WasmAgent product matrix](https://raw.githubusercontent.com/WasmAgent/.github/main/assets/product-matrix.svg)
 
 **Agent logs are not audit evidence.** OpenAgentAudit turns tool calls, policy

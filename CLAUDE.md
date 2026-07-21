@@ -79,3 +79,24 @@ See `CONSTRAINTS.md` for the full list.
 | `examples/cloudflare/wrangler.example.jsonc` | Wrangler config template (committed) |
 | `.github/workflows/deploy.yml` | CI deploy workflow |
 | `.github/workflows/ci.yml` | CI typecheck + verify workflow |
+
+## Repository Boundaries
+
+**This repository owns:**
+- AEP, OTel, and adapter ingestion (`@openagentaudit/adapters`)
+- Audit evidence validation and risk scoring (`@openagentaudit/core`)
+- Audit report generation (md/html/json/csv)
+- Regulatory control mapping: OWASP Agentic Top 10, NIST AI RMF, ISO 42001, EU AI Act
+- Trust Passport product: issuance, renewal, revocation, Trustavo integration (`@openagentaudit/passport`)
+- Cloudflare Worker deployment (Trustavo)
+- React dashboard
+
+**Other repositories own — do not duplicate here:**
+
+| Capability | Owner |
+|---|---|
+| AEP schema definition and versioning | `wasmagent-js` (`@wasmagent/aep`) |
+| AgentBOM / MCP Posture / Trust Passport specifications (schemas) | `agent-trust-infra` |
+| Runtime evidence collection (MCP firewall, capability attestation) | `wasmagent-js` |
+| Training data pipeline (SFT/DPO export, contamination stats) | `trace-pipeline` |
+| Dynamic evaluation protocol (FAEP) | `fresharena` |
