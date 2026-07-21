@@ -3,10 +3,38 @@ import type { CanonicalEvent, RiskScore } from '@openagentaudit/schema';
 
 type Grade = 'A' | 'B' | 'C' | 'D' | 'F';
 
+/**
+ * AEP run-provenance fields used by {@link computeRiskScore} to boost the
+ * provenance_integrity component of the Evidence Admission Score (EAS).
+ *
+ * Each populated field adds +5 points to provenance_integrity (max +20).
+ * These fields anchor the audit record to the exact code, runtime, policy
+ * ruleset, and tool manifest in effect at run time, satisfying
+ * EU AI Act Art. 12(3)(c) / Art. 19 traceability requirements.
+ *
+ * When `aepProvenance` is `undefined` or all fields are empty, no bonus
+ * is applied (degradation: provenance_integrity stays at its base value
+ * of 60 for hash-only chains or 100 for signed chains).
+ *
+ * @example
+ * ```ts
+ * const score = await computeRiskScore(events, runId, {
+ *   repo_commit: 'abc123',
+ *   runtime_version: 'v1.2.0',
+ *   policy_bundle_digest: 'sha256:...',
+ *   tool_manifest_digest: 'sha256:...',
+ * });
+ * // provenance_integrity will be base + 20
+ * ```
+ */
 export interface AepProvenanceForScoring {
+  /** Git commit SHA of the agent repository at run time. */
   repo_commit?: string;
+  /** Semantic version of the agent runtime (e.g. "v1.2.0"). */
   runtime_version?: string;
+  /** Content-addressable digest of the policy bundle applied during the run. */
   policy_bundle_digest?: string;
+  /** Content-addressable digest of the tool manifest in effect. */
   tool_manifest_digest?: string;
 }
 
@@ -67,7 +95,11 @@ function computeTraceCompleteness(events: CanonicalEvent[]): number {
 function computeProvenanceIntegrity(
   events: CanonicalEvent[],
   aepProvenance?: AepProvenanceForScoring,
-  cryptoSummary?: { events_with_hash: number; hashes_content_verified: number; hashes_content_mismatch: number },
+  cryptoSummary?: {
+    events_with_hash: number;
+    hashes_content_verified: number;
+    hashes_content_mismatch: number;
+  },
 ): number {
   const eventsWithEvidence = events.filter(
     (ev) => ev.evidence?.hash !== undefined || ev.evidence?.prev_hash !== undefined,
@@ -96,17 +128,14 @@ function computeProvenanceIntegrity(
 
   // Check signatures
   const hasSignatureAlgorithmWithoutSignature = eventsWithEvidence.some(
-    (ev) =>
-      ev.evidence?.signature_algorithm !== undefined && ev.evidence?.signature === undefined,
+    (ev) => ev.evidence?.signature_algorithm !== undefined && ev.evidence?.signature === undefined,
   );
 
   if (hasSignatureAlgorithmWithoutSignature) {
     return 0;
   }
 
-  const allHaveSignature = eventsWithEvidence.every(
-    (ev) => ev.evidence?.signature !== undefined,
-  );
+  const allHaveSignature = eventsWithEvidence.every((ev) => ev.evidence?.signature !== undefined);
 
   // Base score from hash chain + signatures
   let base = allHaveSignature ? 100 : 60;
@@ -204,7 +233,9 @@ function computeHumanOversightEvidence(events: CanonicalEvent[]): number {
   return Math.round((humanCount / requiredCount) * 100);
 }
 
-function computeContaminationRiskInverted(contaminationResult?: { contamination_score: number }): number {
+function computeContaminationRiskInverted(contaminationResult?: {
+  contamination_score: number;
+}): number {
   if (contaminationResult === undefined) return 100; // no contamination data → neutral
   // contamination_score is 0-100 where 100 = high overlap
   // inverted: 0 contamination → 100 EAS; 100 contamination → 0 EAS
@@ -269,13 +300,26 @@ function computeAgentRiskScore(events: CanonicalEvent[]): number {
   }
 
   // Penalties (additive, capped at 100)
-  penalty += Math.min(30, denyCount * 5);           // policy denials: up to 30
-  penalty += Math.min(20, highRiskToolCount * 3);   // high-risk tools: up to 20
-  penalty += Math.min(15, errorCount * 3);           // errors: up to 15
+  penalty += Math.min(30, denyCount * 5); // policy denials: up to 30
+  penalty += Math.min(20, highRiskToolCount * 3); // high-risk tools: up to 20
+  penalty += Math.min(15, errorCount * 3); // errors: up to 15
   penalty += Math.min(25, highRiskUnapproved * 10); // unapproved high-risk: up to 25
-  if (chainBroken) penalty += 20;                   // chain break: 20
+  if (chainBroken) penalty += 20; // chain break: 20
 
   return Math.max(0, 100 - penalty);
+}
+
+/**
+ * Optional drift detection result that can be passed to {@link computeRiskScore}
+ * to factor behavioral drift into the Agent Risk Score (ARS).
+ *
+ * When provided, the `drift_score` (0-100 where 100 = all metrics drifted)
+ * is used to apply a penalty to the ARS: `penalty = drift_score * 0.15`
+ * (max 15 points deducted from ARS).
+ */
+export interface DriftResultForScoring {
+  /** 0-100 score from driftGuard() where 100 means all metrics drifted. */
+  drift_score: number;
 }
 
 /**
@@ -305,6 +349,8 @@ function computeAgentRiskScore(events: CanonicalEvent[]): number {
  * @param aepProvenance - Optional AEP provenance fields for provenance_integrity bonus
  * @param cryptoSummary - Optional crypto verification summary from validate()
  * @param contaminationResult - Optional contamination detection result
+ * @param driftResult - Optional drift detection result from driftGuard(); when provided,
+ *   the drift_score is factored into the Agent Risk Score as a penalty (max -15 pts)
  * @returns RiskScore containing EAS, ARS, and component breakdowns
  *
  * @see computeObjectiveVerification — details on the 50-point default
@@ -313,8 +359,13 @@ export async function computeRiskScore(
   events: CanonicalEvent[],
   runId?: string,
   aepProvenance?: AepProvenanceForScoring,
-  cryptoSummary?: { events_with_hash: number; hashes_content_verified: number; hashes_content_mismatch: number },
+  cryptoSummary?: {
+    events_with_hash: number;
+    hashes_content_verified: number;
+    hashes_content_mismatch: number;
+  },
   contaminationResult?: { contamination_score: number },
+  driftResult?: DriftResultForScoring,
 ): Promise<RiskScore> {
   const trace_completeness = computeTraceCompleteness(events);
   const provenance_integrity = computeProvenanceIntegrity(events, aepProvenance, cryptoSummary);
@@ -332,7 +383,13 @@ export async function computeRiskScore(
     0.1 * contamination_risk_inverted;
 
   const easRounded = Math.round(eas);
-  const arsRounded = computeAgentRiskScore(events);
+  let arsRounded = computeAgentRiskScore(events);
+
+  // Factor in drift result if provided (#82)
+  if (driftResult !== undefined && driftResult.drift_score > 0) {
+    const driftPenalty = Math.round(driftResult.drift_score * 0.15);
+    arsRounded = Math.max(0, arsRounded - driftPenalty);
+  }
 
   return {
     schema_version: 'open-agent-audit/v0.1',

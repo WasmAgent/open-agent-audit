@@ -1,7 +1,7 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
+import type { CanonicalEvent } from '@openagentaudit/schema';
 import { policyAudit } from './index.js';
 import type { PolicyAuditContext } from './index.js';
-import type { CanonicalEvent } from '@openagentaudit/schema';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -122,7 +122,9 @@ describe('policyAudit', () => {
     expect(cap000).toHaveLength(1);
     expect(cap000[0]!.severity).toBe('info');
     // Ensure no per-event high findings were emitted
-    const cap001High = findings.filter((f) => f.rule_id === 'OAA-R-CAP-001' && f.severity === 'high');
+    const cap001High = findings.filter(
+      (f) => f.rule_id === 'OAA-R-CAP-001' && f.severity === 'high',
+    );
     expect(cap001High).toHaveLength(0);
   });
 
@@ -137,7 +139,10 @@ describe('policyAudit', () => {
   // 4. tool_call with denied capability — OAA-R-CAP-002 (critical)
   test('tool_call with denied capability fires OAA-R-CAP-002 at critical severity', async () => {
     const ev = toolCall('bash', { capability: 'network.exfiltrate' });
-    const findings = await policyAudit([ev], ctx(['network.exfiltrate'], [], ['network.exfiltrate']));
+    const findings = await policyAudit(
+      [ev],
+      ctx(['network.exfiltrate'], [], ['network.exfiltrate']),
+    );
     const cap002 = findings.filter((f) => f.rule_id === 'OAA-R-CAP-002');
     expect(cap002).toHaveLength(1);
     expect(cap002[0]!.severity).toBe('critical');
@@ -156,10 +161,7 @@ describe('policyAudit', () => {
   test('tool_call with high_risk capability and human_approval in run does not fire OAA-R-OVERSIGHT-001', async () => {
     const approval = humanApproval('run-001');
     const ev = toolCall('deploy', { capability: 'infra.deploy', run_id: 'run-001' });
-    const findings = await policyAudit(
-      [approval, ev],
-      ctx(['infra.deploy'], ['infra.deploy'], []),
-    );
+    const findings = await policyAudit([approval, ev], ctx(['infra.deploy'], ['infra.deploy'], []));
     const oversight001 = findings.filter((f) => f.rule_id === 'OAA-R-OVERSIGHT-001');
     expect(oversight001).toHaveLength(0);
   });
@@ -260,7 +262,10 @@ describe('policyAudit', () => {
 
     test('OAA-R-CAP-002 evidence_ids contains the offending event_id', async () => {
       const ev = toolCall('bash', { capability: 'network.exfiltrate', event_id: 'ev-cap002' });
-      const findings = await policyAudit([ev], ctx(['network.exfiltrate'], [], ['network.exfiltrate']));
+      const findings = await policyAudit(
+        [ev],
+        ctx(['network.exfiltrate'], [], ['network.exfiltrate']),
+      );
       const f = findings.find((x) => x.rule_id === 'OAA-R-CAP-002');
       expect(f).toBeDefined();
       expect(f!.evidence_ids).toContain('ev-cap002');
@@ -351,7 +356,9 @@ describe('policyAudit', () => {
   test('tool_call without capability field does not fire OAA-R-CAP-001 or OAA-R-CAP-002', async () => {
     const ev = toolCall('bash'); // no capability field
     const findings = await policyAudit([ev], ctx(['some.cap'])); // non-empty manifest
-    expect(findings.filter((f) => f.rule_id === 'OAA-R-CAP-001' && f.severity === 'high')).toHaveLength(0);
+    expect(
+      findings.filter((f) => f.rule_id === 'OAA-R-CAP-001' && f.severity === 'high'),
+    ).toHaveLength(0);
     expect(findings.filter((f) => f.rule_id === 'OAA-R-CAP-002')).toHaveLength(0);
   });
 
@@ -367,10 +374,7 @@ describe('policyAudit', () => {
   test('human_approval in a different run_id does not suppress OAA-R-OVERSIGHT-001', async () => {
     const approval = humanApproval('run-OTHER');
     const ev = toolCall('deploy', { capability: 'infra.deploy', run_id: 'run-001' });
-    const findings = await policyAudit(
-      [approval, ev],
-      ctx(['infra.deploy'], ['infra.deploy'], []),
-    );
+    const findings = await policyAudit([approval, ev], ctx(['infra.deploy'], ['infra.deploy'], []));
     const oversight001 = findings.filter((f) => f.rule_id === 'OAA-R-OVERSIGHT-001');
     expect(oversight001).toHaveLength(1);
   });
@@ -395,6 +399,16 @@ describe('policyAudit', () => {
     expect(findings.length).toBeGreaterThan(0);
     for (const f of findings) {
       expect(f.schema_version).toBe(SCHEMA_VERSION);
+    }
+  });
+
+  test('findings include event_id from the triggering event (#76)', async () => {
+    const ev = toolCall('bash', { capability: 'fs.exec' });
+    const findings = await policyAudit([ev], ctx(['other.cap']));
+    expect(findings.length).toBeGreaterThan(0);
+    // All findings generated from a single event should reference that event
+    for (const f of findings) {
+      expect(f.event_id).toBe(ev.event_id);
     }
   });
 });

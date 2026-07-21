@@ -15,6 +15,7 @@ export type {
   EvidenceSummary,
   FrameworkMapping,
   IssueOptions,
+  KnownFrameworkProfile,
   PassportIdentity,
   PassportStatus,
   PostureRef,
@@ -25,3 +26,4 @@ export type {
   TrustPassport,
   Validity,
 } from './types.js';
+export { KNOWN_FRAMEWORK_PROFILES } from './types.js';

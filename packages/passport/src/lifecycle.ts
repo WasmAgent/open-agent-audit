@@ -40,12 +40,18 @@ export function renew(options: RenewOptions): TrustPassport {
       report_hash: reportHash,
       generated_at: now.toISOString(),
     },
+    // Carry forward evidence_facts from the original passport (#77)
+    ...(passport.evidence_facts !== undefined
+      ? { evidence_facts: { ...passport.evidence_facts } }
+      : {}),
     validity: {
       issued_at: now.toISOString(),
       expires_at: expiresAt.toISOString(),
       ...(passport.validity.renewal_triggers !== undefined
         ? { renewal_triggers: passport.validity.renewal_triggers }
         : {}),
+      renewed_at: now.toISOString(),
+      renewal_count: (passport.validity.renewal_count ?? 0) + 1,
     },
     revocation: {
       revoked: false,

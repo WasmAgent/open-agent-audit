@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
-import { computeRiskScore } from './index.js';
 import type { CanonicalEvent } from '@openagentaudit/schema';
+import { computeRiskScore } from './index.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -27,7 +27,9 @@ function withHashChain(events: CanonicalEvent[], withSignature: boolean): Canoni
     const evidence: CanonicalEvent['evidence'] = {
       hash,
       prev_hash: prevHash,
-      ...(withSignature ? { signature: `sig-${i}`, signature_algorithm: 'ed25519' as const, signer_key_id: 'k1' } : {}),
+      ...(withSignature
+        ? { signature: `sig-${i}`, signature_algorithm: 'ed25519' as const, signer_key_id: 'k1' }
+        : {}),
     };
     prevHash = hash;
     return { ...ev, evidence };
@@ -274,5 +276,65 @@ describe('computeRiskScore — agent_risk_score (ARS)', () => {
     ];
     const score = await computeRiskScore(events, 'r1');
     expect(score.agent_risk_score.score).toBe(82);
+  });
+});
+
+// ---------- Issue #82: driftResult integration ----------
+
+describe('computeRiskScore — driftResult integration (#82)', () => {
+  it('applies drift penalty to ARS when driftResult is provided', async () => {
+    const events = [makeToolCall('e1')];
+    const scoreWithout = await computeRiskScore(events, 'r1');
+    const scoreWith = await computeRiskScore(events, 'r1', undefined, undefined, undefined, {
+      drift_score: 100,
+    });
+    // 100 * 0.15 = 15 point penalty
+    expect(scoreWith.agent_risk_score.score).toBe(scoreWithout.agent_risk_score.score - 15);
+  });
+
+  it('does not penalize when drift_score is 0', async () => {
+    const events = [makeToolCall('e1')];
+    const scoreWithout = await computeRiskScore(events, 'r1');
+    const scoreWith = await computeRiskScore(events, 'r1', undefined, undefined, undefined, {
+      drift_score: 0,
+    });
+    expect(scoreWith.agent_risk_score.score).toBe(scoreWithout.agent_risk_score.score);
+  });
+
+  it('does not go below 0 even with max drift', async () => {
+    // Create events that already have high penalties
+    const events: CanonicalEvent[] = [
+      {
+        ...makeToolCall('t1', 'run-drift'),
+        tool: { name: 'destroy', risk_tags: ['high_risk', 'mutation', 'human_required'] },
+      },
+      {
+        schema_version: 'open-agent-audit/v0.1',
+        run_id: 'run-drift',
+        agent_id: 'agent-test',
+        model_id: 'model-test',
+        event_id: 'pd1',
+        timestamp: '2023-11-14T22:13:20.000Z',
+        type: 'policy_decision',
+        actor: 'system',
+        policy: { decision: 'deny', reason: 'blocked' },
+        tool: { name: 'destroy' },
+      },
+      {
+        schema_version: 'open-agent-audit/v0.1',
+        run_id: 'run-drift',
+        agent_id: 'agent-test',
+        model_id: 'model-test',
+        event_id: 'err1',
+        timestamp: '2023-11-14T22:13:21.000Z',
+        type: 'error',
+        actor: 'system',
+        error: { kind: 'RuntimeError', message: 'crash' },
+      },
+    ];
+    const score = await computeRiskScore(events, 'r1', undefined, undefined, undefined, {
+      drift_score: 100,
+    });
+    expect(score.agent_risk_score.score).toBeGreaterThanOrEqual(0);
   });
 });

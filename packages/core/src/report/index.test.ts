@@ -8,10 +8,10 @@
  */
 import { describe, expect, it } from 'bun:test';
 import type { CanonicalEvent } from '@openagentaudit/schema';
-import { validate } from '../validate/index.js';
 import { inventory } from '../inventory/index.js';
 import { policyAudit } from '../policy-audit/index.js';
 import { computeRiskScore } from '../scoring/index.js';
+import { validate } from '../validate/index.js';
 import { renderReport } from './index.js';
 
 // ---------------------------------------------------------------------------
@@ -28,7 +28,11 @@ const GOLDEN_EVENTS: CanonicalEvent[] = [
     timestamp: '2026-01-01T00:00:00Z',
     type: 'policy_decision',
     actor: 'system',
-    policy: { decision: 'allow', reason: 'Read-only file access within declared scope', rule_id: 'OAA-R-CAP-001' },
+    policy: {
+      decision: 'allow',
+      reason: 'Read-only file access within declared scope',
+      rule_id: 'OAA-R-CAP-001',
+    },
     evidence: {
       evidence_id: 'eid-001',
       hash: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
@@ -44,7 +48,12 @@ const GOLDEN_EVENTS: CanonicalEvent[] = [
     timestamp: '2026-01-01T00:00:01Z',
     type: 'tool_call',
     actor: 'agent',
-    tool: { name: 'read_file', capability: 'file_read', args_hash: 'sha256:abc123', risk_tags: ['read_only'] },
+    tool: {
+      name: 'read_file',
+      capability: 'file_read',
+      args_hash: 'sha256:abc123',
+      risk_tags: ['read_only'],
+    },
     evidence: {
       evidence_id: 'eid-002',
       hash: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
@@ -76,7 +85,12 @@ const GOLDEN_EVENTS: CanonicalEvent[] = [
     timestamp: '2026-01-01T00:00:03Z',
     type: 'tool_call',
     actor: 'agent',
-    tool: { name: 'write_file', capability: 'file_write', args_hash: 'sha256:ghi789', risk_tags: ['high_risk', 'human_required'] },
+    tool: {
+      name: 'write_file',
+      capability: 'file_write',
+      args_hash: 'sha256:ghi789',
+      risk_tags: ['high_risk', 'human_required'],
+    },
     evidence: {
       evidence_id: 'eid-004',
       hash: 'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd',
@@ -92,7 +106,11 @@ const GOLDEN_EVENTS: CanonicalEvent[] = [
     timestamp: '2026-01-01T00:00:04Z',
     type: 'human_approval',
     actor: 'human_reviewer',
-    human: { reviewer_id: 'reviewer-alice', decision: 'approve', justification: 'Reviewed diff; change is safe and scoped to test files only' },
+    human: {
+      reviewer_id: 'reviewer-alice',
+      decision: 'approve',
+      justification: 'Reviewed diff; change is safe and scoped to test files only',
+    },
     evidence: {
       evidence_id: 'eid-005',
       hash: 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
@@ -184,8 +202,12 @@ describe('golden report fixture', () => {
 
     // Compliance mappings — four profiles always emitted
     expect(report.compliance_mappings.length).toBe(4);
-    expect(report.compliance_mappings.some((m) => m.profile_id === 'owasp-agentic-top10-2026')).toBe(true);
-    expect(report.compliance_mappings.some((m) => m.profile_id === 'eu-ai-act-annex-iv')).toBe(true);
+    expect(
+      report.compliance_mappings.some((m) => m.profile_id === 'owasp-agentic-top10-2026'),
+    ).toBe(true);
+    expect(report.compliance_mappings.some((m) => m.profile_id === 'eu-ai-act-annex-iv')).toBe(
+      true,
+    );
 
     // Event count
     expect(report.event_count).toBe(7);
@@ -200,8 +222,7 @@ describe('golden report fixture', () => {
     expect(bundle.markdown).toContain('OAA-R-CAP-000');
 
     // HTML report contains score display
-    const hasScoreDisplay =
-      bundle.html.includes('85/100') || bundle.html.includes('Grade B');
+    const hasScoreDisplay = bundle.html.includes('85/100') || bundle.html.includes('Grade B');
     expect(hasScoreDisplay).toBe(true);
   });
 });

@@ -1,5 +1,5 @@
-import type { TrustPassport } from './types.js';
 import { status } from './lifecycle.js';
+import type { TrustPassport } from './types.js';
 
 export interface InspectOptions {
   /** Include evidence facts detail. Default: false */
@@ -50,7 +50,9 @@ export function inspectTrustPassport(passport: TrustPassport, opts?: InspectOpti
   // Risk summary
   if (passport.risk_summary) {
     const rs = passport.risk_summary;
-    lines.push(`Risk        : C=${rs.critical ?? 0} H=${rs.high ?? 0} M=${rs.medium ?? 0} L=${rs.low ?? 0} (open=${rs.open_findings ?? 0})`);
+    lines.push(
+      `Risk        : C=${rs.critical ?? 0} H=${rs.high ?? 0} M=${rs.medium ?? 0} L=${rs.low ?? 0} (open=${rs.open_findings ?? 0})`,
+    );
   }
   lines.push('');
 

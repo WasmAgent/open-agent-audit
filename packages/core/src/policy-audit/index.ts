@@ -3,14 +3,14 @@ import type { CanonicalEvent, Finding } from '@openagentaudit/schema';
 import { SPEC_VERSION } from '@openagentaudit/schema';
 
 export interface CapabilityManifest {
-  declared_capabilities: string[];  // e.g. ["filesystem.read", "network.fetch"]
+  declared_capabilities: string[]; // e.g. ["filesystem.read", "network.fetch"]
   high_risk_capabilities: string[]; // capabilities requiring human approval
-  denied_capabilities: string[];    // capabilities that must never be invoked
+  denied_capabilities: string[]; // capabilities that must never be invoked
 }
 
 export interface PolicyAuditContext {
   manifest: CapabilityManifest;
-  profile_id?: string;              // e.g. "owasp-agentic-top10-2026"
+  profile_id?: string; // e.g. "owasp-agentic-top10-2026"
 }
 
 /** Deterministic finding_id as required by spec. */
@@ -31,8 +31,7 @@ export async function policyAudit(
   // capability-boundary checks instead of firing N high-severity findings.
   // ------------------------------------------------------------------
   const manifestIsEmpty =
-    manifest.declared_capabilities === undefined ||
-    manifest.declared_capabilities.length === 0;
+    manifest.declared_capabilities === undefined || manifest.declared_capabilities.length === 0;
 
   if (manifestIsEmpty) {
     // Collect observed capabilities from tool_call events to suggest a manifest.
@@ -42,9 +41,10 @@ export async function policyAudit(
         observedCapabilities.add(ev.tool.capability);
       }
     }
-    const suggestedManifest = observedCapabilities.size > 0
-      ? ` Suggested manifest based on observed capabilities: { "declared_capabilities": ${JSON.stringify([...observedCapabilities].sort())} }`
-      : '';
+    const suggestedManifest =
+      observedCapabilities.size > 0
+        ? ` Suggested manifest based on observed capabilities: { "declared_capabilities": ${JSON.stringify([...observedCapabilities].sort())} }`
+        : '';
 
     findings.push({
       schema_version: SPEC_VERSION,
@@ -145,6 +145,7 @@ export async function policyAudit(
           `Event "${ev.event_id}": tool "${ev.tool.name ?? '(unknown)'}" invoked capability ` +
           `"${ev.tool.capability}" which is not listed in the capability manifest.`,
         evidence_ids: [ev.event_id],
+        event_id: ev.event_id,
         recommendation:
           'Add the capability to the manifest if it is intentional, or remove the tool call.',
         confidence: 'high',
@@ -171,6 +172,7 @@ export async function policyAudit(
           `Event "${ev.event_id}": tool "${ev.tool.name ?? '(unknown)'}" invoked capability ` +
           `"${ev.tool.capability}" which is explicitly denied in the capability manifest.`,
         evidence_ids: [ev.event_id],
+        event_id: ev.event_id,
         recommendation:
           'Immediately revoke the tool call and investigate how a denied capability was reached.',
         confidence: 'high',
@@ -213,6 +215,7 @@ export async function policyAudit(
             ? ` A policy_decision event exists for this tool, indicating automated oversight is present.`
             : ''),
         evidence_ids: [ev.event_id],
+        event_id: ev.event_id,
         recommendation:
           'Require a human_approval event before or after any high-risk capability invocation.',
         confidence: 'high',
@@ -241,6 +244,7 @@ export async function policyAudit(
               `Event "${ev.event_id}": tool "${ev.tool.name}" was invoked despite a prior ` +
               `policy_decision="deny" for the same tool earlier in the event sequence.`,
             evidence_ids: [ev.event_id],
+            event_id: ev.event_id,
             recommendation:
               'Investigate why the policy enforcement did not prevent the subsequent tool call.',
             confidence: 'high',
@@ -268,6 +272,7 @@ export async function policyAudit(
             `Event "${ev.event_id}": tool "${ev.tool.name}" carries risk tag(s) ` +
             `[${tags.join(', ')}] but no policy_decision event was found for this tool.`,
           evidence_ids: [ev.event_id],
+          event_id: ev.event_id,
           recommendation:
             'Add a policy_decision event for every tool that carries high_risk or mutation tags.',
           confidence: 'medium',
@@ -280,10 +285,7 @@ export async function policyAudit(
     // Check whether this event's evidence.prev_hash matches the previous
     // event's evidence.hash. Only fires when both fields are present.
     // ------------------------------------------------------------------
-    if (
-      i > 0 &&
-      ev.evidence?.prev_hash !== undefined
-    ) {
+    if (i > 0 && ev.evidence?.prev_hash !== undefined) {
       const prevEv = events[i - 1];
       if (prevEv !== undefined && prevEv.evidence?.hash !== undefined) {
         if (ev.evidence.prev_hash !== prevEv.evidence.hash) {
@@ -299,6 +301,7 @@ export async function policyAudit(
               `Event "${ev.event_id}": evidence.prev_hash "${ev.evidence.prev_hash}" does not ` +
               `match the preceding event "${prevEv.event_id}" evidence.hash "${prevEv.evidence.hash}".`,
             evidence_ids: [prevEv.event_id, ev.event_id],
+            event_id: ev.event_id,
             recommendation:
               'Investigate whether events were reordered, tampered with, or are missing from the bundle.',
             confidence: 'high',

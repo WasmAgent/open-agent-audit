@@ -1,5 +1,5 @@
-import type { TrustPassport } from './types.js';
 import * as ed from '@noble/ed25519';
+import type { TrustPassport } from './types.js';
 
 export interface PassportSigner {
   readonly keyId: string;
@@ -45,7 +45,10 @@ function canonicalize(obj: unknown): string {
  * Strips any existing attestation.signature, canonicalizes the remaining fields,
  * signs the canonical bytes, and returns a new passport with attestation filled.
  */
-export async function signPassport(passport: TrustPassport, signer: PassportSigner): Promise<SignedPassport> {
+export async function signPassport(
+  passport: TrustPassport,
+  signer: PassportSigner,
+): Promise<SignedPassport> {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { attestation, ...rest } = passport;
   const canonical = canonicalize(rest);
@@ -66,7 +69,10 @@ export async function signPassport(passport: TrustPassport, signer: PassportSign
 /**
  * verifySignature — verify the Ed25519 signature on a signed passport.
  */
-export async function verifySignature(passport: TrustPassport, publicKey: Uint8Array): Promise<VerifyResult> {
+export async function verifySignature(
+  passport: TrustPassport,
+  publicKey: Uint8Array,
+): Promise<VerifyResult> {
   const att = passport.attestation;
   if (!att || att.signing_method !== 'ed25519') {
     return { valid: false, error: 'Passport is not signed with ed25519' };
