@@ -122,6 +122,8 @@ export interface Finding {
   title: string;
   description: string;
   evidence_ids: string[];
+  /** The event_id of the event that triggered this finding (if applicable). */
+  event_id?: string;
   recommendation: string;
   standard_mappings?: Array<{
     profile: string;
@@ -259,6 +261,7 @@ export const FindingSchema = z.object({
   title: z.string(),
   description: z.string(),
   evidence_ids: z.array(z.string()),
+  event_id: z.string().optional(),
   recommendation: z.string(),
   standard_mappings: z
     .array(

@@ -1,19 +1,19 @@
 import { describe, expect, test } from 'bun:test';
+import * as ed from '@noble/ed25519';
 import {
+  addFact,
+  hashEvidence,
+  inspectTrustPassport,
+  isExpired,
   issue,
   renew,
   revoke,
+  signPassport,
   status,
   validateTrustPassport,
-  isExpired,
-  hashEvidence,
-  addFact,
-  inspectTrustPassport,
-  signPassport,
   verifySignature,
 } from './index.js';
-import type { TrustPassport, PassportSigner } from './index.js';
-import * as ed from '@noble/ed25519';
+import type { PassportSigner, TrustPassport } from './index.js';
 
 // Use sha512 for ed25519 in Node/Bun environment
 import { sha512 } from '@noble/hashes/sha512';
@@ -531,5 +531,111 @@ describe('passport/validateTrustPassport — structuredErrors (#60)', () => {
     expect(result.valid).toBe(false);
     expect(result.structuredErrors[0]!.errorCode).toBe('invalid_type');
     expect(result.structuredErrors[0]!.field).toBe('data');
+  });
+});
+
+// ---------- Issue #75: eas_score in evidence_summary ----------
+
+describe('passport/issue — eas_score (#75)', () => {
+  test('includes eas_score when report has evidence_admission_score', async () => {
+    const p = await issue({ report: MOCK_REPORT, agentId: 'a' });
+    expect(p.evidence_summary?.eas_score).toBe(85);
+  });
+
+  test('omits eas_score when report has no evidence_admission_score', async () => {
+    const p = await issue({ report: { run_id: 'r1' }, agentId: 'a' });
+    expect(p.evidence_summary?.eas_score).toBeUndefined();
+  });
+});
+
+// ---------- Issue #77: renew() carries forward evidence_facts ----------
+
+describe('passport/renew — evidence_facts (#77)', () => {
+  test('carries forward evidence_facts from original passport', async () => {
+    const original = await issue({ report: MOCK_REPORT, agentId: 'a' });
+    addFact(original, 'fact-key', 'fact-value');
+    expect(original.evidence_facts).toBeDefined();
+    expect(original.evidence_facts!['fact-key']).toBeDefined();
+
+    const renewed = renew({ passport: original, report: MOCK_REPORT });
+    expect(renewed.evidence_facts).toBeDefined();
+    expect(renewed.evidence_facts!['fact-key']).toBeDefined();
+    expect(renewed.evidence_facts!['fact-key']!.content_hash).toBe(
+      original.evidence_facts!['fact-key']!.content_hash,
+    );
+  });
+
+  test('renew without evidence_facts does not add them', async () => {
+    const original = await issue({ report: MOCK_REPORT, agentId: 'a' });
+    // Do not add any facts
+    const renewed = renew({ passport: original, report: MOCK_REPORT });
+    expect(renewed.evidence_facts).toBeUndefined();
+  });
+
+  test('renewed passport has renewal_count incremented', async () => {
+    const original = await issue({ report: MOCK_REPORT, agentId: 'a' });
+    const renewed = renew({ passport: original, report: MOCK_REPORT });
+    expect(renewed.validity.renewal_count).toBe(1);
+
+    const renewedAgain = renew({ passport: renewed, report: MOCK_REPORT });
+    expect(renewedAgain.validity.renewal_count).toBe(2);
+  });
+});
+
+// ---------- Issue #78: validateTrustPassport logical validations ----------
+
+describe('passport/validateTrustPassport — logical validations (#78)', () => {
+  function makeValidPassport(): Record<string, unknown> {
+    return {
+      passport_version: '0.1',
+      identity: { passport_id: 'tp-1', agent_id: 'a', issuer: 'test.com' },
+      validity: {
+        issued_at: '2025-01-01T00:00:00Z',
+        expires_at: '2025-04-01T00:00:00Z',
+      },
+      revocation: { revoked: false },
+      attestation: { issuer: 'test.com', signing_method: 'none' },
+    };
+  }
+
+  test('rejects issued_at >= expires_at', () => {
+    const data = makeValidPassport();
+    (data['validity'] as Record<string, unknown>)['issued_at'] = '2025-06-01T00:00:00Z';
+    (data['validity'] as Record<string, unknown>)['expires_at'] = '2025-01-01T00:00:00Z';
+    const result = validateTrustPassport(data);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes('issued_at must be before'))).toBe(true);
+  });
+
+  test('rejects issued_at far in the future', () => {
+    const data = makeValidPassport();
+    (data['validity'] as Record<string, unknown>)['issued_at'] = '2099-01-01T00:00:00Z';
+    (data['validity'] as Record<string, unknown>)['expires_at'] = '2099-04-01T00:00:00Z';
+    const result = validateTrustPassport(data);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes('far in the future'))).toBe(true);
+  });
+
+  test('rejects negative renewal_count', () => {
+    const data = makeValidPassport();
+    (data['validity'] as Record<string, unknown>)['renewal_count'] = -1;
+    const result = validateTrustPassport(data);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes('renewal_count'))).toBe(true);
+  });
+
+  test('detects passport_hash mismatch', () => {
+    const data = makeValidPassport();
+    (data['attestation'] as Record<string, unknown>)['passport_hash'] = 'deadbeef'.repeat(8);
+    const result = validateTrustPassport(data);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes('passport_hash'))).toBe(true);
+  });
+
+  test('valid passport with matching hash passes', async () => {
+    const p = await issue({ report: MOCK_REPORT, agentId: 'a' });
+    // The passport produced by issue() should pass validation
+    const result = validateTrustPassport(p as unknown as Record<string, unknown>);
+    expect(result.valid).toBe(true);
   });
 });

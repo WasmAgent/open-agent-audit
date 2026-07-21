@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
-import type { FrameworkMapping, IssueOptions, TrustPassport } from './types.js';
 import { signPassport } from './sign.js';
 import type { SignedPassport } from './sign.js';
+import type { FrameworkMapping, IssueOptions, TrustPassport } from './types.js';
+import { KNOWN_FRAMEWORK_PROFILES } from './types.js';
 
 /**
  * Evidence quality thresholds used by {@link deriveEvidenceQuality}.
@@ -57,6 +58,11 @@ function deriveFrameworkMappings(report: Record<string, unknown>): FrameworkMapp
   };
 
   for (const profile of profilesApplied) {
+    if (!KNOWN_FRAMEWORK_PROFILES.has(profile)) {
+      console.warn(
+        `[OpenAgentAudit] Unrecognized profile "${profile}" in profiles_applied. Custom strings are allowed but verify spelling.`,
+      );
+    }
     const framework = KNOWN_FRAMEWORKS[profile] ?? profile;
     mappings.push({
       framework,
@@ -108,6 +114,16 @@ function deriveRiskSummary(report: Record<string, unknown>): {
   return { critical, high, medium, low, open_findings: critical + high + medium + low };
 }
 
+/**
+ * Issue a new TrustPassport from an audit report.
+ *
+ * **Breaking change (pre-1.0):** This function became `async` in v0.4.0.
+ * Callers must `await` the result. The change was required to support
+ * async signing via {@link PassportSigner}. Since the package is pre-1.0
+ * (semver minor = breaking), no major version bump is needed.
+ *
+ * @since 0.4.0 — changed from synchronous to async
+ */
 export async function issue(options: IssueOptions): Promise<TrustPassport | SignedPassport> {
   const {
     report,
@@ -131,6 +147,8 @@ export async function issue(options: IssueOptions): Promise<TrustPassport | Sign
     unknown
   >;
 
+  const easData = reportObj.evidence_admission_score as { score?: number } | undefined;
+
   const passport: TrustPassport = {
     passport_version: '0.1',
     identity: {
@@ -147,6 +165,7 @@ export async function issue(options: IssueOptions): Promise<TrustPassport | Sign
     },
     evidence_summary: {
       evidence_quality: deriveEvidenceQuality(reportObj),
+      ...(easData?.score !== undefined ? { eas_score: easData.score } : {}),
       framework_mappings: deriveFrameworkMappings(reportObj),
     },
     risk_summary: deriveRiskSummary(reportObj),

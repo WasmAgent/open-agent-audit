@@ -46,6 +46,8 @@ export interface FrameworkMapping {
 
 export interface EvidenceSummary {
   evidence_quality?: 'high' | 'medium' | 'low' | 'insufficient';
+  /** Raw EAS (Evidence Admission Score) value used to derive evidence_quality. */
+  eas_score?: number;
   framework_mappings?: FrameworkMapping[];
 }
 
@@ -107,3 +109,28 @@ export interface RevokeOptions {
 }
 
 export type PassportStatus = 'valid' | 'expired' | 'revoked';
+
+/**
+ * Known audit framework profile identifiers.
+ *
+ * Custom strings are allowed and will pass through without error,
+ * but a console warning is emitted for unrecognized profiles to
+ * help catch typos.
+ */
+export type KnownFrameworkProfile =
+  | 'owasp-agentic-top10-2026'
+  | 'nist-ai-rmf-1.0'
+  | 'eu-ai-act-2024'
+  | 'iso-42001'
+  | 'eu-ai-act-annex-iv'
+  | 'iso-iec-42001';
+
+/** Set of recognized framework profile strings for validation. */
+export const KNOWN_FRAMEWORK_PROFILES: ReadonlySet<string> = new Set<string>([
+  'owasp-agentic-top10-2026',
+  'nist-ai-rmf-1.0',
+  'eu-ai-act-2024',
+  'iso-42001',
+  'eu-ai-act-annex-iv',
+  'iso-iec-42001',
+]);
