@@ -79,7 +79,13 @@ export interface CanonicalEvent {
     signature?: string;
     signature_algorithm?: 'ed25519' | 'ecdsa-p256';
     signer_key_id?: string;
+    /** Attestation format: 'legacy' for traditional sig, 'dsse' for DSSE/in-toto envelope. */
+    attestation_format?: 'legacy' | 'dsse';
+    /** When true, the DSSE envelope signature was pre-verified by the emitter. */
+    dsse_pre_verified?: boolean;
   };
+  /** Recording mode from AEP v0.4: indicates fidelity of the action recording. */
+  recording_mode?: 'validation' | 'delta' | 'full';
   /**
    * When true, indicates the action was approved (or auto-approved) by a
    * human-in-the-loop or platform permission gate prior to execution.
@@ -224,8 +230,11 @@ export const CanonicalEventSchema = z.object({
       signature: z.string().optional(),
       signature_algorithm: z.enum(['ed25519', 'ecdsa-p256']).optional(),
       signer_key_id: z.string().optional(),
+      attestation_format: z.enum(['legacy', 'dsse']).optional(),
+      dsse_pre_verified: z.boolean().optional(),
     })
     .optional(),
+  recording_mode: z.enum(['validation', 'delta', 'full']).optional(),
   human_approval: z.boolean().optional(),
 });
 

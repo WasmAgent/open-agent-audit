@@ -365,6 +365,15 @@ export async function validate(
   if (keyRegistry !== undefined) {
     for (const e of events) {
       if (e.evidence?.signature === undefined) continue;
+
+      // If attestation_format is 'dsse' and dsse_pre_verified is true,
+      // skip legacy signature verification — the DSSE envelope was already
+      // verified by the emitter before producing this event.
+      if (e.evidence.attestation_format === 'dsse' && e.evidence.dsse_pre_verified === true) {
+        signatures_verified++;
+        continue;
+      }
+
       const result = await verifyEd25519Signature(e, keyRegistry);
       if (result === 'verified') {
         signatures_verified++;

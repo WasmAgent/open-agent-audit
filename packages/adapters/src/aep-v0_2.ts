@@ -38,6 +38,8 @@ export interface ActionEvidenceInput {
   side_effect_class?: string;
   argument_drift?: string;
   approval_mode?: string;
+  // v0.4 optional fields
+  recording_mode?: 'validation' | 'delta' | 'full';
 }
 
 export interface VerifierResultInput {
@@ -82,8 +84,8 @@ export interface RunContextInput {
   dependency_lock_digest?: string;
 }
 
-/** Supported AEP schema versions. v0.3 is a strict superset of v0.2 (adds optional fields only). */
-export const SUPPORTED_AEP_VERSIONS = ['aep/v0.1', 'aep/v0.2', 'aep/v0.3'] as const;
+/** Supported AEP schema versions. v0.3 is a strict superset of v0.2, v0.4 adds DSSE and recording_mode. */
+export const SUPPORTED_AEP_VERSIONS = ['aep/v0.1', 'aep/v0.2', 'aep/v0.3', 'aep/v0.4'] as const;
 export type SupportedAepVersion = (typeof SUPPORTED_AEP_VERSIONS)[number];
 
 /** Local mirror of the AEPRecord type from @wasmagent/aep. */
@@ -111,6 +113,15 @@ export interface AEPRecordInput {
     alg: 'ed25519';
     key_id: string;
     sig: string;
+  };
+  /** v0.4: DSSE/in-toto attestation envelope wrapping the record signature. */
+  dsse_envelope?: {
+    payloadType: string;
+    payload: string;
+    signatures: Array<{
+      keyid: string;
+      sig: string;
+    }>;
   };
 }
 
@@ -210,7 +221,7 @@ function validateRecord(record: AEPRecordInput): void {
         'Ensure the AEPRecord was produced by a compliant emitter (aep/v0.2).',
     );
   }
-  if (record.schema_version !== 'aep/v0.2' && record.schema_version !== 'aep/v0.1' && record.schema_version !== 'aep/v0.3') {
+  if (record.schema_version !== 'aep/v0.2' && record.schema_version !== 'aep/v0.1' && record.schema_version !== 'aep/v0.3' && record.schema_version !== 'aep/v0.4') {
     throw new Error(
       `AEP adapter: unsupported schema_version "${record.schema_version}". ` +
         `Expected one of: ${SUPPORTED_AEP_VERSIONS.join(', ')}.`,
@@ -233,8 +244,16 @@ function toEvents(record: AEPRecordInput, opts?: { prevHash?: string }): Canonic
   const runId = record.run_id;
   const agentId = record.run_context?.agent_id ?? runId;
   const modelId = record.model_id ?? 'unknown';
-  const sigSig = record.signature.sig;
-  const sigKeyId = record.signature.key_id;
+
+  // v0.4: When a DSSE envelope is present, extract the signature from the envelope
+  // rather than from record.signature.sig directly.
+  const hasDsse = record.dsse_envelope !== undefined && record.dsse_envelope.signatures.length > 0;
+  const sigSig = hasDsse
+    ? record.dsse_envelope!.signatures[0]!.sig
+    : record.signature.sig;
+  const sigKeyId = hasDsse
+    ? record.dsse_envelope!.signatures[0]!.keyid
+    : record.signature.key_id;
 
   // Build up prev_hash chain. Continues from opts.prevHash when provided.
   let prevHash = opts?.prevHash ?? '0'.repeat(64);
@@ -263,6 +282,7 @@ function toEvents(record: AEPRecordInput, opts?: { prevHash?: string }): Canonic
         signature: sigSig,
         signature_algorithm: 'ed25519',
         signer_key_id: sigKeyId,
+        ...(hasDsse ? { attestation_format: 'dsse' as const, dsse_pre_verified: true } : {}),
       },
       ...partial,
     };
@@ -318,6 +338,7 @@ function toEvents(record: AEPRecordInput, opts?: { prevHash?: string }): Canonic
       tool_name: action.tool_name,
       tool: toolObj,
       ...(hasApprovalSignal ? { human_approval: true } : {}),
+      ...(action.recording_mode ? { recording_mode: action.recording_mode } : {}),
     });
 
     events.push(event);

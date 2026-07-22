@@ -1,0 +1,92 @@
+{
+  "schema_version": "aep/v0.4",
+  "run_id": "run-v04-fixture-001",
+  "repo_commit": "ddddeeee1234567890ddddeeee1234567890dddd",
+  "runtime_version": "wasmagent-js@2.0.0",
+  "model_provider": "anthropic",
+  "model_id": "claude-sonnet-4-6",
+  "policy_bundle_digest": "3333333333333333333333333333333333333333333333333333333333333333",
+  "tool_manifest_digest": "4444444444444444444444444444444444444444444444444444444444444444",
+  "input_refs": [],
+  "output_refs": [],
+  "capability_decisions": [
+    {
+      "capability": "fs:write",
+      "subject": "agent",
+      "resource": "/tmp/output.txt",
+      "decision": "allow",
+      "reason_code": "policy-allow-tmp"
+    }
+  ],
+  "actions": [
+    {
+      "action_id": "action-0",
+      "tool_name": "write_file",
+      "state_changing": true,
+      "evidence_refs": [],
+      "timestamp_ms": 1700000020000,
+      "input_taint_labels": ["user-supplied"],
+      "output_taint_labels": ["filesystem"],
+      "recording_mode": "full",
+      "capability_decision": {
+        "capability": "fs:write",
+        "subject": "agent",
+        "resource": "/tmp/output.txt",
+        "decision": "allow",
+        "reason_code": "policy-allow-tmp"
+      }
+    },
+    {
+      "action_id": "action-1",
+      "tool_name": "read_file",
+      "state_changing": false,
+      "evidence_refs": [],
+      "timestamp_ms": 1700000021000,
+      "input_taint_labels": [],
+      "output_taint_labels": [],
+      "recording_mode": "delta"
+    },
+    {
+      "action_id": "action-2",
+      "tool_name": "bash",
+      "state_changing": true,
+      "evidence_refs": [],
+      "timestamp_ms": 1700000022000,
+      "input_taint_labels": [],
+      "output_taint_labels": [],
+      "recording_mode": "validation"
+    }
+  ],
+  "verifier_results": [
+    {
+      "verifier_id": "integrity-check-v1",
+      "passed": true,
+      "score": 1,
+      "claim_ids": ["claim-020"]
+    }
+  ],
+  "budget_ledger": {
+    "token_budget": { "limit": 50000, "spent": 12000 },
+    "tool_budget": { "limit": 50, "spent": 3 }
+  },
+  "created_at_ms": 1700000025000,
+  "run_context": {
+    "agent_id": "v04-agent",
+    "agent_version": "2.0.0"
+  },
+  "signature": {
+    "alg": "ed25519",
+    "key_id": "wasmagent-v04-key-v1",
+    "sig": "bGVnYWN5LXNpZy1ub3QtdXNlZC13aXRoLWRzc2U="
+  },
+  "dsse_envelope": {
+    "payloadType": "application/vnd.aep+json",
+    "payload": "eyJzY2hlbWFfdmVyc2lvbiI6ImFlcC92MC40IiwicnVuX2lkIjoicnVuLXYwNC1maXh0dXJlLTAwMSJ9",
+    "signatures": [
+      {
+        "keyid": "wasmagent-dsse-key-v1",
+        "sig": "ZHNzZS1zaWduYXR1cmUtZm9yLXYwNC1maXh0dXJl"
+      }
+    ]
+  }
+}

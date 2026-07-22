@@ -31,6 +31,8 @@ interface WindowStats {
   high_risk_action_fraction: number;
   unique_tools_count: number;
   model_output_token_rate: number;
+  /** Average recording mode fidelity (full=3, delta=2, validation=1, none=0). */
+  recording_mode_fidelity: number;
 }
 
 function computeStats(events: CanonicalEvent[]): WindowStats {
@@ -44,6 +46,7 @@ function computeStats(events: CanonicalEvent[]): WindowStats {
   let riskTagSum = 0;
   let highRiskCount = 0;
   let tokenSum = 0;
+  let recordingModeSum = 0;
   const toolNames = new Set<string>();
 
   for (const ev of events) {
@@ -58,6 +61,14 @@ function computeStats(events: CanonicalEvent[]): WindowStats {
         if (tags.some((t) => t === 'high_risk' || t === 'mutation')) {
           highRiskCount += 1;
         }
+      }
+      // recording_mode fidelity: full=3, delta=2, validation=1, absent=0
+      if (ev.recording_mode === 'full') {
+        recordingModeSum += 3;
+      } else if (ev.recording_mode === 'delta') {
+        recordingModeSum += 2;
+      } else if (ev.recording_mode === 'validation') {
+        recordingModeSum += 1;
       }
     }
     if (ev.type === 'policy_decision') {
@@ -90,6 +101,7 @@ function computeStats(events: CanonicalEvent[]): WindowStats {
     high_risk_action_fraction: toolCallCount > 0 ? highRiskCount / safeToolCallCount : 0,
     unique_tools_count: toolNames.size,
     model_output_token_rate: tokenSum / safeTotal,
+    recording_mode_fidelity: toolCallCount > 0 ? recordingModeSum / safeToolCallCount : 0,
   };
 }
 
@@ -102,6 +114,7 @@ const METRIC_NAMES: Array<keyof WindowStats> = [
   'high_risk_action_fraction',
   'unique_tools_count',
   'model_output_token_rate',
+  'recording_mode_fidelity',
 ];
 
 export async function driftGuard(

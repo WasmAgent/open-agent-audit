@@ -89,7 +89,31 @@ function computeTraceCompleteness(events: CanonicalEvent[]): number {
     }
   }
 
-  return Math.max(0, score);
+  // recording_mode bonus: "full" > "delta" > "validation"
+  // Events with recording_mode="full" add a small completeness bonus,
+  // "validation" events are penalized slightly for lower fidelity.
+  const toolCallEvents = events.filter((ev) => ev.type === 'tool_call');
+  if (toolCallEvents.length > 0) {
+    let modeBonus = 0;
+    let modeCount = 0;
+    for (const ev of toolCallEvents) {
+      if (ev.recording_mode === 'full') {
+        modeBonus += 3;
+        modeCount++;
+      } else if (ev.recording_mode === 'delta') {
+        modeBonus += 1;
+        modeCount++;
+      } else if (ev.recording_mode === 'validation') {
+        modeBonus -= 2;
+        modeCount++;
+      }
+    }
+    if (modeCount > 0) {
+      score += modeBonus / toolCallEvents.length;
+    }
+  }
+
+  return Math.max(0, Math.min(100, score));
 }
 
 function computeProvenanceIntegrity(
@@ -151,6 +175,15 @@ function computeProvenanceIntegrity(
     if (aepProvenance.policy_bundle_digest) bonus += 5;
     if (aepProvenance.tool_manifest_digest) bonus += 5;
     base = Math.min(100, base + bonus);
+  }
+
+  // DSSE attestation bonus: if any event uses DSSE format, add +3 to
+  // provenance_integrity for stronger cryptographic provenance.
+  const hasDsseAttestation = eventsWithEvidence.some(
+    (ev) => ev.evidence?.attestation_format === 'dsse',
+  );
+  if (hasDsseAttestation) {
+    base = Math.min(100, base + 3);
   }
 
   // Penalize for content hash mismatches: each mismatch reduces score by 20, floored at 0

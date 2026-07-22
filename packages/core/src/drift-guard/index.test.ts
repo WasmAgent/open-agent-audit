@@ -120,14 +120,14 @@ describe('driftGuard', () => {
     expect(result.drifted_metrics).toContain('human_approval_rate');
   });
 
-  test('drift_score = drifted_metrics.length / 8 * 100 (rounded)', async () => {
+  test('drift_score = drifted_metrics.length / 9 * 100 (rounded)', async () => {
     // Force several metrics to drift: all tool_calls vs all errors
     const eventsA = Array.from({ length: 10 }, () => toolCallEvent('bash', ['high_risk']));
     const eventsB = Array.from({ length: 10 }, () => errorEvent());
 
     const result = await driftGuard(window('A', eventsA), window('B', eventsB));
 
-    const expected = Math.round((result.drifted_metrics.length / 8) * 100);
+    const expected = Math.round((result.drifted_metrics.length / 9) * 100);
     expect(result.drift_score).toBe(expected);
   });
 
@@ -158,13 +158,13 @@ describe('driftGuard', () => {
     expect(result.drifted_metrics).toHaveLength(0);
   });
 
-  test('metrics array always has exactly 8 entries', async () => {
+  test('metrics array always has exactly 9 entries', async () => {
     const result = await driftGuard(
       window('A', [toolCallEvent()]),
       window('B', [observationEvent()]),
     );
 
-    expect(result.metrics).toHaveLength(8);
+    expect(result.metrics).toHaveLength(9);
   });
 
   test('each DriftMetric has name, window_a, window_b, delta, relative_delta, drifted', async () => {

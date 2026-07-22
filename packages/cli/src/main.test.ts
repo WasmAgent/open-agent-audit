@@ -62,13 +62,13 @@ describe('CLI pipeline smoke test', () => {
 
     // Core engine: computeRiskScore
     const score = await computeRiskScore(events, 'smoke-run-001');
-    expect(score.evidence_admission_score.score).toBe(85);
+    expect(score.evidence_admission_score.score).toBe(83);
     expect(score.evidence_admission_score.grade).toBe('B');
 
     // Core engine: renderReport
     const bundle = await renderReport(events, findings, score, inv);
     expect(bundle.markdown).toContain('Evidence Admission Score');
-    expect(bundle.html).toContain('85/100');
+    expect(bundle.html).toContain('83/100');
     expect(bundle.json).toBeTruthy();
 
     const jsonReport = JSON.parse(bundle.json);
