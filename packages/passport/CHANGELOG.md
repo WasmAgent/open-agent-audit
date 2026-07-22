@@ -1,5 +1,15 @@
 # @openagentaudit/passport
 
+## 0.5.1
+
+### Patch Changes
+
+- [`d65ff3a`](https://github.com/WasmAgent/open-agent-audit/commit/d65ff3ab8a302302c4d84f2d8668cbf92f143a3d) Thanks [@robotdawn](https://github.com/robotdawn)! - build: add prepublishOnly script to all publishable packages to prevent shipping without dist/
+
+- Updated dependencies [[`d65ff3a`](https://github.com/WasmAgent/open-agent-audit/commit/d65ff3ab8a302302c4d84f2d8668cbf92f143a3d), [`255c169`](https://github.com/WasmAgent/open-agent-audit/commit/255c169cc33857c98aee83d486ec51e20646d48d)]:
+  - @openagentaudit/core@0.5.1
+  - @openagentaudit/schema@0.5.1
+
 ## 0.5.0
 
 ### Minor Changes
