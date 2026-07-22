@@ -159,7 +159,7 @@ const benchmarkResult = await benchmarkAudit({
   claim: 'candidate improves on baseline',
 });
 
-const bundle = await renderReport(events, findings, score, meta, benchmarkResult);
+const bundle = await renderReport(events, findings, score, undefined, meta, benchmarkResult);
 // annex-iv-testing-validation, MEASURE-2.9, and A.8.2 are now populated
 // statistics.audit_sufficiency === 'paired'
 // McNemar p-value computed when discordant pair count >= 10
@@ -181,15 +181,18 @@ const benchmarkResult = await benchmarkAudit({
 
 ```ts
 function renderReport(
-  events:          CanonicalEvent[],
-  findings:        Finding[],
-  score:           RiskScore,
-  meta?:           ReportMeta,
+  events:           CanonicalEvent[],
+  findings:         Finding[],
+  score:            RiskScore,
+  inventoryReport?: InventoryReport | null,
+  meta?:            ReportMeta,
   benchmarkResult?: BenchmarkAuditResult,
 ): Promise<ReportBundle>
 ```
 
-`meta` and `benchmarkResult` are both optional. All `ReportMeta` fields are optional;
+`inventoryReport`, `meta`, and `benchmarkResult` are all optional. Pass `undefined` or `null`
+for `inventoryReport` if you have no inventory but need to provide `meta` or `benchmarkResult`.
+All `ReportMeta` fields are optional;
 defaults are applied for issuer, report ID, timestamps, and profiles.
 
 ## AEP provenance bonus
