@@ -1,6 +1,6 @@
 {
   "name": "@openagentaudit/passport",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Trust Passport: signed audit certificates for AI agents",
   "license": "Apache-2.0",
   "type": "module",
@@ -29,7 +29,7 @@
   "dependencies": {
     "@noble/ed25519": "^2.2.3",
     "@noble/hashes": "^1.7.2",
-    "@openagentaudit/core": "0.5.1",
+    "@openagentaudit/core": "0.5.2",
     "@openagentaudit/schema": "0.5.1"
   },
   "devDependencies": {

@@ -1,5 +1,11 @@
 # @openagentaudit/adapters
 
+## 0.5.2
+
+### Patch Changes
+
+- [`8ef3744`](https://github.com/WasmAgent/open-agent-audit/commit/8ef374468c8f94c59a7aa551275baf1b99faccfb) Thanks [@robotdawn](https://github.com/robotdawn)! - fix: remove clean from prepublishOnly to prevent cross-dep build failure in changeset publish
+
 ## 0.5.1
 
 ### Patch Changes
