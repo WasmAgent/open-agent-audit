@@ -1,5 +1,11 @@
 # @openagentaudit/schema
 
+## 0.5.0
+
+### Minor Changes
+
+- [`f7abf78`](https://github.com/WasmAgent/open-agent-audit/commit/f7abf78ea3dc14ffbd0e035fe5bba40fe39ed3d9) Thanks [@robotdawn](https://github.com/robotdawn)! - feat: full AEP v0.4 integration — DSSE attestation format, recording_mode scoring, drift-guard fidelity metric
+
 ## 0.2.0
 
 ### Minor Changes
