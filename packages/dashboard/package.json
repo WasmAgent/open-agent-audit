@@ -13,7 +13,7 @@
     "clean": "rm -rf dist .turbo"
   },
   "dependencies": {
-    "@openagentaudit/schema": "0.5.0",
+    "@openagentaudit/schema": "0.5.1",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
     "wouter": "^3.10.0"

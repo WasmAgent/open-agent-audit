@@ -1,5 +1,14 @@
 # @openagentaudit/adapters
 
+## 0.5.1
+
+### Patch Changes
+
+- [`d65ff3a`](https://github.com/WasmAgent/open-agent-audit/commit/d65ff3ab8a302302c4d84f2d8668cbf92f143a3d) Thanks [@robotdawn](https://github.com/robotdawn)! - build: add prepublishOnly script to all publishable packages to prevent shipping without dist/
+
+- Updated dependencies [[`d65ff3a`](https://github.com/WasmAgent/open-agent-audit/commit/d65ff3ab8a302302c4d84f2d8668cbf92f143a3d)]:
+  - @openagentaudit/schema@0.5.1
+
 ## 0.5.0
 
 ### Minor Changes
