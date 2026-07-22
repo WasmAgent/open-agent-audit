@@ -2657,8 +2657,15 @@ function buildMarkdown(
       sigTotal === 0 && cryptoSummary.events_with_signature > 0
         ? 'no key registry'
         : `${cryptoSummary.signatures_verified}/${cryptoSummary.events_with_signature} signatures verified`;
+    // Detect DSSE attestation format in events
+    const dsseEventCount = events.filter(
+      (e) => e.evidence?.attestation_format === 'dsse',
+    ).length;
+    const dsseNote = dsseEventCount > 0
+      ? ` | DSSE/in-toto attestation: ${dsseEventCount} event(s)`
+      : '';
     lines.push(
-      `| Cryptographic Verification | ${cryptoSummary.hashes_content_verified}/${cryptoSummary.events_with_hash} events hash-verified${mismatchNote} | ${cryptoSummary.events_with_signature} signature(s) present — ${sigNote} |`,
+      `| Cryptographic Verification | ${cryptoSummary.hashes_content_verified}/${cryptoSummary.events_with_hash} events hash-verified${mismatchNote} | ${cryptoSummary.events_with_signature} signature(s) present — ${sigNote}${dsseNote} |`,
     );
   }
   lines.push('');
@@ -3197,10 +3204,17 @@ function buildHtml(
       sigTotalH === 0 && cryptoSummary.events_with_signature > 0
         ? 'no key registry'
         : `${cryptoSummary.signatures_verified}/${cryptoSummary.events_with_signature} signatures verified`;
+    // Detect DSSE attestation format in events
+    const dsseEventCountH = events.filter(
+      (e) => e.evidence?.attestation_format === 'dsse',
+    ).length;
+    const dsseNoteH = dsseEventCountH > 0
+      ? ` | DSSE/in-toto attestation: ${dsseEventCountH} event(s)`
+      : '';
     parts.push(
       `<tr><td>Cryptographic Verification</td>` +
         `<td>${cryptoSummary.hashes_content_verified}/${cryptoSummary.events_with_hash} events hash-verified${mismatchNote}</td>` +
-        `<td>${cryptoSummary.events_with_signature} signature(s) present — ${sigNoteH}</td></tr>`,
+        `<td>${cryptoSummary.events_with_signature} signature(s) present — ${sigNoteH}${dsseNoteH}</td></tr>`,
     );
   }
   parts.push('</tbody>');

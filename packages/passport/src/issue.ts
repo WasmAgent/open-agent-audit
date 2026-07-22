@@ -149,6 +149,13 @@ export async function issue(options: IssueOptions): Promise<TrustPassport | Sign
 
   const easData = reportObj.evidence_admission_score as { score?: number } | undefined;
 
+  // Detect DSSE attestation format from report metadata
+  const reportMeta = reportObj.meta as Record<string, unknown> | undefined;
+  const reportEvents = (reportObj.events ?? []) as Array<{ evidence?: { attestation_format?: string } }>;
+  const hasDsseAttestation = reportEvents.some(
+    (e) => e.evidence?.attestation_format === 'dsse',
+  ) || (reportMeta?.attestation_format === 'dsse');
+
   const passport: TrustPassport = {
     passport_version: '0.1',
     identity: {
@@ -167,6 +174,7 @@ export async function issue(options: IssueOptions): Promise<TrustPassport | Sign
       evidence_quality: deriveEvidenceQuality(reportObj),
       ...(easData?.score !== undefined ? { eas_score: easData.score } : {}),
       framework_mappings: deriveFrameworkMappings(reportObj),
+      ...(hasDsseAttestation ? { attestation_format: 'dsse' as const } : {}),
     },
     risk_summary: deriveRiskSummary(reportObj),
     validity: {

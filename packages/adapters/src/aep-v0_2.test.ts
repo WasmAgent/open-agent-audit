@@ -255,3 +255,110 @@ describe('aep-v0_2 adapter — aep/v0.3 support', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// AEP v0.4 support (Issues #85 & #86)
+// ---------------------------------------------------------------------------
+
+describe('aep-v0_2 adapter — aep/v0.4 support', () => {
+  const record = loadFixture('aep-v0.4-fixture.json');
+
+  it('SUPPORTED_AEP_VERSIONS includes aep/v0.4', () => {
+    expect(SUPPORTED_AEP_VERSIONS).toContain('aep/v0.4');
+  });
+
+  it('beginRun accepts aep/v0.4 schema_version without throwing', () => {
+    const run = AepV0_2Adapter.beginRun(record);
+    expect(run.run_id).toBe('run-v04-fixture-001');
+    expect(run.agent_id).toBe('v04-agent');
+    expect(run.model_id).toBe('claude-sonnet-4-6');
+    expect(run.source_adapter).toBe('aep-v0.2');
+  });
+
+  it('toEvents accepts aep/v0.4 schema_version without throwing', () => {
+    const events = AepV0_2Adapter.toEvents(record);
+    expect(events.length).toBeGreaterThan(0);
+  });
+
+  it('toEvents extracts signature from dsse_envelope.signatures[0].sig', () => {
+    const events = AepV0_2Adapter.toEvents(record);
+    for (const ev of events) {
+      // Should use the DSSE envelope signature, not the legacy record.signature.sig
+      expect(ev.evidence?.signature).toBe('ZHNzZS1zaWduYXR1cmUtZm9yLXYwNC1maXh0dXJl');
+    }
+  });
+
+  it('toEvents uses dsse_envelope.signatures[0].keyid as signer_key_id', () => {
+    const events = AepV0_2Adapter.toEvents(record);
+    for (const ev of events) {
+      expect(ev.evidence?.signer_key_id).toBe('wasmagent-dsse-key-v1');
+    }
+  });
+
+  it('toEvents sets attestation_format to dsse when dsse_envelope present', () => {
+    const events = AepV0_2Adapter.toEvents(record);
+    for (const ev of events) {
+      expect(ev.evidence?.attestation_format).toBe('dsse');
+    }
+  });
+
+  it('toEvents sets dsse_pre_verified to true when dsse_envelope present', () => {
+    const events = AepV0_2Adapter.toEvents(record);
+    for (const ev of events) {
+      expect(ev.evidence?.dsse_pre_verified).toBe(true);
+    }
+  });
+
+  it('toEvents maps recording_mode from actions to events', () => {
+    const events = AepV0_2Adapter.toEvents(record);
+    const toolCalls = events.filter((e) => e.type === 'tool_call');
+    expect(toolCalls[0]?.recording_mode).toBe('full');
+    expect(toolCalls[1]?.recording_mode).toBe('delta');
+    expect(toolCalls[2]?.recording_mode).toBe('validation');
+  });
+
+  it('toEvents does not set recording_mode when absent in action', () => {
+    // Use the v0.3 fixture which has no recording_mode
+    const v03 = loadFixture('aep-v0.3-fixture.json');
+    const events = AepV0_2Adapter.toEvents(v03);
+    const toolCalls = events.filter((e) => e.type === 'tool_call');
+    for (const tc of toolCalls) {
+      expect(tc.recording_mode).toBeUndefined();
+    }
+  });
+
+  it('toEvents does not set attestation_format when no dsse_envelope', () => {
+    const v03 = loadFixture('aep-v0.3-fixture.json');
+    const events = AepV0_2Adapter.toEvents(v03);
+    for (const ev of events) {
+      expect(ev.evidence?.attestation_format).toBeUndefined();
+    }
+  });
+
+  it('toEventsBatch works with a mix of v0.3 and v0.4 records', () => {
+    const v03Record = loadFixture('aep-v0.3-fixture.json');
+    const events = toEventsBatch([v03Record, record]);
+    expect(events.length).toBeGreaterThan(3);
+    // Verify hash chain continuity
+    for (let i = 1; i < events.length; i++) {
+      expect(events[i]?.evidence?.prev_hash).toBeDefined();
+    }
+    // Verify that only v0.4 events have DSSE attestation
+    const v03Events = AepV0_2Adapter.toEvents(v03Record);
+    const v04Events = events.slice(v03Events.length);
+    for (const ev of v04Events) {
+      expect(ev.evidence?.attestation_format).toBe('dsse');
+    }
+  });
+
+  it('backward compatibility: v0.2 records still work unchanged', () => {
+    const v02Record = loadFixture('aep-wasmagent-fixture.json');
+    const events = AepV0_2Adapter.toEvents(v02Record);
+    expect(events.length).toBeGreaterThan(0);
+    // No DSSE fields
+    for (const ev of events) {
+      expect(ev.evidence?.attestation_format).toBeUndefined();
+      expect(ev.evidence?.dsse_pre_verified).toBeUndefined();
+    }
+  });
+});

@@ -49,6 +49,8 @@ export interface EvidenceSummary {
   /** Raw EAS (Evidence Admission Score) value used to derive evidence_quality. */
   eas_score?: number;
   framework_mappings?: FrameworkMapping[];
+  /** Attestation format used for the underlying evidence (e.g. 'dsse' for DSSE/in-toto). */
+  attestation_format?: 'legacy' | 'dsse';
 }
 
 export interface RiskSummary {
