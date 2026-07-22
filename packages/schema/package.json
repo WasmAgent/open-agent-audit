@@ -21,7 +21,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "echo 'no tests yet — package skeleton' && exit 0",
     "clean": "rm -rf dist .turbo",
-    "prepublishOnly": "npm run clean && npm run build"
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "zod": "^3.23.0"

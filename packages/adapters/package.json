@@ -41,7 +41,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "bun test ./src",
     "clean": "rm -rf dist .turbo",
-    "prepublishOnly": "npm run clean && npm run build"
+    "prepublishOnly": "npm run build"
   },
   "wasmagent": {
     "stability": "alpha"
