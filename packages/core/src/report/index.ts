@@ -2671,7 +2671,7 @@ function buildMarkdown(
   lines.push('');
 
   // Tool Inventory
-  if (inv !== undefined) {
+  if (inv !== undefined && Array.isArray(inv.tools)) {
     lines.push('## Tool Inventory');
     lines.push('');
     lines.push('| Tool | Calls | Denied | Approved | Risk Tags |');
@@ -3221,7 +3221,7 @@ function buildHtml(
   parts.push('</table>');
 
   // Tool Inventory
-  if (inv !== undefined) {
+  if (inv !== undefined && Array.isArray(inv.tools)) {
     parts.push('<h2>Tool Inventory</h2>');
     parts.push('<table>');
     parts.push(
