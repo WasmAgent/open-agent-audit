@@ -23,9 +23,9 @@
     "stability": "alpha"
   },
   "dependencies": {
-    "@openagentaudit/adapters": "0.5.1",
-    "@openagentaudit/core": "0.5.1",
-    "@openagentaudit/passport": "0.5.1",
+    "@openagentaudit/adapters": "0.5.2",
+    "@openagentaudit/core": "0.5.2",
+    "@openagentaudit/passport": "0.5.2",
     "@openagentaudit/schema": "0.5.1"
   },
   "devDependencies": {

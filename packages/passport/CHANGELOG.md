@@ -1,5 +1,12 @@
 # @openagentaudit/passport
 
+## 0.5.2
+
+### Patch Changes
+
+- Updated dependencies [[`8ef3744`](https://github.com/WasmAgent/open-agent-audit/commit/8ef374468c8f94c59a7aa551275baf1b99faccfb)]:
+  - @openagentaudit/core@0.5.2
+
 ## 0.5.1
 
 ### Patch Changes
