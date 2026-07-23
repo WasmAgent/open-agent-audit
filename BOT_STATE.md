@@ -1,20 +1,21 @@
 # Bot State
 
-_Last updated: 2026-07-23 16:40 UTC by patrol_
+_Last updated: 2026-07-23 16:56 UTC by patrol_
 
 ## Queue
 
 | State | Count |
 |---|---|
-| Pending | 28 |
+| Pending | 30 |
 | Active (running/reviewing) | 1 |
 | Blocked | 2 |
-| Completed/Merged (all time) | 3 |
+| Completed/Merged (all time) | 4 |
 
 ## Recent Activity (last 5)
 
 | Issue | Title | Outcome | Date |
 |---|---|---|---|
+| #124 | [milestone Milestone 5] Add passport validity window, fra... | merged/auto_closed_resolved | 2026-07-23 |
 | #100 | [milestone Milestone 1] Add JSON Schema export support fo... | completed/complexity_gate_split | 2026-07-23 |
 | #4 | docs: add Contributing section to README | completed/repo_disabled | 2026-07-05 |
 | #5 | fix: scheduler should retry on GitHub API timeout | completed/issue_closed_upstream | 2026-07-05 |
