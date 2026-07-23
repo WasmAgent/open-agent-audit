@@ -1,25 +1,25 @@
 # Bot State
 
-_Last updated: 2026-07-23 22:08 UTC by patrol_
+_Last updated: 2026-07-23 22:23 UTC by patrol_
 
 ## Queue
 
 | State | Count |
 |---|---|
-| Pending | 26 |
-| Active (running/reviewing) | 1 |
-| Blocked | 0 |
-| Completed/Merged (all time) | 11 |
+| Pending | 21 |
+| Active (running/reviewing) | 2 |
+| Blocked | 1 |
+| Completed/Merged (all time) | 13 |
 
 ## Recent Activity (last 5)
 
 | Issue | Title | Outcome | Date |
 |---|---|---|---|
+| #110 | [milestone Milestone 3] Implement `renderReport(events, f... | merged/auto_closed_resolved | 2026-07-23 |
+| #103 | [milestone Milestone 2] Implement `validate(events)` to r... | merged/auto_closed_resolved | 2026-07-23 |
 | #123 | [milestone Milestone 5] Implement `issue`, `renew`, `revo... | completed/issue_closed_upstream | 2026-07-23 |
 | #118 | [milestone Milestone 4] Implement adapter normalization f... | completed/issue_closed_upstream | 2026-07-23 |
 | #109 | [milestone Milestone 2] Refactor core pipeline outputs in... | merged/auto_closed_resolved | 2026-07-23 |
-| #106 | [milestone Milestone 2] Implement benchmark claim auditin... | merged/auto_closed_resolved | 2026-07-23 |
-| #97 | [milestone Milestone 1] Add schema versioning support for... | merged/auto_closed_resolved | 2026-07-23 |
 
 ## Waiting for Human
 
