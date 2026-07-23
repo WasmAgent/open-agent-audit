@@ -1,6 +1,6 @@
 # Bot State
 
-_Last updated: 2026-07-23 19:31 UTC by patrol_
+_Last updated: 2026-07-23 19:35 UTC by patrol_
 
 ## Queue
 
@@ -23,6 +23,7 @@ _Last updated: 2026-07-23 19:31 UTC by patrol_
 
 ## Waiting for Human
 
+- #131: [milestone Milestone 1] Implement `validateEvents(raw)` to parse unknown input and return valid events p...
 - #130: Fix WasmAgent/open-agent-audit#99 ([milestone Milestone 1] Add fixture-based tests for valid, invalid, partial, and mixe
 - #129: [milestone Milestone 5] Add deployment checks for Trustavo production configuration.
 - #127: [milestone Milestone 5] Add Cloudflare Worker route tests for passport issue, fetch, revoke, and status ...
