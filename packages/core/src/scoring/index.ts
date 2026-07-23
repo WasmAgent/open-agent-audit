@@ -356,16 +356,98 @@ export interface DriftResultForScoring {
 }
 
 /**
+ * Configurable weights for the EAS (Evidence Admission Score) formula.
+ *
+ * Each field is the weight assigned to the corresponding component.
+ * Weights are normalized automatically so they sum to 1.0.
+ *
+ * @example
+ * ```ts
+ * const score = await computeRiskScore(events, runId, undefined, undefined, undefined, undefined, {
+ *   weights: {
+ *     trace_completeness: 0.3,
+ *     provenance_integrity: 0.3,
+ *     objective_verification: 0.1,
+ *     policy_coverage: 0.1,
+ *     human_oversight_evidence: 0.1,
+ *     contamination_risk_inverted: 0.1,
+ *   },
+ * });
+ * ```
+ */
+export interface RiskWeights {
+  trace_completeness: number;
+  provenance_integrity: number;
+  objective_verification: number;
+  policy_coverage: number;
+  human_oversight_evidence: number;
+  contamination_risk_inverted: number;
+}
+
+/** Default EAS weights used when no custom weights are provided. */
+export const DEFAULT_RISK_WEIGHTS: RiskWeights = {
+  trace_completeness: 0.2,
+  provenance_integrity: 0.2,
+  objective_verification: 0.2,
+  policy_coverage: 0.15,
+  human_oversight_evidence: 0.15,
+  contamination_risk_inverted: 0.1,
+};
+
+/**
+ * Options for {@link computeRiskScore}.
+ */
+export interface ScoringOptions {
+  /**
+   * Custom weights for the EAS formula components.
+   * When provided, weights are normalized to sum to 1.0.
+   * When omitted, {@link DEFAULT_RISK_WEIGHTS} is used.
+   */
+  weights?: RiskWeights;
+  /**
+   * Optional rubric version identifier.
+   * When custom weights are provided and this is not set, defaults to "custom".
+   */
+  rubric_version?: string;
+}
+
+/**
+ * Normalize a set of risk weights so they sum to 1.0.
+ * Returns a copy with each weight divided by the total.
+ */
+export function normalizeWeights(w: RiskWeights): RiskWeights {
+  const total =
+    w.trace_completeness +
+    w.provenance_integrity +
+    w.objective_verification +
+    w.policy_coverage +
+    w.human_oversight_evidence +
+    w.contamination_risk_inverted;
+  if (total === 0) return { ...DEFAULT_RISK_WEIGHTS };
+  return {
+    trace_completeness: w.trace_completeness / total,
+    provenance_integrity: w.provenance_integrity / total,
+    objective_verification: w.objective_verification / total,
+    policy_coverage: w.policy_coverage / total,
+    human_oversight_evidence: w.human_oversight_evidence / total,
+    contamination_risk_inverted: w.contamination_risk_inverted / total,
+  };
+}
+
+/**
  * Compute the Evidence Admission Score (EAS) and Agent Risk Score (ARS) for
  * a set of canonical events.
  *
- * EAS formula:
+ * EAS formula (with default weights):
  *   0.20 * trace_completeness
  * + 0.20 * provenance_integrity
  * + 0.20 * objective_verification
  * + 0.15 * policy_coverage
  * + 0.15 * human_oversight_evidence
  * + 0.10 * contamination_risk_inverted
+ *
+ * Weights are configurable via the `options.weights` parameter. When provided,
+ * weights are normalized to sum to 1.0 before applying.
  *
  * NOTE: The `objective_verification` component defaults to 50 (neutral)
  * when no verifier results are present in the event stream. For tool-calling
@@ -384,6 +466,7 @@ export interface DriftResultForScoring {
  * @param contaminationResult - Optional contamination detection result
  * @param driftResult - Optional drift detection result from driftGuard(); when provided,
  *   the drift_score is factored into the Agent Risk Score as a penalty (max -15 pts)
+ * @param options - Optional scoring configuration (custom weights, rubric version)
  * @returns RiskScore containing EAS, ARS, and component breakdowns
  *
  * @see computeObjectiveVerification — details on the 50-point default
@@ -399,6 +482,7 @@ export async function computeRiskScore(
   },
   contaminationResult?: { contamination_score: number },
   driftResult?: DriftResultForScoring,
+  options?: ScoringOptions,
 ): Promise<RiskScore> {
   const trace_completeness = computeTraceCompleteness(events);
   const provenance_integrity = computeProvenanceIntegrity(events, aepProvenance, cryptoSummary);
@@ -407,13 +491,16 @@ export async function computeRiskScore(
   const human_oversight_evidence = computeHumanOversightEvidence(events);
   const contamination_risk_inverted = computeContaminationRiskInverted(contaminationResult);
 
+  const w =
+    options?.weights !== undefined ? normalizeWeights(options.weights) : DEFAULT_RISK_WEIGHTS;
+
   const eas =
-    0.2 * trace_completeness +
-    0.2 * provenance_integrity +
-    0.2 * objective_verification +
-    0.15 * policy_coverage +
-    0.15 * human_oversight_evidence +
-    0.1 * contamination_risk_inverted;
+    w.trace_completeness * trace_completeness +
+    w.provenance_integrity * provenance_integrity +
+    w.objective_verification * objective_verification +
+    w.policy_coverage * policy_coverage +
+    w.human_oversight_evidence * human_oversight_evidence +
+    w.contamination_risk_inverted * contamination_risk_inverted;
 
   const easRounded = Math.round(eas);
   let arsRounded = computeAgentRiskScore(events);
@@ -423,6 +510,9 @@ export async function computeRiskScore(
     const driftPenalty = Math.round(driftResult.drift_score * 0.15);
     arsRounded = Math.max(0, arsRounded - driftPenalty);
   }
+
+  const customWeights = options?.weights !== undefined;
+  const rubricVersion = options?.rubric_version ?? (customWeights ? 'custom' : undefined);
 
   return {
     schema_version: 'open-agent-audit/v0.1',
@@ -442,5 +532,6 @@ export async function computeRiskScore(
       contamination_risk_inverted,
     },
     contamination_evaluated: contaminationResult !== undefined,
+    ...(rubricVersion !== undefined && { rubric_version: rubricVersion }),
   };
 }

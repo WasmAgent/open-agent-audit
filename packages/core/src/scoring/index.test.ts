@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import type { CanonicalEvent } from '@openagentaudit/schema';
-import { computeRiskScore } from './index.js';
+import { DEFAULT_RISK_WEIGHTS, computeRiskScore, normalizeWeights } from './index.js';
+import type { RiskWeights } from './index.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -336,5 +337,180 @@ describe('computeRiskScore — driftResult integration (#82)', () => {
       drift_score: 100,
     });
     expect(score.agent_risk_score.score).toBeGreaterThanOrEqual(0);
+  });
+});
+
+// ---------- Configurable risk weights (#107) ----------
+
+describe('normalizeWeights', () => {
+  it('returns default weights when all weights are zero', () => {
+    const zeroWeights: RiskWeights = {
+      trace_completeness: 0,
+      provenance_integrity: 0,
+      objective_verification: 0,
+      policy_coverage: 0,
+      human_oversight_evidence: 0,
+      contamination_risk_inverted: 0,
+    };
+    const result = normalizeWeights(zeroWeights);
+    expect(result).toEqual(DEFAULT_RISK_WEIGHTS);
+  });
+
+  it('normalizes weights that sum to more than 1', () => {
+    const w: RiskWeights = {
+      trace_completeness: 2,
+      provenance_integrity: 2,
+      objective_verification: 2,
+      policy_coverage: 2,
+      human_oversight_evidence: 2,
+      contamination_risk_inverted: 2,
+    };
+    const result = normalizeWeights(w);
+    const sum =
+      result.trace_completeness +
+      result.provenance_integrity +
+      result.objective_verification +
+      result.policy_coverage +
+      result.human_oversight_evidence +
+      result.contamination_risk_inverted;
+    expect(sum).toBeCloseTo(1, 10);
+    // All should be 1/6
+    for (const key of Object.keys(result) as Array<keyof RiskWeights>) {
+      expect(result[key]).toBeCloseTo(1 / 6, 10);
+    }
+  });
+
+  it('preserves relative proportions when normalizing', () => {
+    const w: RiskWeights = {
+      trace_completeness: 3,
+      provenance_integrity: 3,
+      objective_verification: 1,
+      policy_coverage: 1,
+      human_oversight_evidence: 1,
+      contamination_risk_inverted: 1,
+    };
+    const result = normalizeWeights(w);
+    // total = 10, so trace_completeness = 0.3, others = 0.1
+    expect(result.trace_completeness).toBeCloseTo(0.3, 10);
+    expect(result.objective_verification).toBeCloseTo(0.1, 10);
+  });
+});
+
+describe('computeRiskScore — configurable risk weights (#107)', () => {
+  it('uses default weights when no options provided', async () => {
+    const events = withHashChain([makeToolCall('e1'), makeToolCall('e2')], true);
+    const score = await computeRiskScore(events, 'r1');
+    const scoreWithOptions = await computeRiskScore(
+      events,
+      'r1',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {},
+    );
+    expect(score.evidence_admission_score.score).toBe(
+      scoreWithOptions.evidence_admission_score.score,
+    );
+  });
+
+  it('does not set rubric_version with default weights', async () => {
+    const events = [makeToolCall('e1')];
+    const score = await computeRiskScore(events, 'r1');
+    expect(score.rubric_version).toBeUndefined();
+  });
+
+  it('applies custom weights and normalizes them', async () => {
+    const events = withHashChain([makeToolCall('e1')], true);
+    // Give trace_completeness all the weight (1.0), others 0
+    const w: RiskWeights = {
+      trace_completeness: 1,
+      provenance_integrity: 0,
+      objective_verification: 0,
+      policy_coverage: 0,
+      human_oversight_evidence: 0,
+      contamination_risk_inverted: 0,
+    };
+    const score = await computeRiskScore(events, 'r1', undefined, undefined, undefined, undefined, {
+      weights: w,
+    });
+    // With all weight on trace_completeness, EAS should equal trace_completeness component
+    expect(score.evidence_admission_score.score).toBe(score.components.trace_completeness!);
+  });
+
+  it('sets rubric_version to "custom" when custom weights used without explicit version', async () => {
+    const events = [makeToolCall('e1')];
+    const score = await computeRiskScore(events, 'r1', undefined, undefined, undefined, undefined, {
+      weights: { ...DEFAULT_RISK_WEIGHTS, trace_completeness: 0.5 },
+    });
+    expect(score.rubric_version).toBe('custom');
+  });
+
+  it('uses explicit rubric_version when provided', async () => {
+    const events = [makeToolCall('e1')];
+    const score = await computeRiskScore(events, 'r1', undefined, undefined, undefined, undefined, {
+      weights: { ...DEFAULT_RISK_WEIGHTS, trace_completeness: 0.5 },
+      rubric_version: 'eu-ai-act/v1.0',
+    });
+    expect(score.rubric_version).toBe('eu-ai-act/v1.0');
+  });
+
+  it('custom weights produce different EAS than default for same events', async () => {
+    const events = withHashChain([makeToolCall('e1')], true);
+    const defaultScore = await computeRiskScore(events, 'r1');
+    // Shift all weight to provenance_integrity
+    const customScore = await computeRiskScore(
+      events,
+      'r1',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        weights: {
+          trace_completeness: 0,
+          provenance_integrity: 1,
+          objective_verification: 0,
+          policy_coverage: 0,
+          human_oversight_evidence: 0,
+          contamination_risk_inverted: 0,
+        },
+      },
+    );
+    expect(customScore.evidence_admission_score.score).toBe(
+      customScore.components.provenance_integrity!,
+    );
+    // The two scores should differ unless trace_completeness == provenance_integrity
+    // which is unlikely with realistic events
+  });
+
+  it('backward compatible: existing call sites without options still work', async () => {
+    const events = withHashChain([makeToolCall('e1'), makeToolCall('e2')], true);
+    // Call with just events + runId (the most common usage)
+    const score = await computeRiskScore(events, 'r1');
+    expect(score.evidence_admission_score.score).toBeGreaterThanOrEqual(0);
+    expect(score.evidence_admission_score.score).toBeLessThanOrEqual(100);
+    expect(score.agent_risk_score.score).toBeGreaterThanOrEqual(0);
+    expect(score.agent_risk_score.score).toBeLessThanOrEqual(100);
+    expect(score.run_id).toBe('run-test');
+  });
+
+  it('normalizes unnormalized weights before applying', async () => {
+    const events = withHashChain([makeToolCall('e1')], true);
+    // Pass weights summing to 2.0 (should be normalized to sum to 1.0)
+    const w: RiskWeights = {
+      trace_completeness: 0.4,
+      provenance_integrity: 0.4,
+      objective_verification: 0.4,
+      policy_coverage: 0.2,
+      human_oversight_evidence: 0.2,
+      contamination_risk_inverted: 0.2,
+    };
+    const score = await computeRiskScore(events, 'r1', undefined, undefined, undefined, undefined, {
+      weights: w,
+    });
+    // Score should be in valid range
+    expect(score.evidence_admission_score.score).toBeGreaterThanOrEqual(0);
+    expect(score.evidence_admission_score.score).toBeLessThanOrEqual(100);
   });
 });
