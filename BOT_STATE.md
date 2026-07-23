@@ -1,6 +1,6 @@
 # Bot State
 
-_Last updated: 2026-07-23 19:23 UTC by patrol_
+_Last updated: 2026-07-23 19:31 UTC by patrol_
 
 ## Queue
 
@@ -8,18 +8,18 @@ _Last updated: 2026-07-23 19:23 UTC by patrol_
 |---|---|
 | Pending | 27 |
 | Active (running/reviewing) | 1 |
-| Blocked | 3 |
-| Completed/Merged (all time) | 8 |
+| Blocked | 2 |
+| Completed/Merged (all time) | 9 |
 
 ## Recent Activity (last 5)
 
 | Issue | Title | Outcome | Date |
 |---|---|---|---|
+| #109 | [milestone Milestone 2] Refactor core pipeline outputs in... | merged/auto_closed_resolved | 2026-07-23 |
 | #106 | [milestone Milestone 2] Implement benchmark claim auditin... | merged/auto_closed_resolved | 2026-07-23 |
 | #97 | [milestone Milestone 1] Add schema versioning support for... | merged/auto_closed_resolved | 2026-07-23 |
 | #98 | [milestone Milestone 1] Implement `validateEvents(raw)` t... | merged/auto_closed_resolved | 2026-07-23 |
 | #99 | [milestone Milestone 1] Add fixture-based tests for valid... | completed/complexity_gate_split | 2026-07-23 |
-| #124 | [milestone Milestone 5] Add passport validity window, fra... | merged/auto_closed_resolved | 2026-07-23 |
 
 ## Waiting for Human
 
