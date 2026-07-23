@@ -38,6 +38,53 @@ function withHashChain(events: CanonicalEvent[], withSignature: boolean): Canoni
 }
 
 // ---------------------------------------------------------------------------
+// computeRiskScore(events, runId) — runId fallback
+// ---------------------------------------------------------------------------
+
+describe('computeRiskScore(events, runId) — runId fallback', () => {
+  it('uses the runId parameter when events have no run_id', async () => {
+    const events: CanonicalEvent[] = [
+      {
+        schema_version: 'open-agent-audit/v0.1',
+        run_id: undefined as unknown as string,
+        agent_id: 'agent-test',
+        model_id: 'model-test',
+        event_id: 'e1',
+        timestamp: '2023-11-14T22:13:20.000Z',
+        type: 'tool_call',
+        actor: 'agent',
+        tool: { name: 'bash' },
+      },
+    ];
+    const score = await computeRiskScore(events, 'fallback-run-id');
+    expect(score.run_id).toBe('fallback-run-id');
+  });
+
+  it('prefers events[0].run_id over the runId parameter', async () => {
+    const score = await computeRiskScore([makeToolCall('e1')], 'fallback-run-id');
+    expect(score.run_id).toBe('run-test');
+  });
+
+  it('falls back to "unknown" when neither events nor runId provide a run_id', async () => {
+    const events: CanonicalEvent[] = [
+      {
+        schema_version: 'open-agent-audit/v0.1',
+        run_id: undefined as unknown as string,
+        agent_id: 'agent-test',
+        model_id: 'model-test',
+        event_id: 'e1',
+        timestamp: '2023-11-14T22:13:20.000Z',
+        type: 'tool_call',
+        actor: 'agent',
+        tool: { name: 'bash' },
+      },
+    ];
+    const score = await computeRiskScore(events);
+    expect(score.run_id).toBe('unknown');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // computeProvenanceIntegrity via computeRiskScore
 // ---------------------------------------------------------------------------
 
