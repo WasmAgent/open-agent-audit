@@ -1,25 +1,25 @@
 # Bot State
 
-_Last updated: 2026-07-23 22:23 UTC by patrol_
+_Last updated: 2026-07-23 22:31 UTC by patrol_
 
 ## Queue
 
 | State | Count |
 |---|---|
 | Pending | 21 |
-| Active (running/reviewing) | 2 |
+| Active (running/reviewing) | 1 |
 | Blocked | 1 |
-| Completed/Merged (all time) | 13 |
+| Completed/Merged (all time) | 14 |
 
 ## Recent Activity (last 5)
 
 | Issue | Title | Outcome | Date |
 |---|---|---|---|
+| #115 | [milestone Milestone 3] Add export fixtures for auditor-f... | completed/complexity_gate_split | 2026-07-23 |
 | #110 | [milestone Milestone 3] Implement `renderReport(events, f... | merged/auto_closed_resolved | 2026-07-23 |
 | #103 | [milestone Milestone 2] Implement `validate(events)` to r... | merged/auto_closed_resolved | 2026-07-23 |
 | #123 | [milestone Milestone 5] Implement `issue`, `renew`, `revo... | completed/issue_closed_upstream | 2026-07-23 |
 | #118 | [milestone Milestone 4] Implement adapter normalization f... | completed/issue_closed_upstream | 2026-07-23 |
-| #109 | [milestone Milestone 2] Refactor core pipeline outputs in... | merged/auto_closed_resolved | 2026-07-23 |
 
 ## Waiting for Human
 
@@ -32,6 +32,7 @@ _Last updated: 2026-07-23 22:23 UTC by patrol_
 - #120: [milestone Milestone 4] Implement adapter error handling for malformed, incomplete, and unsupported sour...
 - #119: [milestone Milestone 4] Add adapter conformance tests to verify output matches canonical event schemas.
 - #117: [milestone Milestone 4] Implement adapter normalization for Langfuse events.
+- #114: [milestone Milestone 3] Implement redaction utilities for sensitive evidence fields before rendering.
 
 ---
 _Maintained automatically by claude-bot-go patrol. Do not edit._
