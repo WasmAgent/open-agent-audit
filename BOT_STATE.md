@@ -1,6 +1,6 @@
 # Bot State
 
-_Last updated: 2026-07-23 18:56 UTC by patrol_
+_Last updated: 2026-07-23 19:02 UTC by patrol_
 
 ## Queue
 
@@ -30,6 +30,7 @@ _Last updated: 2026-07-23 18:56 UTC by patrol_
 - #121: [milestone Milestone 4] Add example ingestion scripts for each supported adapter.
 - #120: [milestone Milestone 4] Implement adapter error handling for malformed, incomplete, and unsupported sour...
 - #119: [milestone Milestone 4] Add adapter conformance tests to verify output matches canonical event schemas.
+- #117: [milestone Milestone 4] Implement adapter normalization for Langfuse events.
 
 ---
 _Maintained automatically by claude-bot-go patrol. Do not edit._
