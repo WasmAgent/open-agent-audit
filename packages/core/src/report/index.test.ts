@@ -7,7 +7,7 @@
  * regression in report format or content that must be reviewed.
  */
 import { describe, expect, it } from 'bun:test';
-import type { CanonicalEvent } from '@openagentaudit/schema';
+import type { CanonicalEvent, Finding } from '@openagentaudit/schema';
 import { inventory } from '../inventory/index.js';
 import { policyAudit } from '../policy-audit/index.js';
 import { computeRiskScore } from '../scoring/index.js';
@@ -253,5 +253,127 @@ describe('renderReport null inventoryReport (#57)', () => {
     // The JSON report should not have an inventory section
     const report = JSON.parse(bundle.json) as { inventory?: unknown };
     expect(report.inventory).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #111 / Milestone 3: report sections for risk score and open risks
+// ---------------------------------------------------------------------------
+
+describe('report sections: risk score and open risks (#111)', () => {
+  it('renders Risk Score and Open Risks sections in markdown and html', async () => {
+    const score = await computeRiskScore(GOLDEN_EVENTS);
+    const bundle = await renderReport(GOLDEN_EVENTS, [], score, null);
+
+    // Both new sections are present in markdown and html
+    expect(bundle.markdown).toContain('## Risk Score');
+    expect(bundle.markdown).toContain('## Open Risks');
+    expect(bundle.html).toContain('<h2>Risk Score</h2>');
+    expect(bundle.html).toContain('<h2>Open Risks</h2>');
+
+    // Risk Score section surfaces the ARS value and its interpretation band
+    const arsScore = score.agent_risk_score.score;
+    expect(bundle.markdown).toContain(`Agent Risk Score (ARS) | ${arsScore}/100`);
+    expect(bundle.html).toContain(`Agent Risk Score (ARS)</td><td>${arsScore}/100`);
+
+    // JSON report carries an open_risks array
+    const json = JSON.parse(bundle.json) as { open_risks: unknown[] };
+    expect(Array.isArray(json.open_risks)).toBe(true);
+  });
+
+  it('derives open risks from unsuppressed medium/high/critical findings, most-severe first', async () => {
+    const score = await computeRiskScore(GOLDEN_EVENTS);
+    const findings: Finding[] = [
+      {
+        schema_version: 'open-agent-audit/v0.1',
+        finding_id: 'f-1',
+        rule_id: 'R-MED',
+        severity: 'medium',
+        category: 'oversight',
+        title: 'Medium open issue',
+        description: 'desc',
+        evidence_ids: ['eid-y'],
+        recommendation: 'Review oversight',
+      },
+      {
+        schema_version: 'open-agent-audit/v0.1',
+        finding_id: 'f-2',
+        rule_id: 'R-CRIT',
+        severity: 'critical',
+        category: 'capability',
+        title: 'Critical open issue',
+        description: 'desc',
+        evidence_ids: ['eid-x'],
+        recommendation: 'Fix it now',
+      },
+      {
+        schema_version: 'open-agent-audit/v0.1',
+        finding_id: 'f-3',
+        rule_id: 'R-SUPPRESSED',
+        severity: 'high',
+        category: 'policy',
+        title: 'Suppressed high issue',
+        description: 'desc',
+        evidence_ids: ['eid-z'],
+        recommendation: 'Should not appear',
+        suppressed: true,
+      },
+      {
+        schema_version: 'open-agent-audit/v0.1',
+        finding_id: 'f-4',
+        rule_id: 'R-LOW',
+        severity: 'low',
+        category: 'integrity',
+        title: 'Low issue',
+        description: 'desc',
+        evidence_ids: ['eid-w'],
+        recommendation: 'Below threshold',
+      },
+    ];
+
+    const bundle = await renderReport(GOLDEN_EVENTS, findings, score, null);
+
+    // Only critical + medium qualify (high is suppressed, low is below threshold)
+    const json = JSON.parse(bundle.json) as { open_risks: Array<{ rule_id: string }> };
+    expect(json.open_risks.map((r) => r.rule_id)).toEqual(['R-CRIT', 'R-MED']);
+
+    // Markdown lists qualifying findings ordered most-severe first
+    expect(bundle.markdown.indexOf('[CRITICAL] R-CRIT')).toBeLessThan(
+      bundle.markdown.indexOf('[MEDIUM] R-MED'),
+    );
+
+    // The suppressed high finding and the below-threshold low finding are NOT
+    // surfaced in the Open Risks section. They still appear in the full
+    // Findings section (which lists every finding regardless of suppression),
+    // so the assertion is scoped to the Open Risks section only.
+    const openRisksStart = bundle.markdown.indexOf('## Open Risks');
+    const limitationsStart = bundle.markdown.indexOf('## Limitations', openRisksStart);
+    const openRisksSection = bundle.markdown.slice(openRisksStart, limitationsStart);
+    expect(openRisksSection).not.toContain('R-SUPPRESSED');
+    expect(openRisksSection).not.toContain('[LOW]');
+  });
+
+  it('reports no open risks when only low/info findings are present', async () => {
+    const score = await computeRiskScore(GOLDEN_EVENTS);
+    const findings: Finding[] = [
+      {
+        schema_version: 'open-agent-audit/v0.1',
+        finding_id: 'f-1',
+        rule_id: 'R-LOW',
+        severity: 'low',
+        category: 'integrity',
+        title: 'Low issue',
+        description: 'desc',
+        evidence_ids: ['eid-w'],
+        recommendation: 'Below threshold',
+      },
+    ];
+
+    const bundle = await renderReport(GOLDEN_EVENTS, findings, score, null);
+
+    const json = JSON.parse(bundle.json) as { open_risks: unknown[] };
+    expect(json.open_risks).toEqual([]);
+    expect(bundle.markdown).toContain('No open risks');
+    expect(bundle.html).toContain('No open risks');
   });
 });

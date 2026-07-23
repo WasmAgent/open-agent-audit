@@ -195,6 +195,59 @@ function countBySeverity(findings: Finding[]): {
   return { critical, high, medium, low, info };
 }
 
+/**
+ * Interpret an Agent Risk Score (ARS) value.
+ *
+ * ARS is a 0–100 score where 100 = lowest observed risk and 0 = maximum risk
+ * (see docs/agent-risk-score.md). This maps a score to a human-readable band
+ * and the recommended remediation action, mirroring the interpretation table
+ * in the methodology document.
+ */
+function interpretArs(score: number): { band: string; action: string } {
+  if (score >= 90) return { band: 'Minimal observed risk', action: 'No action needed' };
+  if (score >= 75) return { band: 'Low risk', action: 'Review findings for context' };
+  if (score >= 60)
+    return {
+      band: 'Moderate risk',
+      action: 'Investigate policy denials and high-risk tool usage',
+    };
+  if (score >= 40) return { band: 'Elevated risk', action: 'Require manual review before deployment' };
+  if (score >= 20) return { band: 'High risk', action: 'Block deployment; investigate unapproved actions' };
+  return { band: 'Critical risk', action: 'Immediate investigation; possible evidence tampering' };
+}
+
+/** A single open (unresolved) risk surfaced in the report. */
+export interface OpenRisk {
+  rule_id: string;
+  severity: Finding['severity'];
+  title: string;
+  recommendation: string;
+  evidence_ids: string[];
+}
+
+/**
+ * Derive the set of open (unresolved) risks from the finding set.
+ *
+ * A finding counts as an open risk when it is not suppressed and its severity
+ * is medium, high, or critical — i.e. a residual behavioural risk that warrants
+ * remediation. Low and informational findings are still tracked in the Findings
+ * section but are not surfaced as open risks. The result is ordered most-severe
+ * first.
+ */
+function deriveOpenRisks(findings: Finding[]): OpenRisk[] {
+  const QUALIFYING: ReadonlySet<Finding['severity']> = new Set(['critical', 'high', 'medium']);
+  return findings
+    .filter((f) => !f.suppressed && QUALIFYING.has(f.severity))
+    .sort((a, b) => severityOrder(a.severity) - severityOrder(b.severity))
+    .map((f) => ({
+      rule_id: f.rule_id,
+      severity: f.severity,
+      title: f.title,
+      recommendation: f.recommendation,
+      evidence_ids: f.evidence_ids,
+    }));
+}
+
 function gradeColor(grade: string): string {
   switch (grade) {
     case 'A':
@@ -2670,6 +2723,29 @@ function buildMarkdown(
   }
   lines.push('');
 
+  // Risk Score (ARS) — behavioural risk band, parallel to the evidence-quality EAS section
+  {
+    const arsScore = agent_risk_score.score;
+    const { band, action } = interpretArs(arsScore);
+    lines.push('## Risk Score');
+    lines.push('');
+    lines.push(
+      '> The Agent Risk Score (ARS) measures behavioural risk indicators observed in the trace. ' +
+        'It is a 0–100 score where **100 = lowest observed risk** and 0 = maximum risk ' +
+        '(see docs/agent-risk-score.md).',
+    );
+    lines.push('');
+    lines.push('| Field | Value |');
+    lines.push('|---|---|');
+    lines.push(`| Agent Risk Score (ARS) | ${arsScore}/100 |`);
+    lines.push(`| Interpretation | ${band} |`);
+    lines.push(`| Recommended action | ${action} |`);
+    lines.push(
+      `| Relationship to EAS | EAS ${evidence_admission_score.score}/100 (Grade ${evidence_admission_score.grade}) measures evidence quality; ARS measures behavioural risk |`,
+    );
+    lines.push('');
+  }
+
   // Tool Inventory
   if (inv !== undefined && Array.isArray(inv.tools)) {
     lines.push('## Tool Inventory');
@@ -2712,6 +2788,29 @@ function buildMarkdown(
   // Compliance Framework Mapping (after Findings, before Limitations)
   for (const l of buildComplianceMappingMarkdown(complianceMappings)) {
     lines.push(l);
+  }
+
+  // Open Risks — unsuppressed medium/high/critical findings warranting remediation
+  {
+    const openRisks = deriveOpenRisks(findings);
+    lines.push('## Open Risks');
+    lines.push('');
+    lines.push(
+      '> Open risks are unsuppressed findings at medium, high, or critical severity — residual behavioural risks that warrant remediation before deployment.',
+    );
+    lines.push('');
+    if (openRisks.length === 0) {
+      lines.push('_No open risks — all medium-or-above findings are resolved or suppressed._');
+    } else {
+      for (const r of openRisks) {
+        const sev = r.severity.toUpperCase();
+        lines.push(`### [${sev}] ${r.rule_id} — ${r.title}`);
+        lines.push('');
+        lines.push(`- **Recommendation:** ${r.recommendation}`);
+        lines.push(`- **Evidence IDs:** ${r.evidence_ids.join(', ')}`);
+        lines.push('');
+      }
+    }
   }
 
   // Limitations
@@ -3220,6 +3319,29 @@ function buildHtml(
   parts.push('</tbody>');
   parts.push('</table>');
 
+  // Risk Score (ARS) — behavioural risk band, parallel to the evidence-quality EAS section
+  {
+    const arsScore = agent_risk_score.score;
+    const { band, action } = interpretArs(arsScore);
+    parts.push('<h2>Risk Score</h2>');
+    parts.push(
+      '<blockquote>The Agent Risk Score (ARS) measures behavioural risk indicators observed in the trace. ' +
+        'It is a 0–100 score where <strong>100 = lowest observed risk</strong> and 0 = maximum risk ' +
+        '(see docs/agent-risk-score.md).</blockquote>',
+    );
+    parts.push('<table>');
+    parts.push('<thead><tr><th>Field</th><th>Value</th></tr></thead>');
+    parts.push('<tbody>');
+    parts.push(`<tr><td>Agent Risk Score (ARS)</td><td>${arsScore}/100</td></tr>`);
+    parts.push(`<tr><td>Interpretation</td><td>${escapeHtml(band)}</td></tr>`);
+    parts.push(`<tr><td>Recommended action</td><td>${escapeHtml(action)}</td></tr>`);
+    parts.push(
+      `<tr><td>Relationship to EAS</td><td>EAS ${evidence_admission_score.score}/100 (Grade ${escapeHtml(grade)}) measures evidence quality; ARS measures behavioural risk</td></tr>`,
+    );
+    parts.push('</tbody>');
+    parts.push('</table>');
+  }
+
   // Tool Inventory
   if (inv !== undefined && Array.isArray(inv.tools)) {
     parts.push('<h2>Tool Inventory</h2>');
@@ -3276,6 +3398,34 @@ function buildHtml(
   // Compliance Framework Mapping (after Findings, before Limitations)
   for (const p of buildComplianceMappingHtml(complianceMappings)) {
     parts.push(p);
+  }
+
+  // Open Risks — unsuppressed medium/high/critical findings warranting remediation
+  {
+    const openRisks = deriveOpenRisks(findings);
+    parts.push('<h2>Open Risks</h2>');
+    parts.push(
+      '<blockquote>Open risks are unsuppressed findings at medium, high, or critical severity — residual behavioural risks that warrant remediation before deployment.</blockquote>',
+    );
+    if (openRisks.length === 0) {
+      parts.push(
+        '<p><em>No open risks — all medium-or-above findings are resolved or suppressed.</em></p>',
+      );
+    } else {
+      for (const r of openRisks) {
+        const sevClass = `severity-${r.severity}`;
+        const sev = r.severity.toUpperCase();
+        parts.push(
+          `<h3><span class="${sevClass}">[${sev}]</span> ${escapeHtml(r.rule_id)} — ${escapeHtml(r.title)}</h3>`,
+        );
+        parts.push('<ul>');
+        parts.push(`<li><strong>Recommendation:</strong> ${escapeHtml(r.recommendation)}</li>`);
+        parts.push(
+          `<li><strong>Evidence IDs:</strong> ${r.evidence_ids.map((id) => `<code>${escapeHtml(id)}</code>`).join(', ')}</li>`,
+        );
+        parts.push('</ul>');
+      }
+    }
   }
 
   // Limitations
@@ -3454,6 +3604,7 @@ interface JsonReport {
   run_id: string;
   risk_score: RiskScore;
   findings: Finding[];
+  open_risks: OpenRisk[];
   compliance_mappings: ComplianceMapping[];
   inventory?: InventoryReport;
   event_count: number;
@@ -3477,6 +3628,7 @@ function buildJson(
     run_id: score.run_id,
     risk_score: score,
     findings,
+    open_risks: deriveOpenRisks(findings),
     compliance_mappings: complianceMappings,
     event_count: events.length,
     meta: resolved,
