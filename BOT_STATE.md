@@ -1,6 +1,6 @@
 # Bot State
 
-_Last updated: 2026-07-23 17:10 UTC by patrol_
+_Last updated: 2026-07-23 17:15 UTC by patrol_
 
 ## Queue
 
@@ -22,6 +22,7 @@ _Last updated: 2026-07-23 17:10 UTC by patrol_
 
 ## Waiting for Human
 
+- #129: [milestone Milestone 5] Add deployment checks for Trustavo production configuration.
 - #121: [milestone Milestone 4] Add example ingestion scripts for each supported adapter.
 - #120: [milestone Milestone 4] Implement adapter error handling for malformed, incomplete, and unsupported sour...
 - #119: [milestone Milestone 4] Add adapter conformance tests to verify output matches canonical event schemas.
