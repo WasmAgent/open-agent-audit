@@ -95,7 +95,8 @@ See `CONSTRAINTS.md` for the full list.
 
 | Capability | Owner |
 |---|---|
-| AEP schema definition and versioning | `wasmagent-js` (`@wasmagent/aep`) |
+| AEP + compliance **schema definitions** | `wasmagent-protocol` (`@wasmagent/protocol`) |
+| AEP evidence **emission** at runtime | `wasmagent-js` (`@wasmagent/aep`) |
 | AgentBOM / MCP Posture / Trust Passport specifications (schemas) | `agent-trust-infra` |
 | Runtime evidence collection (MCP firewall, capability attestation) | `wasmagent-js` |
 | Training data pipeline (SFT/DPO export, contamination stats) | `trace-pipeline` |
