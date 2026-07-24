@@ -1,6 +1,6 @@
 # Bot State
 
-_Last updated: 2026-07-24 09:50 UTC by patrol_
+_Last updated: 2026-07-24 10:02 UTC by patrol_
 
 ## Queue
 
@@ -9,17 +9,17 @@ _Last updated: 2026-07-24 09:50 UTC by patrol_
 | Pending | 3 |
 | Active (running/reviewing) | 1 |
 | Blocked | 12 |
-| Completed/Merged (all time) | 49 |
+| Completed/Merged (all time) | 50 |
 
 ## Recent Activity (last 5)
 
 | Issue | Title | Outcome | Date |
 |---|---|---|---|
+| #107 | [milestone Milestone 2] Implement `computeRiskScore(event... | completed/maintenance_done | 2026-07-24 |
 | #131 | [milestone Milestone 1] Implement `validateEvents(raw)` t... | merged/auto_closed_resolved | 2026-07-24 |
 | #130 | Fix WasmAgent/open-agent-audit#99 ([milestone Milestone 1... | merged/auto_closed_resolved | 2026-07-24 |
 | #129 | [milestone Milestone 5] Add deployment checks for Trustav... | completed/complexity_gate_split | 2026-07-24 |
 | #114 | [milestone Milestone 3] Implement redaction utilities for... | completed/complexity_gate_split | 2026-07-24 |
-| #107 | [milestone Milestone 2] Implement `computeRiskScore(event... | completed/maintenance_done | 2026-07-24 |
 
 ## Waiting for Human
 
