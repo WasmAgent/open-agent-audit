@@ -1,25 +1,25 @@
 # Bot State
 
-_Last updated: 2026-07-24 22:52 UTC by patrol_
+_Last updated: 2026-07-24 23:03 UTC by patrol_
 
 ## Queue
 
 | State | Count |
 |---|---|
-| Pending | 2 |
-| Active (running/reviewing) | 1 |
-| Blocked | 11 |
-| Completed/Merged (all time) | 85 |
+| Pending | 0 |
+| Active (running/reviewing) | 0 |
+| Blocked | 12 |
+| Completed/Merged (all time) | 88 |
 
 ## Recent Activity (last 5)
 
 | Issue | Title | Outcome | Date |
 |---|---|---|---|
+| #147 | [milestone Milestone 1] Implement `validateEvents(raw)` t... | merged/auto_closed_resolved | 2026-07-24 |
 | #107 | [milestone Milestone 2] Implement `computeRiskScore(event... | completed/maintenance_done | 2026-07-24 |
 | #120 | [milestone Milestone 4] Implement adapter error handling ... | completed/maintenance_done | 2026-07-24 |
-| #137 | Fix WasmAgent/open-agent-audit#94 (Map AEP v0.1 audit ada... | merged/auto_closed_resolved | 2026-07-24 |
-| #146 | [milestone Milestone 2] Implement `validate(events)` to r... | merged/auto_closed_resolved | 2026-07-24 |
 | #107 | [milestone Milestone 2] Implement `computeRiskScore(event... | completed/maintenance_done | 2026-07-24 |
+| #120 | [milestone Milestone 4] Implement adapter error handling ... | completed/maintenance_done | 2026-07-24 |
 
 ## Waiting for Human
 
