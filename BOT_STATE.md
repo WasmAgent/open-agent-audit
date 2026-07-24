@@ -1,15 +1,15 @@
 # Bot State
 
-_Last updated: 2026-07-24 14:33 UTC by patrol_
+_Last updated: 2026-07-24 14:43 UTC by patrol_
 
 ## Queue
 
 | State | Count |
 |---|---|
-| Pending | 2 |
+| Pending | 3 |
 | Active (running/reviewing) | 1 |
-| Blocked | 13 |
-| Completed/Merged (all time) | 65 |
+| Blocked | 12 |
+| Completed/Merged (all time) | 66 |
 
 ## Recent Activity (last 5)
 
