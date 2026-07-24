@@ -1,21 +1,21 @@
 # Bot State
 
-_Last updated: 2026-07-24 09:32 UTC by patrol_
+_Last updated: 2026-07-24 09:45 UTC by patrol_
 
 ## Queue
 
 | State | Count |
 |---|---|
-| Pending | 7 |
+| Pending | 6 |
 | Active (running/reviewing) | 1 |
-| Blocked | 12 |
-| Completed/Merged (all time) | 44 |
+| Blocked | 11 |
+| Completed/Merged (all time) | 46 |
 
 ## Recent Activity (last 5)
 
 | Issue | Title | Outcome | Date |
 |---|---|---|---|
-| #107 | [milestone Milestone 2] Implement `computeRiskScore(event... | completed/maintenance_done | 2026-07-24 |
+| #114 | [milestone Milestone 3] Implement redaction utilities for... | completed/complexity_gate_split | 2026-07-24 |
 | #107 | [milestone Milestone 2] Implement `computeRiskScore(event... | completed/maintenance_done | 2026-07-24 |
 | #107 | [milestone Milestone 2] Implement `computeRiskScore(event... | completed/maintenance_done | 2026-07-24 |
 | #107 | [milestone Milestone 2] Implement `computeRiskScore(event... | completed/maintenance_done | 2026-07-24 |
