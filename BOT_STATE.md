@@ -1,15 +1,15 @@
 # Bot State
 
-_Last updated: 2026-07-24 03:26 UTC by patrol_
+_Last updated: 2026-07-24 03:36 UTC by patrol_
 
 ## Queue
 
 | State | Count |
 |---|---|
-| Pending | 23 |
+| Pending | 22 |
 | Active (running/reviewing) | 1 |
-| Blocked | 0 |
-| Completed/Merged (all time) | 20 |
+| Blocked | 1 |
+| Completed/Merged (all time) | 21 |
 
 ## Recent Activity (last 5)
 
@@ -18,8 +18,8 @@ _Last updated: 2026-07-24 03:26 UTC by patrol_
 | #107 | [milestone Milestone 2] Implement `computeRiskScore(event... | completed/maintenance_done | 2026-07-24 |
 | #107 | [milestone Milestone 2] Implement `computeRiskScore(event... | completed/maintenance_done | 2026-07-24 |
 | #107 | [milestone Milestone 2] Implement `computeRiskScore(event... | completed/maintenance_done | 2026-07-24 |
+| #107 | [milestone Milestone 2] Implement `computeRiskScore(event... | completed/maintenance_done | 2026-07-24 |
 | #94 | Map AEP v0.1 audit adapter onto canonical wasmagent-proto... | completed/complexity_gate_split | 2026-07-24 |
-| #96 | [milestone Milestone 1] Implement canonical event schemas... | completed/complexity_gate_split | 2026-07-24 |
 
 ## Waiting for Human
 
