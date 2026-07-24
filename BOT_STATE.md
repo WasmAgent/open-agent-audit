@@ -6,10 +6,10 @@ _Last updated: 2026-07-24 06:57 UTC by patrol_
 
 | State | Count |
 |---|---|
-| Pending | 17 |
+| Pending | 16 |
 | Active (running/reviewing) | 1 |
 | Blocked | 3 |
-| Completed/Merged (all time) | 30 |
+| Completed/Merged (all time) | 31 |
 
 ## Recent Activity (last 5)
 
@@ -17,8 +17,8 @@ _Last updated: 2026-07-24 06:57 UTC by patrol_
 |---|---|---|---|
 | #107 | [milestone Milestone 2] Implement `computeRiskScore(event... | completed/maintenance_done | 2026-07-24 |
 | #107 | [milestone Milestone 2] Implement `computeRiskScore(event... | completed/maintenance_done | 2026-07-24 |
-| #104 | [milestone Milestone 2] Implement tool and permission inv... | merged/auto_closed_resolved | 2026-07-24 |
 | #107 | [milestone Milestone 2] Implement `computeRiskScore(event... | completed/maintenance_done | 2026-07-24 |
+| #104 | [milestone Milestone 2] Implement tool and permission inv... | merged/auto_closed_resolved | 2026-07-24 |
 | #107 | [milestone Milestone 2] Implement `computeRiskScore(event... | completed/maintenance_done | 2026-07-24 |
 
 ## Waiting for Human
