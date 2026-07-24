@@ -113,6 +113,68 @@ function corsError(message: string, status: number, env: WorkerEnv): Response {
 }
 
 // ---------------------------------------------------------------------------
+// Deployment configuration check (Trustavo production)
+// ---------------------------------------------------------------------------
+
+/**
+ * Validate that all required production branding vars are present and well-formed.
+ * Returns a structured result that the /api/v1/deploy-check endpoint serialises.
+ */
+function checkDeploymentConfig(env: WorkerEnv): {
+  ok: boolean;
+  checks: { key: string; ok: boolean; detail?: string }[];
+  warnings: string[];
+} {
+  const checks: { key: string; ok: boolean; detail?: string }[] = [];
+  const warnings: string[] = [];
+
+  // ISSUER_NAME — must be non-empty
+  const issuerName = (env as unknown as Record<string, unknown>).ISSUER_NAME as string | undefined;
+  if (issuerName && issuerName.trim().length > 0) {
+    checks.push({ key: 'ISSUER_NAME', ok: true });
+  } else {
+    checks.push({
+      key: 'ISSUER_NAME',
+      ok: false,
+      detail: 'must be a non-empty organisation display name',
+    });
+  }
+
+  // ISSUER_EMAIL — must look like an email address
+  const issuerEmail = (env as unknown as Record<string, unknown>).ISSUER_EMAIL as
+    | string
+    | undefined;
+  if (issuerEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(issuerEmail)) {
+    checks.push({ key: 'ISSUER_EMAIL', ok: true });
+  } else {
+    checks.push({ key: 'ISSUER_EMAIL', ok: false, detail: 'must be a valid email address' });
+  }
+
+  // PUBLIC_URL — must be a valid HTTPS URL
+  const publicUrl = (env as unknown as Record<string, unknown>).PUBLIC_URL as string | undefined;
+  if (publicUrl && /^https:\/\//.test(publicUrl)) {
+    checks.push({ key: 'PUBLIC_URL', ok: true });
+  } else {
+    checks.push({ key: 'PUBLIC_URL', ok: false, detail: 'must be a valid HTTPS URL' });
+  }
+
+  // OAA_ENV — must be set
+  const oaaEnv = (env as unknown as Record<string, unknown>).OAA_ENV as string | undefined;
+  if (oaaEnv && oaaEnv.trim().length > 0) {
+    checks.push({ key: 'OAA_ENV', ok: true });
+  } else {
+    checks.push({ key: 'OAA_ENV', ok: false, detail: 'must be set (e.g. "production")' });
+  }
+
+  // Warnings (non-fatal)
+  if (!(env as unknown as Record<string, unknown>).API_KEY) {
+    warnings.push('API_KEY is not set; auth is disabled (dev/demo mode).');
+  }
+
+  return { ok: checks.every((c) => c.ok), checks, warnings };
+}
+
+// ---------------------------------------------------------------------------
 // Auth helper
 // ---------------------------------------------------------------------------
 
@@ -982,7 +1044,11 @@ async function handleCreateApproval(request: Request, env: WorkerEnv): Promise<R
   return corsJson(approval, env, 201);
 }
 
-async function handleApprovalDecision(id: string, request: Request, env: WorkerEnv): Promise<Response> {
+async function handleApprovalDecision(
+  id: string,
+  request: Request,
+  env: WorkerEnv,
+): Promise<Response> {
   let body: Record<string, unknown>;
   try {
     body = (await request.json()) as Record<string, unknown>;
@@ -996,7 +1062,11 @@ async function handleApprovalDecision(id: string, request: Request, env: WorkerE
   };
 
   if (!decision || (decision !== 'approved' && decision !== 'denied')) {
-    return corsError('Missing or invalid field: decision (must be "approved" or "denied")', 400, env);
+    return corsError(
+      'Missing or invalid field: decision (must be "approved" or "denied")',
+      400,
+      env,
+    );
   }
 
   const raw = await env.APPROVALS.get(`approval:${id}`);
@@ -1052,7 +1122,11 @@ async function handleBatchDecision(request: Request, env: WorkerEnv): Promise<Re
   const results: BatchResultItem[] = [];
 
   for (const item of decisions) {
-    if (!item.id || !item.decision || (item.decision !== 'approved' && item.decision !== 'denied')) {
+    if (
+      !item.id ||
+      !item.decision ||
+      (item.decision !== 'approved' && item.decision !== 'denied')
+    ) {
       results.push({ id: item.id ?? '', status: 400, body: { error: 'Invalid decision item' } });
       continue;
     }
@@ -1102,6 +1176,20 @@ async function handleFetch(request: Request, env: WorkerEnv): Promise<Response> 
       pathname === '/.well-known/agent-passport')
   ) {
     return new Response(null, { status: 204, headers: corsHeaders(env) });
+  }
+
+  // GET /api/v1/deploy-check — validate Trustavo production configuration
+  if (method === 'GET' && pathname === '/api/v1/deploy-check') {
+    const config = checkDeploymentConfig(env);
+    return corsJson(
+      {
+        status: config.ok ? 'ok' : 'degraded',
+        checks: config.checks,
+        ...(config.warnings.length > 0 && { warnings: config.warnings }),
+      },
+      env,
+      config.ok ? 200 : 503,
+    );
   }
 
   // GET /health
