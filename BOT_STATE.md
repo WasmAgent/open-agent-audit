@@ -6,10 +6,10 @@ _Last updated: 2026-07-24 03:36 UTC by patrol_
 
 | State | Count |
 |---|---|
-| Pending | 22 |
+| Pending | 21 |
 | Active (running/reviewing) | 1 |
 | Blocked | 1 |
-| Completed/Merged (all time) | 21 |
+| Completed/Merged (all time) | 22 |
 
 ## Recent Activity (last 5)
 
@@ -19,7 +19,7 @@ _Last updated: 2026-07-24 03:36 UTC by patrol_
 | #107 | [milestone Milestone 2] Implement `computeRiskScore(event... | completed/maintenance_done | 2026-07-24 |
 | #107 | [milestone Milestone 2] Implement `computeRiskScore(event... | completed/maintenance_done | 2026-07-24 |
 | #107 | [milestone Milestone 2] Implement `computeRiskScore(event... | completed/maintenance_done | 2026-07-24 |
-| #94 | Map AEP v0.1 audit adapter onto canonical wasmagent-proto... | completed/complexity_gate_split | 2026-07-24 |
+| #107 | [milestone Milestone 2] Implement `computeRiskScore(event... | completed/maintenance_done | 2026-07-24 |
 
 ## Waiting for Human
 
