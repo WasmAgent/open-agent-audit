@@ -1,15 +1,15 @@
 # Bot State
 
-_Last updated: 2026-07-24 08:53 UTC by patrol_
+_Last updated: 2026-07-24 09:02 UTC by patrol_
 
 ## Queue
 
 | State | Count |
 |---|---|
-| Pending | 5 |
-| Active (running/reviewing) | 1 |
+| Pending | 3 |
+| Active (running/reviewing) | 2 |
 | Blocked | 14 |
-| Completed/Merged (all time) | 41 |
+| Completed/Merged (all time) | 42 |
 
 ## Recent Activity (last 5)
 
@@ -28,11 +28,11 @@ _Last updated: 2026-07-24 08:53 UTC by patrol_
 - #131: [milestone Milestone 1] Implement `validateEvents(raw)` to parse unknown input and return valid events p...
 - #130: Fix WasmAgent/open-agent-audit#99 ([milestone Milestone 1] Add fixture-based tests for valid, invalid, partial, and mixe
 - #129: [milestone Milestone 5] Add deployment checks for Trustavo production configuration.
+- #128: [milestone Milestone 5] Implement persistent passport storage using Cloudflare-native bindings.
 - #127: [milestone Milestone 5] Add Cloudflare Worker route tests for passport issue, fetch, revoke, and status ...
 - #121: [milestone Milestone 4] Add example ingestion scripts for each supported adapter.
 - #120: [milestone Milestone 4] Implement adapter error handling for malformed, incomplete, and unsupported sour...
 - #119: [milestone Milestone 4] Add adapter conformance tests to verify output matches canonical event schemas.
-- #117: [milestone Milestone 4] Implement adapter normalization for Langfuse events.
 
 ---
 _Maintained automatically by claude-bot-go patrol. Do not edit._
