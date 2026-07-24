@@ -1,25 +1,25 @@
 # Bot State
 
-_Last updated: 2026-07-24 22:01 UTC by patrol_
+_Last updated: 2026-07-24 22:02 UTC by patrol_
 
 ## Queue
 
 | State | Count |
 |---|---|
 | Pending | 0 |
-| Active (running/reviewing) | 1 |
+| Active (running/reviewing) | 0 |
 | Blocked | 15 |
-| Completed/Merged (all time) | 80 |
+| Completed/Merged (all time) | 81 |
 
 ## Recent Activity (last 5)
 
 | Issue | Title | Outcome | Date |
 |---|---|---|---|
+| #107 | [milestone Milestone 2] Implement `computeRiskScore(event... | completed/maintenance_done | 2026-07-24 |
 | #120 | [milestone Milestone 4] Implement adapter error handling ... | completed/maintenance_done | 2026-07-24 |
 | #144 | [milestone Milestone 2] Implement `validate(events)` to r... | merged/auto_closed_resolved | 2026-07-24 |
 | #107 | [milestone Milestone 2] Implement `computeRiskScore(event... | completed/maintenance_done | 2026-07-24 |
 | #120 | [milestone Milestone 4] Implement adapter error handling ... | completed/maintenance_done | 2026-07-24 |
-| #107 | [milestone Milestone 2] Implement `computeRiskScore(event... | completed/maintenance_done | 2026-07-24 |
 
 ## Waiting for Human
 
