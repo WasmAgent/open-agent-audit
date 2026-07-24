@@ -1,25 +1,25 @@
 # Bot State
 
-_Last updated: 2026-07-24 23:43 UTC by patrol_
+_Last updated: 2026-07-24 23:50 UTC by patrol_
 
 ## Queue
 
 | State | Count |
 |---|---|
-| Pending | 0 |
-| Active (running/reviewing) | 2 |
-| Blocked | 12 |
-| Completed/Merged (all time) | 95 |
+| Pending | 9 |
+| Active (running/reviewing) | 3 |
+| Blocked | 0 |
+| Completed/Merged (all time) | 99 |
 
 ## Recent Activity (last 5)
 
 | Issue | Title | Outcome | Date |
 |---|---|---|---|
+| #101 | Fix WasmAgent/open-agent-audit#100 ([milestone Milestone ... | completed/complexity_gate_split | 2026-07-24 |
+| #105 | [milestone Milestone 2] Add policy boundary violation det... | merged/auto_closed_resolved | 2026-07-24 |
 | #107 | [milestone Milestone 2] Implement `computeRiskScore(event... | completed/maintenance_done | 2026-07-24 |
 | #120 | [milestone Milestone 4] Implement adapter error handling ... | completed/maintenance_done | 2026-07-24 |
 | #107 | [milestone Milestone 2] Implement `computeRiskScore(event... | completed/maintenance_done | 2026-07-24 |
-| #120 | [milestone Milestone 4] Implement adapter error handling ... | completed/maintenance_done | 2026-07-24 |
-| #148 | [milestone Milestone 3] Implement `renderReport(events, f... | merged/auto_closed_resolved | 2026-07-24 |
 
 ## Waiting for Human
 
