@@ -1,6 +1,6 @@
 # Bot State
 
-_Last updated: 2026-07-24 06:47 UTC by patrol_
+_Last updated: 2026-07-24 06:57 UTC by patrol_
 
 ## Queue
 
@@ -9,17 +9,17 @@ _Last updated: 2026-07-24 06:47 UTC by patrol_
 | Pending | 17 |
 | Active (running/reviewing) | 1 |
 | Blocked | 3 |
-| Completed/Merged (all time) | 29 |
+| Completed/Merged (all time) | 30 |
 
 ## Recent Activity (last 5)
 
 | Issue | Title | Outcome | Date |
 |---|---|---|---|
 | #107 | [milestone Milestone 2] Implement `computeRiskScore(event... | completed/maintenance_done | 2026-07-24 |
+| #107 | [milestone Milestone 2] Implement `computeRiskScore(event... | completed/maintenance_done | 2026-07-24 |
 | #104 | [milestone Milestone 2] Implement tool and permission inv... | merged/auto_closed_resolved | 2026-07-24 |
 | #107 | [milestone Milestone 2] Implement `computeRiskScore(event... | completed/maintenance_done | 2026-07-24 |
 | #107 | [milestone Milestone 2] Implement `computeRiskScore(event... | completed/maintenance_done | 2026-07-24 |
-| #126 | [milestone Milestone 5] Add REST endpoints for `/passport... | merged/auto_closed_resolved | 2026-07-24 |
 
 ## Waiting for Human
 
