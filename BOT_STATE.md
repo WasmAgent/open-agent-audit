@@ -24,7 +24,6 @@ _Last updated: 2026-07-24 23:50 UTC by patrol_
 ## Waiting for Human
 
 - #139: Fix WasmAgent/open-agent-audit#129 ([milestone Milestone 5] Add deployment checks for Trustavo production configuration.
-- #133: Fix WasmAgent/open-agent-audit#115 ([milestone Milestone 3] Add export fixtures for auditor-facing sample reports.): imp
 - #127: [milestone Milestone 5] Add Cloudflare Worker route tests for passport issue, fetch, revoke, and status ...
 - #122: [milestone Milestone 4] Refactor adapter shared mapping logic into reusable typed utilities.
 - #121: [milestone Milestone 4] Add example ingestion scripts for each supported adapter.
