@@ -1,15 +1,15 @@
 # Bot State
 
-_Last updated: 2026-07-24 19:56 UTC by patrol_
+_Last updated: 2026-07-24 20:21 UTC by patrol_
 
 ## Queue
 
 | State | Count |
 |---|---|
-| Pending | 6 |
-| Active (running/reviewing) | 1 |
-| Blocked | 10 |
-| Completed/Merged (all time) | 69 |
+| Pending | 7 |
+| Active (running/reviewing) | 0 |
+| Blocked | 9 |
+| Completed/Merged (all time) | 71 |
 
 ## Recent Activity (last 5)
 
@@ -23,6 +23,7 @@ _Last updated: 2026-07-24 19:56 UTC by patrol_
 
 ## Waiting for Human
 
+- #145: [milestone Milestone 3] Implement `renderReport(events, findings, score)` to generate HTML, Markdown, JS...
 - #139: Fix WasmAgent/open-agent-audit#129 ([milestone Milestone 5] Add deployment checks for Trustavo production configuration.
 - #137: Fix WasmAgent/open-agent-audit#94 (Map AEP v0.1 audit adapter onto canonical wasmagent-protocol schema): implement chang
 - #133: Fix WasmAgent/open-agent-audit#115 ([milestone Milestone 3] Add export fixtures for auditor-facing sample reports.): imp
@@ -32,7 +33,6 @@ _Last updated: 2026-07-24 19:56 UTC by patrol_
 - #119: [milestone Milestone 4] Add adapter conformance tests to verify output matches canonical event schemas.
 - #113: [milestone Milestone 3] Add template tests to verify report output structure across all supported format...
 - #112: [milestone Milestone 3] Implement deterministic report IDs and content hashes for generated reports.
-- #107: [milestone Milestone 2] Implement `computeRiskScore(events, runId)` with configurable risk weights.
 
 ---
 _Maintained automatically by claude-bot-go patrol. Do not edit._
