@@ -1,28 +1,29 @@
 # Bot State
 
-_Last updated: 2026-07-24 04:18 UTC by patrol_
+_Last updated: 2026-07-24 04:41 UTC by patrol_
 
 ## Queue
 
 | State | Count |
 |---|---|
-| Pending | 15 |
+| Pending | 16 |
 | Active (running/reviewing) | 1 |
-| Blocked | 7 |
-| Completed/Merged (all time) | 25 |
+| Blocked | 5 |
+| Completed/Merged (all time) | 26 |
 
 ## Recent Activity (last 5)
 
 | Issue | Title | Outcome | Date |
 |---|---|---|---|
-| #126 | [milestone Milestone 5] Add REST endpoints for `/passport... | merged/auto_closed_resolved | 2026-07-24 |
 | #107 | [milestone Milestone 2] Implement `computeRiskScore(event... | completed/maintenance_done | 2026-07-24 |
+| #126 | [milestone Milestone 5] Add REST endpoints for `/passport... | merged/auto_closed_resolved | 2026-07-24 |
 | #107 | [milestone Milestone 2] Implement `computeRiskScore(event... | completed/maintenance_done | 2026-07-24 |
 | #107 | [milestone Milestone 2] Implement `computeRiskScore(event... | completed/maintenance_done | 2026-07-24 |
 | #107 | [milestone Milestone 2] Implement `computeRiskScore(event... | completed/maintenance_done | 2026-07-24 |
 
 ## Waiting for Human
 
+- #137: Fix WasmAgent/open-agent-audit#94 (Map AEP v0.1 audit adapter onto canonical wasmagent-protocol schema): implement chang
 - #133: Fix WasmAgent/open-agent-audit#115 ([milestone Milestone 3] Add export fixtures for auditor-facing sample reports.): imp
 - #131: [milestone Milestone 1] Implement `validateEvents(raw)` to parse unknown input and return valid events p...
 - #130: Fix WasmAgent/open-agent-audit#99 ([milestone Milestone 1] Add fixture-based tests for valid, invalid, partial, and mixe
@@ -32,7 +33,6 @@ _Last updated: 2026-07-24 04:18 UTC by patrol_
 - #120: [milestone Milestone 4] Implement adapter error handling for malformed, incomplete, and unsupported sour...
 - #119: [milestone Milestone 4] Add adapter conformance tests to verify output matches canonical event schemas.
 - #117: [milestone Milestone 4] Implement adapter normalization for Langfuse events.
-- #114: [milestone Milestone 3] Implement redaction utilities for sensitive evidence fields before rendering.
 
 ---
 _Maintained automatically by claude-bot-go patrol. Do not edit._
