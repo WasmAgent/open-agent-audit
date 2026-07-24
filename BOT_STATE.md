@@ -1,22 +1,22 @@
 # Bot State
 
-_Last updated: 2026-07-24 09:45 UTC by patrol_
+_Last updated: 2026-07-24 09:47 UTC by patrol_
 
 ## Queue
 
 | State | Count |
 |---|---|
-| Pending | 6 |
+| Pending | 4 |
 | Active (running/reviewing) | 1 |
-| Blocked | 11 |
-| Completed/Merged (all time) | 46 |
+| Blocked | 12 |
+| Completed/Merged (all time) | 47 |
 
 ## Recent Activity (last 5)
 
 | Issue | Title | Outcome | Date |
 |---|---|---|---|
+| #129 | [milestone Milestone 5] Add deployment checks for Trustav... | completed/complexity_gate_split | 2026-07-24 |
 | #114 | [milestone Milestone 3] Implement redaction utilities for... | completed/complexity_gate_split | 2026-07-24 |
-| #107 | [milestone Milestone 2] Implement `computeRiskScore(event... | completed/maintenance_done | 2026-07-24 |
 | #107 | [milestone Milestone 2] Implement `computeRiskScore(event... | completed/maintenance_done | 2026-07-24 |
 | #107 | [milestone Milestone 2] Implement `computeRiskScore(event... | completed/maintenance_done | 2026-07-24 |
 | #107 | [milestone Milestone 2] Implement `computeRiskScore(event... | completed/maintenance_done | 2026-07-24 |
@@ -27,12 +27,12 @@ _Last updated: 2026-07-24 09:45 UTC by patrol_
 - #133: Fix WasmAgent/open-agent-audit#115 ([milestone Milestone 3] Add export fixtures for auditor-facing sample reports.): imp
 - #131: [milestone Milestone 1] Implement `validateEvents(raw)` to parse unknown input and return valid events p...
 - #130: Fix WasmAgent/open-agent-audit#99 ([milestone Milestone 1] Add fixture-based tests for valid, invalid, partial, and mixe
-- #129: [milestone Milestone 5] Add deployment checks for Trustavo production configuration.
 - #128: [milestone Milestone 5] Implement persistent passport storage using Cloudflare-native bindings.
 - #127: [milestone Milestone 5] Add Cloudflare Worker route tests for passport issue, fetch, revoke, and status ...
 - #122: [milestone Milestone 4] Refactor adapter shared mapping logic into reusable typed utilities.
 - #121: [milestone Milestone 4] Add example ingestion scripts for each supported adapter.
 - #120: [milestone Milestone 4] Implement adapter error handling for malformed, incomplete, and unsupported sour...
+- #119: [milestone Milestone 4] Add adapter conformance tests to verify output matches canonical event schemas.
 
 ---
 _Maintained automatically by claude-bot-go patrol. Do not edit._
