@@ -1,25 +1,25 @@
 # Bot State
 
-_Last updated: 2026-07-24 00:08 UTC by patrol_
+_Last updated: 2026-07-24 00:12 UTC by patrol_
 
 ## Queue
 
 | State | Count |
 |---|---|
-| Pending | 22 |
+| Pending | 21 |
 | Active (running/reviewing) | 1 |
 | Blocked | 0 |
-| Completed/Merged (all time) | 15 |
+| Completed/Merged (all time) | 16 |
 
 ## Recent Activity (last 5)
 
 | Issue | Title | Outcome | Date |
 |---|---|---|---|
+| #96 | [milestone Milestone 1] Implement canonical event schemas... | completed/complexity_gate_split | 2026-07-24 |
 | #111 | [milestone Milestone 3] Add report sections for evidence ... | merged/auto_closed_resolved | 2026-07-23 |
 | #115 | [milestone Milestone 3] Add export fixtures for auditor-f... | completed/complexity_gate_split | 2026-07-23 |
 | #110 | [milestone Milestone 3] Implement `renderReport(events, f... | merged/auto_closed_resolved | 2026-07-23 |
 | #103 | [milestone Milestone 2] Implement `validate(events)` to r... | merged/auto_closed_resolved | 2026-07-23 |
-| #123 | [milestone Milestone 5] Implement `issue`, `renew`, `revo... | completed/issue_closed_upstream | 2026-07-23 |
 
 ## Waiting for Human
 
