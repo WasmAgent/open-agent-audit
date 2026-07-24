@@ -53,9 +53,9 @@ export const version = '0.1.0' as const;
 /** Map a single LangSmithRun to a CanonicalEvent. */
 function runToEvent(run: LangSmithRun, traceId: string, agentId: string): CanonicalEvent {
   const modelId =
-    (run.extra?.['invocation_params'] as Record<string, unknown> | undefined)?.[
-      'model_name'
-    ] as string | undefined ??
+    ((run.extra?.invocation_params as Record<string, unknown> | undefined)?.model_name as
+      | string
+      | undefined) ??
     run.name ??
     'unknown';
 
@@ -84,18 +84,18 @@ function runToEvent(run: LangSmithRun, traceId: string, agentId: string): Canoni
 
   if (run.run_type === 'llm') {
     const tokenCount = (
-      (run.outputs?.['llm_output'] as Record<string, unknown> | undefined)?.[
-        'token_usage'
-      ] as Record<string, unknown> | undefined
-    )?.['total_tokens'] as number | undefined;
+      (run.outputs?.llm_output as Record<string, unknown> | undefined)?.token_usage as
+        | Record<string, unknown>
+        | undefined
+    )?.total_tokens as number | undefined;
 
     const finishReason = (
       (
-        (run.outputs?.['generations'] as unknown[][] | undefined)?.[0]?.[0] as
+        (run.outputs?.generations as unknown[][] | undefined)?.[0]?.[0] as
           | Record<string, unknown>
           | undefined
-      )?.['generation_info'] as Record<string, unknown> | undefined
-    )?.['finish_reason'] as string | undefined;
+      )?.generation_info as Record<string, unknown> | undefined
+    )?.finish_reason as string | undefined;
 
     const ev: CanonicalEvent = {
       ...base,
@@ -127,7 +127,7 @@ function runToEvent(run: LangSmithRun, traceId: string, agentId: string): Canoni
       type: 'observation',
       actor: 'tool',
       observation: {
-        source: 'retriever:' + run.name,
+        source: `retriever:${run.name}`,
       },
     };
     return ev;
@@ -139,7 +139,7 @@ function runToEvent(run: LangSmithRun, traceId: string, agentId: string): Canoni
       type: 'observation',
       actor: 'agent',
       observation: {
-        source: 'chain:' + run.name,
+        source: `chain:${run.name}`,
       },
     };
     return ev;
@@ -151,7 +151,7 @@ function runToEvent(run: LangSmithRun, traceId: string, agentId: string): Canoni
     type: 'observation',
     actor: 'system',
     observation: {
-      source: 'langsmith:' + run.name,
+      source: `langsmith:${run.name}`,
     },
   };
   return ev;

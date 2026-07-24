@@ -51,26 +51,26 @@ describe('computeRiskScore — provenance_integrity scoring', () => {
   it('returns 100 when all events have ed25519 signatures (no AEP provenance)', async () => {
     const events = withHashChain([makeToolCall('e1'), makeToolCall('e2')], true);
     const score = await computeRiskScore(events, 'r1');
-    expect(score.components['provenance_integrity']).toBe(100);
+    expect(score.components.provenance_integrity).toBe(100);
   });
 
   it('returns 60 when hash chain present but no signatures', async () => {
     const events = withHashChain([makeToolCall('e1'), makeToolCall('e2')], false);
     const score = await computeRiskScore(events, 'r1');
-    expect(score.components['provenance_integrity']).toBe(60);
+    expect(score.components.provenance_integrity).toBe(60);
   });
 
   it('adds +5 per AEP provenance field when base=60 (no sigs)', async () => {
     const events = withHashChain([makeToolCall('e1'), makeToolCall('e2')], false);
 
     const score1 = await computeRiskScore(events, 'r1', { repo_commit: 'abc' });
-    expect(score1.components['provenance_integrity']).toBe(65);
+    expect(score1.components.provenance_integrity).toBe(65);
 
     const score2 = await computeRiskScore(events, 'r1', {
       repo_commit: 'abc',
       runtime_version: 'v1',
     });
-    expect(score2.components['provenance_integrity']).toBe(70);
+    expect(score2.components.provenance_integrity).toBe(70);
 
     const score4 = await computeRiskScore(events, 'r1', {
       repo_commit: 'abc',
@@ -78,7 +78,7 @@ describe('computeRiskScore — provenance_integrity scoring', () => {
       policy_bundle_digest: 'p'.repeat(64),
       tool_manifest_digest: 't'.repeat(64),
     });
-    expect(score4.components['provenance_integrity']).toBe(80);
+    expect(score4.components.provenance_integrity).toBe(80);
   });
 
   it('caps provenance_integrity at 100 even when all 4 fields present and base=100', async () => {
@@ -89,13 +89,13 @@ describe('computeRiskScore — provenance_integrity scoring', () => {
       policy_bundle_digest: 'p'.repeat(64),
       tool_manifest_digest: 't'.repeat(64),
     });
-    expect(score.components['provenance_integrity']).toBe(100);
+    expect(score.components.provenance_integrity).toBe(100);
   });
 
   it('returns 20 when no events have evidence at all', async () => {
     const events = [makeToolCall('e1'), makeToolCall('e2')];
     const score = await computeRiskScore(events, 'r1');
-    expect(score.components['provenance_integrity']).toBe(20);
+    expect(score.components.provenance_integrity).toBe(20);
   });
 
   it('returns 0 when hash chain is broken', async () => {
@@ -103,16 +103,16 @@ describe('computeRiskScore — provenance_integrity scoring', () => {
     // Break the chain on the second event
     const broken = [
       events[0]!,
-      { ...events[1]!, evidence: { ...events[1]!.evidence, prev_hash: 'wrong-hash' } },
+      { ...events[1]!, evidence: { ...events[1]?.evidence, prev_hash: 'wrong-hash' } },
     ];
     const score = await computeRiskScore(broken, 'r1');
-    expect(score.components['provenance_integrity']).toBe(0);
+    expect(score.components.provenance_integrity).toBe(0);
   });
 
   it('AEP provenance bonus does NOT apply when no aepProvenance passed', async () => {
     const events = withHashChain([makeToolCall('e1')], false);
     const score = await computeRiskScore(events, 'r1');
-    expect(score.components['provenance_integrity']).toBe(60);
+    expect(score.components.provenance_integrity).toBe(60);
   });
 });
 
@@ -238,7 +238,7 @@ describe('computeRiskScore — agent_risk_score (ARS)', () => {
     const chained = withHashChain([makeToolCall('e1'), makeToolCall('e2')], false);
     const broken: CanonicalEvent[] = [
       chained[0]!,
-      { ...chained[1]!, evidence: { ...chained[1]!.evidence, prev_hash: 'wrong-hash' } },
+      { ...chained[1]!, evidence: { ...chained[1]?.evidence, prev_hash: 'wrong-hash' } },
     ];
     const score = await computeRiskScore(broken, 'r1');
     expect(score.agent_risk_score.score).toBe(80);

@@ -34,14 +34,7 @@ const FORBIDDEN = [
 ].map((parts) => parts.join(' '));
 
 const SCAN_EXT = new Set(['.md', '.yaml', '.yml', '.json', '.j2', '.txt']);
-const IGNORE_DIRS = new Set([
-  'node_modules',
-  'dist',
-  'build',
-  '.turbo',
-  '.wrangler',
-  '.git',
-]);
+const IGNORE_DIRS = new Set(['node_modules', 'dist', 'build', '.turbo', '.wrangler', '.git']);
 
 // Files exempt from the lint (they discuss the forbidden phrases by design).
 const EXEMPT = new Set([

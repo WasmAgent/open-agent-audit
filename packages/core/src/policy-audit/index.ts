@@ -15,7 +15,7 @@ export interface PolicyAuditContext {
 
 /** Deterministic finding_id as required by spec. */
 function makeFindingId(rule_id: string, event_id: string): string {
-  return btoa(rule_id + ':' + event_id);
+  return btoa(`${rule_id}:${event_id}`);
 }
 
 export async function policyAudit(
@@ -53,11 +53,7 @@ export async function policyAudit(
       severity: 'info',
       category: 'capability_boundary',
       title: 'No capability manifest provided — capability audit skipped',
-      description:
-        'The capability manifest has no declared_capabilities. ' +
-        'OAA-R-CAP-001 (undeclared capability) checks are skipped for this audit run. ' +
-        'Provide a manifest to enable full capability boundary analysis.' +
-        suggestedManifest,
+      description: `The capability manifest has no declared_capabilities. OAA-R-CAP-001 (undeclared capability) checks are skipped for this audit run. Provide a manifest to enable full capability boundary analysis.${suggestedManifest}`,
       evidence_ids: [],
       recommendation:
         'Supply a CapabilityManifest with declared_capabilities to enable capability auditing.',
@@ -208,12 +204,11 @@ export async function policyAudit(
         title: hasPolicyDecision
           ? 'High-risk capability invoked — policy decision present but no human approval'
           : 'High-risk capability invoked without human approval',
-        description:
-          `Event "${ev.event_id}": tool "${ev.tool.name ?? '(unknown)'}" invoked high-risk ` +
-          `capability "${ev.tool.capability}" but run "${ev.run_id}" has no human_approval event.` +
-          (hasPolicyDecision
-            ? ` A policy_decision event exists for this tool, indicating automated oversight is present.`
-            : ''),
+        description: `Event "${ev.event_id}": tool "${ev.tool.name ?? '(unknown)'}" invoked high-risk capability "${ev.tool.capability}" but run "${ev.run_id}" has no human_approval event.${
+          hasPolicyDecision
+            ? ' A policy_decision event exists for this tool, indicating automated oversight is present.'
+            : ''
+        }`,
         evidence_ids: [ev.event_id],
         event_id: ev.event_id,
         recommendation:
@@ -240,9 +235,7 @@ export async function policyAudit(
             severity: 'critical',
             category: 'policy_violation',
             title: 'Tool call proceeded after explicit policy deny',
-            description:
-              `Event "${ev.event_id}": tool "${ev.tool.name}" was invoked despite a prior ` +
-              `policy_decision="deny" for the same tool earlier in the event sequence.`,
+            description: `Event "${ev.event_id}": tool "${ev.tool.name}" was invoked despite a prior policy_decision="deny" for the same tool earlier in the event sequence.`,
             evidence_ids: [ev.event_id],
             event_id: ev.event_id,
             recommendation:

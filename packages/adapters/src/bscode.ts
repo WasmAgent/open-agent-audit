@@ -122,7 +122,10 @@ function toEvents(record: RolloutWireRecord): CanonicalEvent[] {
   let idx = 0;
 
   function nextEvent(
-    partial: Omit<CanonicalEvent, 'schema_version' | 'run_id' | 'session_id' | 'agent_id' | 'model_id' | 'event_id'>,
+    partial: Omit<
+      CanonicalEvent,
+      'schema_version' | 'run_id' | 'session_id' | 'agent_id' | 'model_id' | 'event_id'
+    >,
   ): CanonicalEvent {
     const i = idx++;
     const eventId = makeEventId(`${runId}:${i}`);
@@ -143,8 +146,7 @@ function toEvents(record: RolloutWireRecord): CanonicalEvent[] {
     const ts = msToIso(ev.timestamp_ms ?? fallbackTs);
 
     if (ev.event === 'tool_call') {
-      const toolName =
-        typeof ev.data['name'] === 'string' ? ev.data['name'] : 'unknown';
+      const toolName = typeof ev.data.name === 'string' ? ev.data.name : 'unknown';
 
       events.push(
         nextEvent({

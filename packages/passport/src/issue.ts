@@ -151,10 +151,12 @@ export async function issue(options: IssueOptions): Promise<TrustPassport | Sign
 
   // Detect DSSE attestation format from report metadata
   const reportMeta = reportObj.meta as Record<string, unknown> | undefined;
-  const reportEvents = (reportObj.events ?? []) as Array<{ evidence?: { attestation_format?: string } }>;
-  const hasDsseAttestation = reportEvents.some(
-    (e) => e.evidence?.attestation_format === 'dsse',
-  ) || (reportMeta?.attestation_format === 'dsse');
+  const reportEvents = (reportObj.events ?? []) as Array<{
+    evidence?: { attestation_format?: string };
+  }>;
+  const hasDsseAttestation =
+    reportEvents.some((e) => e.evidence?.attestation_format === 'dsse') ||
+    reportMeta?.attestation_format === 'dsse';
 
   const passport: TrustPassport = {
     passport_version: '0.1',

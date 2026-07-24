@@ -105,7 +105,7 @@ export async function inventory(events: CanonicalEvent[]): Promise<InventoryRepo
   for (const ev of events) {
     if (ev.type === 'human_approval' && ev.human) {
       const ts = Date.parse(ev.timestamp);
-      if (!isNaN(ts)) {
+      if (!Number.isNaN(ts)) {
         const list = approvalTimestampsByRun.get(ev.run_id) ?? [];
         list.push(ts);
         approvalTimestampsByRun.set(ev.run_id, list);
@@ -114,7 +114,10 @@ export async function inventory(events: CanonicalEvent[]): Promise<InventoryRepo
   }
   // Sort approval timestamp lists
   for (const [rid, list] of approvalTimestampsByRun) {
-    approvalTimestampsByRun.set(rid, list.sort((a, b) => a - b));
+    approvalTimestampsByRun.set(
+      rid,
+      list.sort((a, b) => a - b),
+    );
   }
 
   // Second pass: main accumulation
@@ -197,7 +200,7 @@ export async function inventory(events: CanonicalEvent[]): Promise<InventoryRepo
         capMap.set(cap, { tools: new Set(), policy_count: 0 });
       }
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      capMap.get(cap)!.tools.add(ts.name);
+      capMap.get(cap)?.tools.add(ts.name);
     }
   }
 
@@ -239,7 +242,7 @@ export async function inventory(events: CanonicalEvent[]): Promise<InventoryRepo
     // at or after this event's timestamp.
     const evTs = Date.parse(ev.timestamp);
     const runApprovals = approvalTimestampsByRun.get(ev.run_id) ?? [];
-    const has_approval = !isNaN(evTs) && runApprovals.some((aTs) => aTs >= evTs);
+    const has_approval = !Number.isNaN(evTs) && runApprovals.some((aTs) => aTs >= evTs);
 
     high_risk_actions.push({
       event_id: ev.event_id,

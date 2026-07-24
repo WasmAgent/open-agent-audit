@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, expect, it } from 'bun:test';
 import { ComplianceEvalRecordAdapter } from './compliance-eval-record.js';
 import type { ComplianceEvalRecord } from './compliance-eval-record.js';
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { OtelAdapter } from './otel.js';
-import type { OtelTrace, OtelSpan } from './otel.js';
+import type { OtelSpan, OtelTrace } from './otel.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -224,9 +224,7 @@ describe('otel adapter — agent_id fallback', () => {
 
   it('agent_id falls back to gen_ai.system when no service.name', () => {
     const trace: OtelTrace = {
-      spans: [
-        makeSpan({ attributes: { 'gen_ai.system': 'openai' } }),
-      ],
+      spans: [makeSpan({ attributes: { 'gen_ai.system': 'openai' } })],
     };
     const events = OtelAdapter.toEvents(trace);
     expect(events[0]?.agent_id).toBe('openai');

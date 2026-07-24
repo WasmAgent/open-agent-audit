@@ -13,10 +13,7 @@
   "bugs": {
     "url": "https://github.com/WasmAgent/open-agent-audit/issues"
   },
-  "workspaces": [
-    "packages/*",
-    "packages/dashboard"
-  ],
+  "workspaces": ["packages/*", "packages/dashboard"],
   "scripts": {
     "build": "turbo run build",
     "typecheck": "turbo run typecheck",

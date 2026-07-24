@@ -215,7 +215,7 @@ describe('passport/validateTrustPassport', () => {
 
   test('wrong passport_version', () => {
     const data = makeValidPassport();
-    data['passport_version'] = '0.2';
+    data.passport_version = '0.2';
     const result = validateTrustPassport(data);
     expect(result.valid).toBe(false);
     expect(result.errors.some((e) => e.includes('passport_version'))).toBe(true);
@@ -223,7 +223,7 @@ describe('passport/validateTrustPassport', () => {
 
   test('non-UTC timestamps rejected', () => {
     const data = makeValidPassport();
-    (data['validity'] as Record<string, unknown>)['issued_at'] = '2025-01-01T00:00:00+05:00';
+    (data.validity as Record<string, unknown>).issued_at = '2025-01-01T00:00:00+05:00';
     const result = validateTrustPassport(data);
     expect(result.valid).toBe(false);
     expect(result.errors.some((e) => e.includes('issued_at'))).toBe(true);
@@ -231,7 +231,7 @@ describe('passport/validateTrustPassport', () => {
 
   test('invalid coverage enum rejected', () => {
     const data = makeValidPassport();
-    data['evidence_summary'] = {
+    data.evidence_summary = {
       framework_mappings: [{ framework: 'test', coverage: 'full' }],
     };
     const result = validateTrustPassport(data);
@@ -249,12 +249,12 @@ describe('passport/validateTrustPassport', () => {
     });
     // hasPollutionKeys checks getOwnPropertyNames
     const evil = Object.create(null) as Record<string, unknown>;
-    evil['__proto__'] = { admin: true };
-    evil['passport_version'] = '0.1';
-    evil['identity'] = { passport_id: 'tp-1', agent_id: 'a', issuer: 'x' };
-    evil['validity'] = { issued_at: '2025-01-01T00:00:00Z', expires_at: '2025-04-01T00:00:00Z' };
-    evil['revocation'] = { revoked: false };
-    evil['attestation'] = { issuer: 'x' };
+    evil.__proto__ = { admin: true };
+    evil.passport_version = '0.1';
+    evil.identity = { passport_id: 'tp-1', agent_id: 'a', issuer: 'x' };
+    evil.validity = { issued_at: '2025-01-01T00:00:00Z', expires_at: '2025-04-01T00:00:00Z' };
+    evil.revocation = { revoked: false };
+    evil.attestation = { issuer: 'x' };
     const result = validateTrustPassport(evil);
     expect(result.valid).toBe(false);
     expect(result.errors.some((e) => e.includes('prototype-pollution'))).toBe(true);
@@ -262,7 +262,7 @@ describe('passport/validateTrustPassport', () => {
 
   test('nested prototype-pollution key rejected', () => {
     const data = makeValidPassport();
-    (data['identity'] as Record<string, unknown>)['constructor'] = {};
+    (data.identity as Record<string, unknown>).constructor = {};
     const result = validateTrustPassport(data);
     expect(result.valid).toBe(false);
     expect(result.errors.some((e) => e.includes('prototype-pollution'))).toBe(true);
@@ -270,7 +270,7 @@ describe('passport/validateTrustPassport', () => {
 
   test('revocation_triggers must be array', () => {
     const data = makeValidPassport();
-    (data['revocation'] as Record<string, unknown>)['revocation_triggers'] = 'not-array';
+    (data.revocation as Record<string, unknown>).revocation_triggers = 'not-array';
     const result = validateTrustPassport(data);
     expect(result.valid).toBe(false);
     expect(result.errors.some((e) => e.includes('revocation_triggers'))).toBe(true);
@@ -294,7 +294,7 @@ describe('passport/isExpired', () => {
   test('returns false when expires_at is absent', async () => {
     const p = await issue({ report: MOCK_REPORT, agentId: 'a' });
     // Delete the field to simulate absence
-    delete (p.validity as Partial<Pick<typeof p.validity, 'expires_at'>>).expires_at;
+    (p.validity as Partial<Pick<typeof p.validity, 'expires_at'>>).expires_at = undefined;
     expect(isExpired(p)).toBe(false);
   });
 });
@@ -325,13 +325,13 @@ describe('passport/addFact', () => {
     const p = await issue({ report: MOCK_REPORT, agentId: 'a' });
     const result = addFact(p, 'fact-1', 'evidence content');
     expect(result.evidence_facts['fact-1']).toBeDefined();
-    expect(result.evidence_facts['fact-1']!.content_hash).toStartWith('sha256:');
+    expect(result.evidence_facts['fact-1']?.content_hash).toStartWith('sha256:');
   });
 
   test('recorded_at is ISO 8601 UTC', async () => {
     const p = await issue({ report: MOCK_REPORT, agentId: 'a' });
     const result = addFact(p, 'fact-2', { data: 123 });
-    const recorded = result.evidence_facts['fact-2']!.recorded_at;
+    const recorded = result.evidence_facts['fact-2']?.recorded_at;
     expect(recorded).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/);
   });
 
@@ -488,49 +488,49 @@ describe('passport/validateTrustPassport — structuredErrors (#60)', () => {
 
   test('structuredErrors includes field path for invalid timestamp', () => {
     const data = makeValidPassport();
-    (data['validity'] as Record<string, unknown>)['issued_at'] = '2025-01-01T00:00:00+05:00';
+    (data.validity as Record<string, unknown>).issued_at = '2025-01-01T00:00:00+05:00';
     const result = validateTrustPassport(data);
     expect(result.valid).toBe(false);
 
     const tsError = result.structuredErrors.find((e) => e.field === 'validity.issued_at');
     expect(tsError).toBeDefined();
-    expect(tsError!.errorCode).toBe('invalid_format');
-    expect(tsError!.received).toBe('2025-01-01T00:00:00+05:00');
+    expect(tsError?.errorCode).toBe('invalid_format');
+    expect(tsError?.received).toBe('2025-01-01T00:00:00+05:00');
   });
 
   test('structuredErrors uses prototype_pollution errorCode', () => {
     const evil = Object.create(null) as Record<string, unknown>;
-    evil['__proto__'] = { admin: true };
-    evil['passport_version'] = '0.1';
-    evil['identity'] = { passport_id: 'tp-1', agent_id: 'a', issuer: 'x' };
-    evil['validity'] = { issued_at: '2025-01-01T00:00:00Z', expires_at: '2025-04-01T00:00:00Z' };
-    evil['revocation'] = { revoked: false };
-    evil['attestation'] = { issuer: 'x' };
+    evil.__proto__ = { admin: true };
+    evil.passport_version = '0.1';
+    evil.identity = { passport_id: 'tp-1', agent_id: 'a', issuer: 'x' };
+    evil.validity = { issued_at: '2025-01-01T00:00:00Z', expires_at: '2025-04-01T00:00:00Z' };
+    evil.revocation = { revoked: false };
+    evil.attestation = { issuer: 'x' };
     const result = validateTrustPassport(evil);
     expect(result.valid).toBe(false);
 
     const pollError = result.structuredErrors.find((e) => e.errorCode === 'prototype_pollution');
     expect(pollError).toBeDefined();
-    expect(pollError!.field).toBe('data');
+    expect(pollError?.field).toBe('data');
   });
 
   test('errors and structuredErrors stay in sync', () => {
     const data = makeValidPassport();
-    (data['validity'] as Record<string, unknown>)['issued_at'] = 'bad-date';
-    (data['validity'] as Record<string, unknown>)['expires_at'] = 'bad-date-2';
+    (data.validity as Record<string, unknown>).issued_at = 'bad-date';
+    (data.validity as Record<string, unknown>).expires_at = 'bad-date-2';
     const result = validateTrustPassport(data);
 
     expect(result.errors.length).toBe(result.structuredErrors.length);
     for (let i = 0; i < result.errors.length; i++) {
-      expect(result.errors[i]).toBe(result.structuredErrors[i]!.message);
+      expect(result.errors[i]).toBe(result.structuredErrors[i]?.message);
     }
   });
 
   test('non-object data returns invalid_type errorCode', () => {
     const result = validateTrustPassport('not an object');
     expect(result.valid).toBe(false);
-    expect(result.structuredErrors[0]!.errorCode).toBe('invalid_type');
-    expect(result.structuredErrors[0]!.field).toBe('data');
+    expect(result.structuredErrors[0]?.errorCode).toBe('invalid_type');
+    expect(result.structuredErrors[0]?.field).toBe('data');
   });
 });
 
@@ -555,13 +555,13 @@ describe('passport/renew — evidence_facts (#77)', () => {
     const original = await issue({ report: MOCK_REPORT, agentId: 'a' });
     addFact(original, 'fact-key', 'fact-value');
     expect(original.evidence_facts).toBeDefined();
-    expect(original.evidence_facts!['fact-key']).toBeDefined();
+    expect(original.evidence_facts?.['fact-key']).toBeDefined();
 
     const renewed = renew({ passport: original, report: MOCK_REPORT });
     expect(renewed.evidence_facts).toBeDefined();
-    expect(renewed.evidence_facts!['fact-key']).toBeDefined();
-    expect(renewed.evidence_facts!['fact-key']!.content_hash).toBe(
-      original.evidence_facts!['fact-key']!.content_hash,
+    expect(renewed.evidence_facts?.['fact-key']).toBeDefined();
+    expect(renewed.evidence_facts?.['fact-key']?.content_hash).toBe(
+      original.evidence_facts?.['fact-key']?.content_hash,
     );
   });
 
@@ -600,8 +600,8 @@ describe('passport/validateTrustPassport — logical validations (#78)', () => {
 
   test('rejects issued_at >= expires_at', () => {
     const data = makeValidPassport();
-    (data['validity'] as Record<string, unknown>)['issued_at'] = '2025-06-01T00:00:00Z';
-    (data['validity'] as Record<string, unknown>)['expires_at'] = '2025-01-01T00:00:00Z';
+    (data.validity as Record<string, unknown>).issued_at = '2025-06-01T00:00:00Z';
+    (data.validity as Record<string, unknown>).expires_at = '2025-01-01T00:00:00Z';
     const result = validateTrustPassport(data);
     expect(result.valid).toBe(false);
     expect(result.errors.some((e) => e.includes('issued_at must be before'))).toBe(true);
@@ -609,8 +609,8 @@ describe('passport/validateTrustPassport — logical validations (#78)', () => {
 
   test('rejects issued_at far in the future', () => {
     const data = makeValidPassport();
-    (data['validity'] as Record<string, unknown>)['issued_at'] = '2099-01-01T00:00:00Z';
-    (data['validity'] as Record<string, unknown>)['expires_at'] = '2099-04-01T00:00:00Z';
+    (data.validity as Record<string, unknown>).issued_at = '2099-01-01T00:00:00Z';
+    (data.validity as Record<string, unknown>).expires_at = '2099-04-01T00:00:00Z';
     const result = validateTrustPassport(data);
     expect(result.valid).toBe(false);
     expect(result.errors.some((e) => e.includes('far in the future'))).toBe(true);
@@ -618,7 +618,7 @@ describe('passport/validateTrustPassport — logical validations (#78)', () => {
 
   test('rejects negative renewal_count', () => {
     const data = makeValidPassport();
-    (data['validity'] as Record<string, unknown>)['renewal_count'] = -1;
+    (data.validity as Record<string, unknown>).renewal_count = -1;
     const result = validateTrustPassport(data);
     expect(result.valid).toBe(false);
     expect(result.errors.some((e) => e.includes('renewal_count'))).toBe(true);
@@ -626,7 +626,7 @@ describe('passport/validateTrustPassport — logical validations (#78)', () => {
 
   test('detects passport_hash mismatch', () => {
     const data = makeValidPassport();
-    (data['attestation'] as Record<string, unknown>)['passport_hash'] = 'deadbeef'.repeat(8);
+    (data.attestation as Record<string, unknown>).passport_hash = 'deadbeef'.repeat(8);
     const result = validateTrustPassport(data);
     expect(result.valid).toBe(false);
     expect(result.errors.some((e) => e.includes('passport_hash'))).toBe(true);

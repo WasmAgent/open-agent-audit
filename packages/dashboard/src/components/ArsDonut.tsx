@@ -4,23 +4,25 @@
  * Pure SVG, no external deps.
  */
 export function ArsDonut({ score, size = 80 }: { score: number; size?: number }) {
-  const clampedScore = Math.max(0, Math.min(100, score))
-  const strokeWidth = size * 0.12
-  const radius = (size - strokeWidth) / 2
-  const circumference = 2 * Math.PI * radius
-  const offset = circumference - (clampedScore / 100) * circumference
+  const clampedScore = Math.max(0, Math.min(100, score));
+  const strokeWidth = size * 0.12;
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const offset = circumference - (clampedScore / 100) * circumference;
 
-  const color =
-    clampedScore > 80 ? '#16a34a' : clampedScore >= 60 ? '#ca8a04' : '#dc2626'
+  const color = clampedScore > 80 ? '#16a34a' : clampedScore >= 60 ? '#ca8a04' : '#dc2626';
   const bgColor =
     clampedScore > 80
       ? 'rgba(22,163,74,0.12)'
       : clampedScore >= 60
         ? 'rgba(202,138,4,0.12)'
-        : 'rgba(220,38,38,0.12)'
+        : 'rgba(220,38,38,0.12)';
 
   return (
-    <div className="inline-flex items-center justify-center relative" style={{ width: size, height: size }}>
+    <div
+      className="inline-flex items-center justify-center relative"
+      style={{ width: size, height: size }}
+    >
       <svg
         width={size}
         height={size}
@@ -50,12 +52,9 @@ export function ArsDonut({ score, size = 80 }: { score: number; size?: number })
         />
       </svg>
       {/* Centered score label */}
-      <span
-        className="absolute font-bold"
-        style={{ color, fontSize: size * 0.24 }}
-      >
+      <span className="absolute font-bold" style={{ color, fontSize: size * 0.24 }}>
         {clampedScore}
       </span>
     </div>
-  )
+  );
 }

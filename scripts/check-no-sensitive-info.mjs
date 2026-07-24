@@ -18,31 +18,14 @@ import { fileURLToPath } from 'node:url';
 const SELF = fileURLToPath(import.meta.url);
 const ROOT = dirname(dirname(SELF));
 
-const IGNORE_DIRS = new Set([
-  'node_modules',
-  'dist',
-  'build',
-  '.turbo',
-  '.wrangler',
-  '.git',
-]);
+const IGNORE_DIRS = new Set(['node_modules', 'dist', 'build', '.turbo', '.wrangler', '.git']);
 
 // Patterns assembled to avoid self-flagging.
 const PERSONAL_PATH = new RegExp('/' + 'Users/' + '[A-Za-z0-9]+/');
 const CORP_DOMAIN = new RegExp(['[a-z0-9-]+\\.', 'corp'].join(''));
-const HW_MODELS = [
-  'M5 Pro',
-  'M5 Max',
-  '5600G',
-  'Ryzen 5600',
-  'Ryzen 9 7950',
-];
+const HW_MODELS = ['M5 Pro', 'M5 Max', '5600G', 'Ryzen 5600', 'Ryzen 9 7950'];
 
-const EXEMPT_FILES = new Set(
-  [
-    'scripts/check-no-sensitive-info.mjs',
-  ],
-);
+const EXEMPT_FILES = new Set(['scripts/check-no-sensitive-info.mjs']);
 
 function* walk(dir) {
   for (const name of readdirSync(dir)) {

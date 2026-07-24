@@ -1,10 +1,10 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useCallback, useMemo, useState } from 'react';
 
-export type SortDirection = 'asc' | 'desc'
+export type SortDirection = 'asc' | 'desc';
 
 export interface SortState<K extends string> {
-  key: K
-  direction: SortDirection
+  key: K;
+  direction: SortDirection;
 }
 
 /**
@@ -17,31 +17,28 @@ export function useSortable<T, K extends string>(
   defaultKey: K,
   defaultDirection: SortDirection = 'asc',
 ) {
-  const [sort, setSort] = useState<SortState<K>>({ key: defaultKey, direction: defaultDirection })
+  const [sort, setSort] = useState<SortState<K>>({ key: defaultKey, direction: defaultDirection });
 
-  const toggleSort = useCallback(
-    (key: K) => {
-      setSort((prev) =>
-        prev.key === key
-          ? { key, direction: prev.direction === 'asc' ? 'desc' : 'asc' }
-          : { key, direction: 'asc' },
-      )
-    },
-    [],
-  )
+  const toggleSort = useCallback((key: K) => {
+    setSort((prev) =>
+      prev.key === key
+        ? { key, direction: prev.direction === 'asc' ? 'desc' : 'asc' }
+        : { key, direction: 'asc' },
+    );
+  }, []);
 
   const sorted = useMemo(() => {
-    const getter = getters[sort.key]
-    if (!getter) return data
-    const dir = sort.direction === 'asc' ? 1 : -1
+    const getter = getters[sort.key];
+    if (!getter) return data;
+    const dir = sort.direction === 'asc' ? 1 : -1;
     return [...data].sort((a, b) => {
-      const va = getter(a) ?? ''
-      const vb = getter(b) ?? ''
-      if (va < vb) return -1 * dir
-      if (va > vb) return 1 * dir
-      return 0
-    })
-  }, [data, getters, sort])
+      const va = getter(a) ?? '';
+      const vb = getter(b) ?? '';
+      if (va < vb) return -1 * dir;
+      if (va > vb) return 1 * dir;
+      return 0;
+    });
+  }, [data, getters, sort]);
 
-  return { sorted, sort, toggleSort }
+  return { sorted, sort, toggleSort };
 }

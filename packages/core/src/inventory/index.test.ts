@@ -102,11 +102,11 @@ describe('inventory()', () => {
     const events = [toolCallEvent('read_file')];
     const report = await inventory(events);
     expect(report.tools).toHaveLength(1);
-    expect(report.tools[0]!.name).toBe('read_file');
-    expect(report.tools[0]!.calls).toBe(1);
-    expect(report.tools[0]!.failures).toBe(0);
-    expect(report.tools[0]!.denied).toBe(0);
-    expect(report.tools[0]!.approved).toBe(0);
+    expect(report.tools[0]?.name).toBe('read_file');
+    expect(report.tools[0]?.calls).toBe(1);
+    expect(report.tools[0]?.failures).toBe(0);
+    expect(report.tools[0]?.denied).toBe(0);
+    expect(report.tools[0]?.approved).toBe(0);
     expect(report.tool_call_count).toBe(1);
   });
 
@@ -115,8 +115,8 @@ describe('inventory()', () => {
     const events = [toolCallEvent('read_file'), toolCallEvent('read_file')];
     const report = await inventory(events);
     expect(report.tools).toHaveLength(1);
-    expect(report.tools[0]!.name).toBe('read_file');
-    expect(report.tools[0]!.calls).toBe(2);
+    expect(report.tools[0]?.name).toBe('read_file');
+    expect(report.tools[0]?.calls).toBe(2);
   });
 
   // 4. error attributed to preceding tool_call in same run
@@ -128,7 +128,7 @@ describe('inventory()', () => {
     const report = await inventory(events);
     const tool = report.tools.find((t) => t.name === 'write_file');
     expect(tool).toBeDefined();
-    expect(tool!.failures).toBe(1);
+    expect(tool?.failures).toBe(1);
     expect(report.error_count).toBe(1);
   });
 
@@ -140,7 +140,7 @@ describe('inventory()', () => {
     ];
     const report = await inventory(events);
     const tool = report.tools.find((t) => t.name === 'write_file');
-    expect(tool!.failures).toBe(0);
+    expect(tool?.failures).toBe(0);
     expect(report.error_count).toBe(1);
   });
 
@@ -153,8 +153,8 @@ describe('inventory()', () => {
     const report = await inventory(events);
     const tool = report.tools.find((t) => t.name === 'exec');
     expect(tool).toBeDefined();
-    expect(tool!.denied).toBe(1);
-    expect(tool!.approved).toBe(0);
+    expect(tool?.denied).toBe(1);
+    expect(tool?.approved).toBe(0);
     expect(report.policy_decision_count).toBe(1);
   });
 
@@ -166,8 +166,8 @@ describe('inventory()', () => {
     ];
     const report = await inventory(events);
     const tool = report.tools.find((t) => t.name === 'read_file');
-    expect(tool!.approved).toBe(1);
-    expect(tool!.denied).toBe(0);
+    expect(tool?.approved).toBe(1);
+    expect(tool?.denied).toBe(0);
   });
 
   // 7. high_risk tool_call followed by human_approval → has_approval=true
@@ -175,13 +175,17 @@ describe('inventory()', () => {
     const t1 = '2024-01-01T10:00:00.000Z';
     const t2 = '2024-01-01T10:05:00.000Z';
     const events = [
-      toolCallEvent('delete_database', { run_id: 'run-hr', risk_tags: ['high_risk'], timestamp: t1 }),
+      toolCallEvent('delete_database', {
+        run_id: 'run-hr',
+        risk_tags: ['high_risk'],
+        timestamp: t1,
+      }),
       humanApprovalEvent('reviewer-1', 'approve', { run_id: 'run-hr', timestamp: t2 }),
     ];
     const report = await inventory(events);
     expect(report.high_risk_actions).toHaveLength(1);
-    expect(report.high_risk_actions[0]!.tool_name).toBe('delete_database');
-    expect(report.high_risk_actions[0]!.has_approval).toBe(true);
+    expect(report.high_risk_actions[0]?.tool_name).toBe('delete_database');
+    expect(report.high_risk_actions[0]?.has_approval).toBe(true);
   });
 
   // 8. high_risk tool_call with no human_approval → has_approval=false
@@ -191,29 +195,40 @@ describe('inventory()', () => {
     ];
     const report = await inventory(events);
     expect(report.high_risk_actions).toHaveLength(1);
-    expect(report.high_risk_actions[0]!.has_approval).toBe(false);
+    expect(report.high_risk_actions[0]?.has_approval).toBe(false);
   });
 
   // 8b. human_approval in a DIFFERENT run does not satisfy has_approval
   test('human_approval in different run does not set has_approval=true', async () => {
     const t1 = '2024-01-01T10:00:00.000Z';
     const t2 = '2024-01-01T10:05:00.000Z';
-    const tc = toolCallEvent('delete_database', { run_id: 'run-a', risk_tags: ['high_risk'], timestamp: t1 });
+    const tc = toolCallEvent('delete_database', {
+      run_id: 'run-a',
+      risk_tags: ['high_risk'],
+      timestamp: t1,
+    });
     tc.run_id = 'run-a';
     const ha = humanApprovalEvent('reviewer-1', 'approve', { run_id: 'run-b', timestamp: t2 });
     ha.run_id = 'run-b';
     const report = await inventory([tc, ha]);
-    expect(report.high_risk_actions[0]!.has_approval).toBe(false);
+    expect(report.high_risk_actions[0]?.has_approval).toBe(false);
   });
 
   // 8c. human_approval BEFORE the tool_call timestamp does not set has_approval=true
   test('human_approval before tool_call timestamp does not set has_approval=true', async () => {
     const t_early = '2024-01-01T09:00:00.000Z';
     const t_later = '2024-01-01T10:00:00.000Z';
-    const ha = humanApprovalEvent('reviewer-1', 'approve', { run_id: 'run-timing', timestamp: t_early });
-    const tc = toolCallEvent('delete_database', { run_id: 'run-timing', risk_tags: ['high_risk'], timestamp: t_later });
+    const ha = humanApprovalEvent('reviewer-1', 'approve', {
+      run_id: 'run-timing',
+      timestamp: t_early,
+    });
+    const tc = toolCallEvent('delete_database', {
+      run_id: 'run-timing',
+      risk_tags: ['high_risk'],
+      timestamp: t_later,
+    });
     const report = await inventory([ha, tc]);
-    expect(report.high_risk_actions[0]!.has_approval).toBe(false);
+    expect(report.high_risk_actions[0]?.has_approval).toBe(false);
   });
 
   // 9. human_approval event → human_approvals array has entry
@@ -221,8 +236,8 @@ describe('inventory()', () => {
     const events = [humanApprovalEvent('alice', 'approve', { run_id: 'run-4' })];
     const report = await inventory(events);
     expect(report.human_approvals).toHaveLength(1);
-    expect(report.human_approvals[0]!.reviewer_id).toBe('alice');
-    expect(report.human_approvals[0]!.decision).toBe('approve');
+    expect(report.human_approvals[0]?.reviewer_id).toBe('alice');
+    expect(report.human_approvals[0]?.decision).toBe('approve');
     expect(report.human_approval_count).toBe(1);
   });
 
@@ -230,8 +245,8 @@ describe('inventory()', () => {
   test('human_approval with deny decision is recorded correctly', async () => {
     const events = [humanApprovalEvent('bob', 'deny', { run_id: 'run-5' })];
     const report = await inventory(events);
-    expect(report.human_approvals[0]!.reviewer_id).toBe('bob');
-    expect(report.human_approvals[0]!.decision).toBe('deny');
+    expect(report.human_approvals[0]?.reviewer_id).toBe('bob');
+    expect(report.human_approvals[0]?.decision).toBe('deny');
   });
 
   // 10. tool with capability → capabilities array includes it
@@ -240,7 +255,7 @@ describe('inventory()', () => {
     const report = await inventory(events);
     const cap = report.capabilities.find((c) => c.capability === 'filesystem');
     expect(cap).toBeDefined();
-    expect(cap!.tools).toContain('read_file');
+    expect(cap?.tools).toContain('read_file');
   });
 
   // 10b. multiple tools with same capability are grouped
@@ -252,9 +267,9 @@ describe('inventory()', () => {
     const report = await inventory(events);
     const cap = report.capabilities.find((c) => c.capability === 'filesystem');
     expect(cap).toBeDefined();
-    expect(cap!.tools).toHaveLength(2);
-    expect(cap!.tools).toContain('read_file');
-    expect(cap!.tools).toContain('write_file');
+    expect(cap?.tools).toHaveLength(2);
+    expect(cap?.tools).toContain('read_file');
+    expect(cap?.tools).toContain('write_file');
   });
 
   // 10c. tool without capability does not appear in capabilities
@@ -304,7 +319,7 @@ describe('inventory()', () => {
     ];
     const report = await inventory(events);
     const cap = report.capabilities.find((c) => c.capability === 'filesystem');
-    expect(cap!.policy_count).toBe(2);
+    expect(cap?.policy_count).toBe(2);
   });
 
   // 12c. risk_tags accumulated on tool
@@ -315,11 +330,11 @@ describe('inventory()', () => {
     ];
     const report = await inventory(events);
     const tool = report.tools.find((t) => t.name === 'exec');
-    expect(tool!.risk_tags).toContain('high_risk');
-    expect(tool!.risk_tags).toContain('mutation');
-    expect(tool!.risk_tags).toContain('network');
+    expect(tool?.risk_tags).toContain('high_risk');
+    expect(tool?.risk_tags).toContain('mutation');
+    expect(tool?.risk_tags).toContain('network');
     // deduplicated — should not have duplicates
-    expect(tool!.risk_tags.filter((t) => t === 'high_risk').length).toBe(1);
+    expect(tool?.risk_tags.filter((t) => t === 'high_risk').length).toBe(1);
   });
 
   // high_risk tags coverage: all tags in HIGH_RISK_TAGS set
@@ -334,7 +349,7 @@ describe('inventory()', () => {
     const events = [toolCallEvent('some_tool', { risk_tags: [tag] })];
     const report = await inventory(events);
     expect(report.high_risk_actions).toHaveLength(1);
-    expect(report.high_risk_actions[0]!.risk_tags).toContain(tag);
+    expect(report.high_risk_actions[0]?.risk_tags).toContain(tag);
   });
 
   // non-high-risk tag does not create a high_risk_action
@@ -353,7 +368,7 @@ describe('inventory()', () => {
     ];
     const report = await inventory(events);
     const tool = report.tools.find((t) => t.name === 'exec');
-    expect(tool!.failures).toBe(1);
+    expect(tool?.failures).toBe(1);
     expect(report.error_count).toBe(2);
   });
 });

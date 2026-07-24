@@ -982,7 +982,11 @@ async function handleCreateApproval(request: Request, env: WorkerEnv): Promise<R
   return corsJson(approval, env, 201);
 }
 
-async function handleApprovalDecision(id: string, request: Request, env: WorkerEnv): Promise<Response> {
+async function handleApprovalDecision(
+  id: string,
+  request: Request,
+  env: WorkerEnv,
+): Promise<Response> {
   let body: Record<string, unknown>;
   try {
     body = (await request.json()) as Record<string, unknown>;
@@ -996,7 +1000,11 @@ async function handleApprovalDecision(id: string, request: Request, env: WorkerE
   };
 
   if (!decision || (decision !== 'approved' && decision !== 'denied')) {
-    return corsError('Missing or invalid field: decision (must be "approved" or "denied")', 400, env);
+    return corsError(
+      'Missing or invalid field: decision (must be "approved" or "denied")',
+      400,
+      env,
+    );
   }
 
   const raw = await env.APPROVALS.get(`approval:${id}`);
@@ -1052,7 +1060,11 @@ async function handleBatchDecision(request: Request, env: WorkerEnv): Promise<Re
   const results: BatchResultItem[] = [];
 
   for (const item of decisions) {
-    if (!item.id || !item.decision || (item.decision !== 'approved' && item.decision !== 'denied')) {
+    if (
+      !item.id ||
+      !item.decision ||
+      (item.decision !== 'approved' && item.decision !== 'denied')
+    ) {
       results.push({ id: item.id ?? '', status: 400, body: { error: 'Invalid decision item' } });
       continue;
     }

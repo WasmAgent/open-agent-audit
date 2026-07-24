@@ -53,7 +53,9 @@ function nanoToIso(nanos: number): string {
 }
 
 /** Pull every OtelSpan out of an OtelTrace regardless of nesting form. */
-function flattenSpans(record: OtelTrace): Array<{ span: OtelSpan; serviceAttrs: Record<string, string> }> {
+function flattenSpans(
+  record: OtelTrace,
+): Array<{ span: OtelSpan; serviceAttrs: Record<string, string> }> {
   const result: Array<{ span: OtelSpan; serviceAttrs: Record<string, string> }> = [];
 
   if (record.resource_spans) {
@@ -92,7 +94,10 @@ function firstTraceId(record: OtelTrace): string {
 }
 
 /** Derive a stable agent_id from resource / span attributes. */
-function agentId(serviceAttrs: Record<string, string>, spanAttrs: Record<string, string | number | boolean>): string {
+function agentId(
+  serviceAttrs: Record<string, string>,
+  spanAttrs: Record<string, string | number | boolean>,
+): string {
   return (
     (serviceAttrs['service.name'] as string | undefined) ??
     (spanAttrs['gen_ai.system'] as string | undefined) ??
@@ -153,7 +158,7 @@ function spanToEvent(
     const tokenCount =
       inputTokens !== undefined && outputTokens !== undefined
         ? inputTokens + outputTokens
-        : inputTokens ?? outputTokens;
+        : (inputTokens ?? outputTokens);
 
     const finishReasonsRaw = attrs['gen_ai.response.finish_reasons'] as string | undefined;
     const finishReasonParts = finishReasonsRaw ? finishReasonsRaw.split(',') : undefined;
@@ -193,7 +198,7 @@ function spanToEvent(
     type: 'observation',
     actor: 'system',
     observation: {
-      source: 'otel:' + span.name,
+      source: `otel:${span.name}`,
     },
   };
   return ev;

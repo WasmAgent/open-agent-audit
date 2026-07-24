@@ -4,7 +4,16 @@
   "title": "OpenAgentAudit Canonical Event",
   "description": "A single observable event in an AI agent's runtime trace.",
   "type": "object",
-  "required": ["schema_version", "run_id", "event_id", "timestamp", "type", "actor", "agent_id", "model_id"],
+  "required": [
+    "schema_version",
+    "run_id",
+    "event_id",
+    "timestamp",
+    "type",
+    "actor",
+    "agent_id",
+    "model_id"
+  ],
   "additionalProperties": false,
   "properties": {
     "schema_version": {

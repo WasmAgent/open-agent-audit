@@ -168,11 +168,11 @@ function countBySeverity(findings: Finding[]): {
   low: number;
   info: number;
 } {
-  let critical = 0,
-    high = 0,
-    medium = 0,
-    low = 0,
-    info = 0;
+  let critical = 0;
+  let high = 0;
+  let medium = 0;
+  let low = 0;
+  let info = 0;
   for (const f of findings) {
     switch (f.severity) {
       case 'critical':
@@ -221,7 +221,7 @@ function escapeHtml(s: string): string {
 function csvField(value: string | number | undefined | null): string {
   const s = value === undefined || value === null ? '' : String(value);
   // Always quote to keep parsing unambiguous
-  return '"' + s.replace(/"/g, '""') + '"';
+  return `"${s.replace(/"/g, '""')}"`;
 }
 
 /**
@@ -970,10 +970,7 @@ function buildComplianceMappings(
           label,
           status: 'partial',
           evidence_event_ids: benchFindingIds.slice(0, 5),
-          limitation:
-            'Benchmark audit was run; verdict: ' +
-            verdict +
-            '. Full Annex IV Item 7 compliance requires documented test protocols, dataset provenance, and acceptance criteria — not just statistical results.',
+          limitation: `Benchmark audit was run; verdict: ${verdict}. Full Annex IV Item 7 compliance requires documented test protocols, dataset provenance, and acceptance criteria — not just statistical results.`,
         });
       }
     } else {
@@ -1356,8 +1353,8 @@ function buildComplianceMappings(
     const label = 'AI risk or impact assessment approaches and evaluation methods are documented';
     const limitation =
       'Verifier result observations evidence that automated tests ran; they do not establish that test coverage or acceptance criteria are sufficient.';
-    const verifierObs = observationEvents.filter(
-      (e) => e.observation?.source !== undefined && e.observation.source.startsWith('verifier:'),
+    const verifierObs = observationEvents.filter((e) =>
+      e.observation?.source?.startsWith('verifier:'),
     );
     if (verifierObs.length > 0 && toolCallEvents.length > 0) {
       const verifierCoverage = verifierObs.length / toolCallEvents.length;
@@ -1475,8 +1472,8 @@ function buildComplianceMappings(
     const label = 'Risk treatment and residual risk are monitored and documented';
     const limitation =
       'Deny policy decisions paired with verifier observations provide evidence of runtime risk controls; organisational residual-risk documentation is required separately.';
-    const verifierObs = observationEvents.filter(
-      (e) => e.observation?.source !== undefined && e.observation.source.startsWith('verifier:'),
+    const verifierObs = observationEvents.filter((e) =>
+      e.observation?.source?.startsWith('verifier:'),
     );
     if (denyPolicyEvents.length > 0 && verifierObs.length > 0) {
       nistReqs.push({
@@ -1780,8 +1777,8 @@ function buildComplianceMappings(
     const label = 'Risk treatment effectiveness is assessed and results documented';
     const limitation =
       'Verifier observations evidence runtime policy enforcement; effectiveness of risk treatment decisions requires before/after comparison across runs.';
-    const verifierObs = observationEvents.filter(
-      (e) => e.observation?.source !== undefined && e.observation.source.startsWith('verifier:'),
+    const verifierObs = observationEvents.filter((e) =>
+      e.observation?.source?.startsWith('verifier:'),
     );
     if (verifierObs.length > 0 && (denyPolicyEvents.length > 0 || findings.length > 0)) {
       nistReqs.push({
@@ -2014,20 +2011,20 @@ function buildComplianceMappings(
             limitation:
               '100% hash-chained and signed events evidence continuous operational monitoring within this run. Cross-run drift detection requires the drift-guard engine.',
           };
-        } else if (a75EvIds.length > 0) {
+        }
+        if (a75EvIds.length > 0) {
           return {
             status: 'partial' as const,
             evidence_event_ids: a75EvIds,
             limitation:
               'Hash-chained events with error/deny records evidence operational monitoring within a single run; cross-run drift monitoring requires the drift-guard engine.',
           };
-        } else {
-          return {
-            status: 'not_evaluated' as const,
-            evidence_event_ids: [],
-            limitation: 'No operational monitoring signals detected in this trace.',
-          };
         }
+        return {
+          status: 'not_evaluated' as const,
+          evidence_event_ids: [],
+          limitation: 'No operational monitoring signals detected in this trace.',
+        };
       })(),
     },
     {
@@ -2039,13 +2036,7 @@ function buildComplianceMappings(
               ? 'supported'
               : 'partial') as 'supported' | 'partial',
             evidence_event_ids: benchmarkResult.findings.flatMap((f) => f.evidence_ids).slice(0, 5),
-            limitation:
-              'Benchmark audit result available: verdict ' +
-              benchmarkResult.statistics.verdict +
-              ', delta ' +
-              (benchmarkResult.statistics.absolute_delta * 100).toFixed(1) +
-              'pp. ' +
-              'A.8.2 also requires acceptance criteria and methodology documentation.',
+            limitation: `Benchmark audit result available: verdict ${benchmarkResult.statistics.verdict}, delta ${(benchmarkResult.statistics.absolute_delta * 100).toFixed(1)}pp. A.8.2 also requires acceptance criteria and methodology documentation.`,
           }
         : {
             status: 'not_evaluated' as const,
@@ -2105,20 +2096,20 @@ function buildComplianceMappings(
             limitation:
               'Every event carries a signer key ID identifying the AI component at run time. Vendor qualification and contractual documentation remain organizational obligations.',
           };
-        } else if (a91EvIds.length > 0) {
+        }
+        if (a91EvIds.length > 0) {
           return {
             status: 'partial' as const,
             evidence_event_ids: a91EvIds.slice(0, 5),
             limitation:
               'Signer key IDs in evidence blocks identify the AI component at run time but do not substitute for vendor qualification documentation.',
           };
-        } else {
-          return {
-            status: 'not_evaluated' as const,
-            evidence_event_ids: [],
-            limitation: 'No signed evidence blocks with signer identity detected.',
-          };
         }
+        return {
+          status: 'not_evaluated' as const,
+          evidence_event_ids: [],
+          limitation: 'No signed evidence blocks with signer identity detected.',
+        };
       })(),
     },
     {
@@ -2140,20 +2131,20 @@ function buildComplianceMappings(
             limitation:
               'This signed, hash-chained audit report is itself an operational monitoring artifact satisfying A.10.2 reporting obligations. Ongoing multi-run drift monitoring requires drift-guard engine integration.',
           };
-        } else if (events.length > 0) {
+        }
+        if (events.length > 0) {
           return {
             status: 'partial' as const,
             evidence_event_ids: events.slice(0, 5).map((e) => e.event_id),
             limitation:
               'This audit report itself is an operational monitoring artifact per A.10.2; ongoing multi-run monitoring requires drift-guard engine integration.',
           };
-        } else {
-          return {
-            status: 'not_evaluated' as const,
-            evidence_event_ids: [],
-            limitation: 'No events present in this trace.',
-          };
         }
+        return {
+          status: 'not_evaluated' as const,
+          evidence_event_ids: [],
+          limitation: 'No events present in this trace.',
+        };
       })(),
     },
     {
@@ -2577,7 +2568,7 @@ function buildMarkdown(
   lines.push(`| Report generated | ${generatedAt} |`);
   lines.push(`| Minimum retention until | ${retentionUntil} |`);
   lines.push(`| Issuing platform | ${resolved.issuer} |`);
-  lines.push(`| Applicable regulation | EU AI Act (Regulation (EU) 2024/1689), Art. 26(6) |`);
+  lines.push('| Applicable regulation | EU AI Act (Regulation (EU) 2024/1689), Art. 26(6) |');
   lines.push('');
 
   // Narrative intro (optional LLM-authored auditor voice)
@@ -2608,12 +2599,12 @@ function buildMarkdown(
   lines.push('');
   lines.push('| Component | Score | What this means |');
   lines.push('|---|---|---|');
-  const tcScore = components['trace_completeness'] ?? 0;
-  const piScore = components['provenance_integrity'] ?? 0;
-  const ovScore = components['objective_verification'] ?? 0;
-  const pcScore = components['policy_coverage'] ?? 0;
-  const hoScore = components['human_oversight_evidence'] ?? 0;
-  const crScore = components['contamination_risk_inverted'] ?? 0;
+  const tcScore = components.trace_completeness ?? 0;
+  const piScore = components.provenance_integrity ?? 0;
+  const ovScore = components.objective_verification ?? 0;
+  const pcScore = components.policy_coverage ?? 0;
+  const hoScore = components.human_oversight_evidence ?? 0;
+  const crScore = components.contamination_risk_inverted ?? 0;
   const toolCalls = events.filter((e) => e.type === 'tool_call').length;
   const policyDecisions = events.filter((e) => e.type === 'policy_decision').length;
   const verifierObs = events.filter(
@@ -2658,12 +2649,9 @@ function buildMarkdown(
         ? 'no key registry'
         : `${cryptoSummary.signatures_verified}/${cryptoSummary.events_with_signature} signatures verified`;
     // Detect DSSE attestation format in events
-    const dsseEventCount = events.filter(
-      (e) => e.evidence?.attestation_format === 'dsse',
-    ).length;
-    const dsseNote = dsseEventCount > 0
-      ? ` | DSSE/in-toto attestation: ${dsseEventCount} event(s)`
-      : '';
+    const dsseEventCount = events.filter((e) => e.evidence?.attestation_format === 'dsse').length;
+    const dsseNote =
+      dsseEventCount > 0 ? ` | DSSE/in-toto attestation: ${dsseEventCount} event(s)` : '';
     lines.push(
       `| Cryptographic Verification | ${cryptoSummary.hashes_content_verified}/${cryptoSummary.events_with_hash} events hash-verified${mismatchNote} | ${cryptoSummary.events_with_signature} signature(s) present — ${sigNote}${dsseNote} |`,
     );
@@ -2852,12 +2840,7 @@ function buildComplianceMappingHtml(mappings: ComplianceMapping[]): string[] {
             : '<em>none</em>';
         const style = statusHtmlStyle(req.status);
         parts.push(
-          `<tr>` +
-            `<td>${escapeHtml(req.id)}</td>` +
-            `<td>${escapeHtml(req.label)}</td>` +
-            `<td><span style="${style}">${escapeHtml(statusSymbol(req.status))}</span></td>` +
-            `<td>${evIds}</td>` +
-            `</tr>`,
+          `<tr><td>${escapeHtml(req.id)}</td><td>${escapeHtml(req.label)}</td><td><span style="${style}">${escapeHtml(statusSymbol(req.status))}</span></td><td>${evIds}</td></tr>`,
         );
       }
       parts.push('</tbody>');
@@ -2873,12 +2856,7 @@ function buildComplianceMappingHtml(mappings: ComplianceMapping[]): string[] {
           req.limitation !== undefined ? escapeHtml(req.limitation) : '<em>none</em>';
         const style = statusHtmlStyle(req.status);
         parts.push(
-          `<tr>` +
-            `<td>${escapeHtml(req.id)}</td>` +
-            `<td>${escapeHtml(req.label)}</td>` +
-            `<td><span style="${style}">${escapeHtml(statusSymbol(req.status))}</span></td>` +
-            `<td><em>${limitation}</em></td>` +
-            `</tr>`,
+          `<tr><td>${escapeHtml(req.id)}</td><td>${escapeHtml(req.label)}</td><td><span style="${style}">${escapeHtml(statusSymbol(req.status))}</span></td><td><em>${limitation}</em></td></tr>`,
         );
       }
       parts.push('</tbody>');
@@ -3121,7 +3099,7 @@ function buildHtml(
   parts.push(`<tr><td>Minimum retention until</td><td>${escapeHtml(retentionUntil)}</td></tr>`);
   parts.push(`<tr><td>Issuing platform</td><td>${escapeHtml(resolved.issuer)}</td></tr>`);
   parts.push(
-    `<tr><td>Applicable regulation</td><td>EU AI Act (Regulation (EU) 2024/1689), Art. 26(6)</td></tr>`,
+    '<tr><td>Applicable regulation</td><td>EU AI Act (Regulation (EU) 2024/1689), Art. 26(6)</td></tr>',
   );
   parts.push('</tbody>');
   parts.push('</table>');
@@ -3152,12 +3130,12 @@ function buildHtml(
   parts.push('<table>');
   parts.push('<thead><tr><th>Component</th><th>Score</th><th>What this means</th></tr></thead>');
   parts.push('<tbody>');
-  const tcScoreH = components['trace_completeness'] ?? 0;
-  const piScoreH = components['provenance_integrity'] ?? 0;
-  const ovScoreH = components['objective_verification'] ?? 0;
-  const pcScoreH = components['policy_coverage'] ?? 0;
-  const hoScoreH = components['human_oversight_evidence'] ?? 0;
-  const crScoreH = components['contamination_risk_inverted'] ?? 0;
+  const tcScoreH = components.trace_completeness ?? 0;
+  const piScoreH = components.provenance_integrity ?? 0;
+  const ovScoreH = components.objective_verification ?? 0;
+  const pcScoreH = components.policy_coverage ?? 0;
+  const hoScoreH = components.human_oversight_evidence ?? 0;
+  const crScoreH = components.contamination_risk_inverted ?? 0;
   const toolCallsH = events.filter((e) => e.type === 'tool_call').length;
   const policyDecisionsH = events.filter((e) => e.type === 'policy_decision').length;
   const verifierObsH = events.filter(
@@ -3205,16 +3183,11 @@ function buildHtml(
         ? 'no key registry'
         : `${cryptoSummary.signatures_verified}/${cryptoSummary.events_with_signature} signatures verified`;
     // Detect DSSE attestation format in events
-    const dsseEventCountH = events.filter(
-      (e) => e.evidence?.attestation_format === 'dsse',
-    ).length;
-    const dsseNoteH = dsseEventCountH > 0
-      ? ` | DSSE/in-toto attestation: ${dsseEventCountH} event(s)`
-      : '';
+    const dsseEventCountH = events.filter((e) => e.evidence?.attestation_format === 'dsse').length;
+    const dsseNoteH =
+      dsseEventCountH > 0 ? ` | DSSE/in-toto attestation: ${dsseEventCountH} event(s)` : '';
     parts.push(
-      `<tr><td>Cryptographic Verification</td>` +
-        `<td>${cryptoSummary.hashes_content_verified}/${cryptoSummary.events_with_hash} events hash-verified${mismatchNote}</td>` +
-        `<td>${cryptoSummary.events_with_signature} signature(s) present — ${sigNoteH}${dsseNoteH}</td></tr>`,
+      `<tr><td>Cryptographic Verification</td><td>${cryptoSummary.hashes_content_verified}/${cryptoSummary.events_with_hash} events hash-verified${mismatchNote}</td><td>${cryptoSummary.events_with_signature} signature(s) present — ${sigNoteH}${dsseNoteH}</td></tr>`,
     );
   }
   parts.push('</tbody>');
@@ -3424,15 +3397,7 @@ function buildHtml(
     const details = escapeHtml(buildEventDetails(ev));
     const evidenceId = ev.evidence?.evidence_id ?? '—';
     parts.push(
-      `<tr style="background:${bg}">` +
-        `<td>${i + 1}</td>` +
-        `<td><code>${escapeHtml(decodeEventId(ev.event_id))}</code></td>` +
-        `<td><span style="font-weight:500">${escapeHtml(ev.type)}</span></td>` +
-        `<td>${escapeHtml(ev.actor)}</td>` +
-        `<td style="font-family:monospace;font-size:10px">${escapeHtml(ev.timestamp)}</td>` +
-        `<td>${details}</td>` +
-        `<td><code>${escapeHtml(evidenceId)}</code></td>` +
-        `</tr>`,
+      `<tr style="background:${bg}"><td>${i + 1}</td><td><code>${escapeHtml(decodeEventId(ev.event_id))}</code></td><td><span style="font-weight:500">${escapeHtml(ev.type)}</span></td><td>${escapeHtml(ev.actor)}</td><td style="font-family:monospace;font-size:10px">${escapeHtml(ev.timestamp)}</td><td>${details}</td><td><code>${escapeHtml(evidenceId)}</code></td></tr>`,
     );
   }
   parts.push('</tbody></table>');

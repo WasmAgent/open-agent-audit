@@ -13,14 +13,7 @@ import { fileURLToPath } from 'node:url';
 const SELF = fileURLToPath(import.meta.url);
 const ROOT = dirname(dirname(SELF));
 
-const IGNORE_DIRS = new Set([
-  'node_modules',
-  'dist',
-  'build',
-  '.turbo',
-  '.wrangler',
-  '.git',
-]);
+const IGNORE_DIRS = new Set(['node_modules', 'dist', 'build', '.turbo', '.wrangler', '.git']);
 
 function* walk(dir) {
   for (const name of readdirSync(dir)) {

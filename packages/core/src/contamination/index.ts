@@ -23,7 +23,12 @@ export interface ContaminationResult {
 
 function exactSimilarity(train: CanonicalEvent, test: CanonicalEvent): number {
   if (train.event_id === test.event_id) return 1.0;
-  if (train.tool?.name !== undefined && train.tool.name === test.tool?.name && train.type === test.type) return 0.9;
+  if (
+    train.tool?.name !== undefined &&
+    train.tool.name === test.tool?.name &&
+    train.type === test.type
+  )
+    return 0.9;
   if (train.type === test.type && train.actor === test.actor) return 0.5;
   return 0.0;
 }
@@ -112,7 +117,12 @@ export async function contamination(
       for (const test of testEvents) {
         const similarity = exactSimilarity(train, test);
         if (similarity >= threshold) {
-          pairs.push({ train_event_id: train.event_id, test_event_id: test.event_id, similarity, method });
+          pairs.push({
+            train_event_id: train.event_id,
+            test_event_id: test.event_id,
+            similarity,
+            method,
+          });
         }
       }
     }
@@ -121,14 +131,19 @@ export async function contamination(
       for (const test of testEvents) {
         const similarity = ngramSimilarity(train, test);
         if (similarity >= threshold) {
-          pairs.push({ train_event_id: train.event_id, test_event_id: test.event_id, similarity, method });
+          pairs.push({
+            train_event_id: train.event_id,
+            test_event_id: test.event_id,
+            similarity,
+            method,
+          });
         }
       }
     }
   } else {
     // minhash
-    const trainSigs = trainEvents.map(ev => minhashSignature(ev));
-    const testSigs = testEvents.map(ev => minhashSignature(ev));
+    const trainSigs = trainEvents.map((ev) => minhashSignature(ev));
+    const testSigs = testEvents.map((ev) => minhashSignature(ev));
 
     for (let ti = 0; ti < trainEvents.length; ti++) {
       for (let tj = 0; tj < testEvents.length; tj++) {
@@ -136,10 +151,21 @@ export async function contamination(
         const testEv = testEvents[tj];
         const trainSig = trainSigs[ti];
         const testSig = testSigs[tj];
-        if (trainEv === undefined || testEv === undefined || trainSig === undefined || testSig === undefined) continue;
+        if (
+          trainEv === undefined ||
+          testEv === undefined ||
+          trainSig === undefined ||
+          testSig === undefined
+        )
+          continue;
         const similarity = minhashSimilarity(trainSig, testSig);
         if (similarity >= threshold) {
-          pairs.push({ train_event_id: trainEv.event_id, test_event_id: testEv.event_id, similarity, method });
+          pairs.push({
+            train_event_id: trainEv.event_id,
+            test_event_id: testEv.event_id,
+            similarity,
+            method,
+          });
         }
       }
     }

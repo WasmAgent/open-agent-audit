@@ -6,15 +6,15 @@
  * Production deployments use packages/worker.
  */
 
+import { aepV0_2, bscode } from '@openagentaudit/adapters';
 import {
-  validate,
+  computeRiskScore,
   inventory,
   policyAudit,
-  computeRiskScore,
   renderReport,
+  validate,
 } from '@openagentaudit/core';
 import type { ReportMeta } from '@openagentaudit/core';
-import { aepV0_2, bscode } from '@openagentaudit/adapters';
 import { validateEvents } from '@openagentaudit/schema';
 import type { CanonicalEvent, Finding } from '@openagentaudit/schema';
 
@@ -106,7 +106,7 @@ function csvCell(value: string | number | undefined | null): string {
   const s = value === undefined || value === null ? '' : String(value);
   // Quote if the value contains a comma, double-quote, or newline
   if (s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r')) {
-    return '"' + s.replace(/"/g, '""') + '"';
+    return `"${s.replace(/"/g, '""')}"`;
   }
   return s;
 }
@@ -118,12 +118,7 @@ function csvCell(value: string | number | undefined | null): string {
  *          evidence_ids, recommendation, standard_mappings, run_id,
  *          eas_score, eas_grade
  */
-function buildCsv(
-  findings: Finding[],
-  runId: string,
-  easScore: number,
-  easGrade: string,
-): string {
+function buildCsv(findings: Finding[], runId: string, easScore: number, easGrade: string): string {
   const header = [
     'finding_id',
     'rule_id',
@@ -352,7 +347,7 @@ async function cmdPolicyAudit(
   } else {
     process.stderr.write(
       'Warning: --manifest not provided. Capability boundary analysis will be limited.\n' +
-      'Supply --manifest \'{"declared_capabilities":[...]}\' for full audit coverage.\n',
+        'Supply --manifest \'{"declared_capabilities":[...]}\' for full audit coverage.\n',
     );
   }
 
@@ -474,7 +469,6 @@ async function cmdReport(
         ),
       );
       break;
-    case 'md':
     default:
       console.log(bundle.markdown);
       break;
@@ -508,9 +502,7 @@ async function cmdFromAep(filePath?: string, batch = false): Promise<void> {
 
     let events;
     try {
-      events = aepV0_2.toEventsBatch(
-        records as Parameters<typeof aepV0_2.toEventsBatch>[0],
-      );
+      events = aepV0_2.toEventsBatch(records as Parameters<typeof aepV0_2.toEventsBatch>[0]);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       process.stderr.write(`Error: ${msg}\n`);
@@ -535,7 +527,9 @@ async function cmdFromAep(filePath?: string, batch = false): Promise<void> {
 
   let events;
   try {
-    events = aepV0_2.AepV0_2Adapter.toEvents(record as Parameters<typeof aepV0_2.AepV0_2Adapter.toEvents>[0]);
+    events = aepV0_2.AepV0_2Adapter.toEvents(
+      record as Parameters<typeof aepV0_2.AepV0_2Adapter.toEvents>[0],
+    );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     process.stderr.write(`Error: ${msg}\n`);
@@ -697,7 +691,9 @@ async function cmdFromBscode(filePath?: string): Promise<void> {
 
   let events;
   try {
-    events = bscode.BscodeAdapter.toEvents(record as Parameters<typeof bscode.BscodeAdapter.toEvents>[0]);
+    events = bscode.BscodeAdapter.toEvents(
+      record as Parameters<typeof bscode.BscodeAdapter.toEvents>[0],
+    );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     process.stderr.write(`Error: ${msg}\n`);

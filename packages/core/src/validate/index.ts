@@ -31,27 +31,33 @@ const VALID_EVENT_TYPES = new Set([
   'error',
 ]);
 
-const VALID_ACTORS = new Set([
-  'agent',
-  'user',
-  'system',
-  'tool',
-  'human_reviewer',
-]);
+const VALID_ACTORS = new Set(['agent', 'user', 'system', 'tool', 'human_reviewer']);
 
 function isValidRfc3339(ts: string): boolean {
   if (!ts) return false;
   const ms = Date.parse(ts);
-  return !isNaN(ms);
+  return !Number.isNaN(ms);
 }
 
 async function computeEventHash(event: CanonicalEvent): Promise<string> {
   // Canonical JSON: sorted keys, strip evidence field itself (hash/prev_hash/signature)
   const forHashing: Record<string, unknown> = {};
   const keys: Array<keyof CanonicalEvent> = [
-    'schema_version', 'run_id', 'event_id', 'timestamp', 'type', 'actor',
-    'agent_id', 'model_id', 'session_id', 'tool', 'policy', 'human',
-    'error', 'model_output', 'observation',
+    'schema_version',
+    'run_id',
+    'event_id',
+    'timestamp',
+    'type',
+    'actor',
+    'agent_id',
+    'model_id',
+    'session_id',
+    'tool',
+    'policy',
+    'human',
+    'error',
+    'model_output',
+    'observation',
   ];
   for (const k of keys) {
     if (event[k] !== undefined) forHashing[k] = event[k];
@@ -60,7 +66,7 @@ async function computeEventHash(event: CanonicalEvent): Promise<string> {
   const encoded = new TextEncoder().encode(canonical);
   const hashBuf = await crypto.subtle.digest('SHA-256', encoded);
   const hex = Array.from(new Uint8Array(hashBuf))
-    .map(b => b.toString(16).padStart(2, '0'))
+    .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
   return hex;
 }
@@ -87,7 +93,7 @@ async function verifyEd25519Signature(
       const buf = new ArrayBuffer(64);
       sigBytes = new Uint8Array(buf);
       const pairs = sig.match(/.{2}/g)!;
-      for (let i = 0; i < pairs.length; i++) sigBytes[i] = parseInt(pairs[i]!, 16);
+      for (let i = 0; i < pairs.length; i++) sigBytes[i] = Number.parseInt(pairs[i]!, 16);
     } else {
       // assume base64
       const binary = atob(sig);
@@ -99,9 +105,21 @@ async function verifyEd25519Signature(
     // The signed message is the same canonical JSON used for hash computation
     const forSigning: Record<string, unknown> = {};
     const signingKeys: Array<keyof CanonicalEvent> = [
-      'schema_version', 'run_id', 'event_id', 'timestamp', 'type', 'actor',
-      'agent_id', 'model_id', 'session_id', 'tool', 'policy', 'human',
-      'error', 'model_output', 'observation',
+      'schema_version',
+      'run_id',
+      'event_id',
+      'timestamp',
+      'type',
+      'actor',
+      'agent_id',
+      'model_id',
+      'session_id',
+      'tool',
+      'policy',
+      'human',
+      'error',
+      'model_output',
+      'observation',
     ];
     for (const k of signingKeys) {
       if (event[k] !== undefined) forSigning[k] = event[k];
@@ -356,7 +374,7 @@ export async function validate(
   const events_with_hash = chainEvents.length;
   const hashes_content_mismatch = contentMismatchCount;
   const hashes_content_verified = events_with_hash - hashes_content_mismatch;
-  const events_with_signature = events.filter(e => e.evidence?.signature !== undefined).length;
+  const events_with_signature = events.filter((e) => e.evidence?.signature !== undefined).length;
 
   // Ed25519 signature verification (only when keyRegistry is provided)
   let signatures_verified = 0;

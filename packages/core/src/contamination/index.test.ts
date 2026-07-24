@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
-import { contamination } from './index.js';
 import type { CanonicalEvent } from '@openagentaudit/schema';
+import { contamination } from './index.js';
 
 // ---------------------------------------------------------------------------
 // Helper
@@ -63,10 +63,10 @@ describe('contamination — exact method, same event_id', () => {
     const result = await contamination([trainClone], [testClone], { method: 'exact' });
 
     expect(result.pairs).toHaveLength(1);
-    expect(result.pairs[0]!.similarity).toBe(1.0);
-    expect(result.pairs[0]!.train_event_id).toBe('shared-id');
-    expect(result.pairs[0]!.test_event_id).toBe('shared-id');
-    expect(result.pairs[0]!.method).toBe('exact');
+    expect(result.pairs[0]?.similarity).toBe(1.0);
+    expect(result.pairs[0]?.train_event_id).toBe('shared-id');
+    expect(result.pairs[0]?.test_event_id).toBe('shared-id');
+    expect(result.pairs[0]?.method).toBe('exact');
   });
 });
 
@@ -82,17 +82,21 @@ describe('contamination — exact method, same tool name and type', () => {
     const result = await contamination([train], [test], { method: 'exact', threshold: 0.8 });
 
     expect(result.pairs).toHaveLength(1);
-    expect(result.pairs[0]!.similarity).toBe(0.9);
+    expect(result.pairs[0]?.similarity).toBe(0.9);
   });
 
   it('reports correct method on each pair', async () => {
-    const train = makeEvent({ event_id: 'train-2', type: 'tool_call', tool: { name: 'read_file' } });
+    const train = makeEvent({
+      event_id: 'train-2',
+      type: 'tool_call',
+      tool: { name: 'read_file' },
+    });
     const test = makeEvent({ event_id: 'test-2', type: 'tool_call', tool: { name: 'read_file' } });
 
     const result = await contamination([train], [test], { method: 'exact' });
 
     expect(result.method).toBe('exact');
-    expect(result.pairs[0]!.method).toBe('exact');
+    expect(result.pairs[0]?.method).toBe('exact');
   });
 });
 
@@ -129,8 +133,8 @@ describe('contamination — ngram method, identical events', () => {
     const result = await contamination([train], [test], { method: 'ngram', threshold: 0.8 });
 
     expect(result.pairs).toHaveLength(1);
-    expect(result.pairs[0]!.similarity).toBe(1.0);
-    expect(result.pairs[0]!.method).toBe('ngram');
+    expect(result.pairs[0]?.similarity).toBe(1.0);
+    expect(result.pairs[0]?.method).toBe('ngram');
   });
 });
 
@@ -168,10 +172,10 @@ describe('contamination — ngram method, completely different events', () => {
     const result = await contamination([train], [test], { method: 'ngram', threshold: 0.0 });
 
     const matchingPair = result.pairs.find(
-      p => p.train_event_id === 'tr-ngf' && p.test_event_id === 'te-ngf',
+      (p) => p.train_event_id === 'tr-ngf' && p.test_event_id === 'te-ngf',
     );
     expect(matchingPair).toBeDefined();
-    expect(matchingPair!.similarity).toBe(0.0);
+    expect(matchingPair?.similarity).toBe(0.0);
 
     // With a positive threshold the pair is excluded entirely
     const strict = await contamination([train], [test], { method: 'ngram', threshold: 0.01 });
@@ -196,8 +200,8 @@ describe('contamination — minhash method, identical events', () => {
     const result = await contamination([train], [test], { method: 'minhash', threshold: 0.8 });
 
     expect(result.pairs).toHaveLength(1);
-    expect(result.pairs[0]!.similarity).toBe(1.0);
-    expect(result.pairs[0]!.method).toBe('minhash');
+    expect(result.pairs[0]?.similarity).toBe(1.0);
+    expect(result.pairs[0]?.method).toBe('minhash');
   });
 });
 
@@ -213,7 +217,10 @@ describe('contamination — score scaling', () => {
     const test1 = makeEvent({ event_id: 'sc-te-1', type: 'tool_call', tool: { name: 'x' } });
 
     // 2 train events matching 1 test: 2 out of 2 candidate pairs → score 100
-    const result = await contamination([train1, train2], [test1], { method: 'exact', threshold: 0.8 });
+    const result = await contamination([train1, train2], [test1], {
+      method: 'exact',
+      threshold: 0.8,
+    });
 
     expect(result.high_similarity_pairs).toBe(2);
     expect(result.candidate_pairs).toBe(2);
@@ -271,7 +278,7 @@ describe('contamination — method option', () => {
     const result = await contamination([train], [test], { method: 'ngram' });
 
     expect(result.method).toBe('ngram');
-    expect(result.pairs[0]!.method).toBe('ngram');
+    expect(result.pairs[0]?.method).toBe('ngram');
   });
 
   it('auto-selects exact when total pairs <= 10000 and no method specified', async () => {
@@ -291,7 +298,7 @@ describe('contamination — method option', () => {
     const result = await contamination([train], [test], { method: 'minhash' });
 
     expect(result.method).toBe('minhash');
-    expect(result.pairs[0]!.method).toBe('minhash');
+    expect(result.pairs[0]?.method).toBe('minhash');
   });
 });
 

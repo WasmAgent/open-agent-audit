@@ -51,7 +51,10 @@
             "required": ["framework", "coverage"],
             "properties": {
               "framework": { "type": "string" },
-              "coverage": { "type": "string", "enum": ["selected_technical_evidence", "partial", "none"] },
+              "coverage": {
+                "type": "string",
+                "enum": ["selected_technical_evidence", "partial", "none"]
+              },
               "note": { "type": "string" }
             }
           }

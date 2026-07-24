@@ -30,13 +30,13 @@ function canonicalize(obj: unknown): string {
   if (obj === null || obj === undefined) return JSON.stringify(obj);
   if (typeof obj !== 'object') return JSON.stringify(obj);
   if (Array.isArray(obj)) {
-    return '[' + obj.map((item) => canonicalize(item)).join(',') + ']';
+    return `[${obj.map((item) => canonicalize(item)).join(',')}]`;
   }
   const sorted = Object.keys(obj as Record<string, unknown>).sort();
   const entries = sorted.map(
-    (key) => JSON.stringify(key) + ':' + canonicalize((obj as Record<string, unknown>)[key]),
+    (key) => `${JSON.stringify(key)}:${canonicalize((obj as Record<string, unknown>)[key])}`,
   );
-  return '{' + entries.join(',') + '}';
+  return `{${entries.join(',')}}`;
 }
 
 /**

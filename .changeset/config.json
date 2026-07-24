@@ -8,17 +8,9 @@
   ],
   "commit": false,
   "fixed": [],
-  "linked": [
-    [
-      "@openagentaudit/*"
-    ]
-  ],
+  "linked": [["@openagentaudit/*"]],
   "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
-  "ignore": [
-    "@openagentaudit/worker",
-    "@openagentaudit/cli",
-    "@openagentaudit/dashboard"
-  ]
+  "ignore": ["@openagentaudit/worker", "@openagentaudit/cli", "@openagentaudit/dashboard"]
 }

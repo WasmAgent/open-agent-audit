@@ -24,14 +24,12 @@
     "run_worker_first": true
   },
 
-  "routes": [
-    { "pattern": "trustavo.com", "custom_domain": true }
-  ],
+  "routes": [{ "pattern": "trustavo.com", "custom_domain": true }],
 
   "r2_buckets": [
     { "binding": "RAW_TRACES", "bucket_name": "oaa-raw-traces" },
-    { "binding": "ARTIFACTS",  "bucket_name": "oaa-artifacts"  },
-    { "binding": "REPORTS",    "bucket_name": "oaa-reports"    }
+    { "binding": "ARTIFACTS", "bucket_name": "oaa-artifacts" },
+    { "binding": "REPORTS", "bucket_name": "oaa-reports" }
   ],
 
   "kv_namespaces": [
@@ -49,27 +47,25 @@
 
   "queues": {
     "producers": [
-      { "binding": "AUDIT_JOBS",  "queue": "oaa-audit-jobs"  },
-      { "binding": "CHUNK_JOBS",  "queue": "oaa-chunk-jobs"  },
+      { "binding": "AUDIT_JOBS", "queue": "oaa-audit-jobs" },
+      { "binding": "CHUNK_JOBS", "queue": "oaa-chunk-jobs" },
       { "binding": "REPORT_JOBS", "queue": "oaa-report-jobs" }
     ],
     "consumers": [
-      { "queue": "oaa-audit-jobs",  "max_batch_size": 10, "max_batch_timeout": 30 },
-      { "queue": "oaa-chunk-jobs",  "max_batch_size": 10, "max_batch_timeout": 30 },
-      { "queue": "oaa-report-jobs", "max_batch_size":  5, "max_batch_timeout": 30 }
+      { "queue": "oaa-audit-jobs", "max_batch_size": 10, "max_batch_timeout": 30 },
+      { "queue": "oaa-chunk-jobs", "max_batch_size": 10, "max_batch_timeout": 30 },
+      { "queue": "oaa-report-jobs", "max_batch_size": 5, "max_batch_timeout": 30 }
     ]
   },
 
   "durable_objects": {
     "bindings": [
       { "name": "AUDIT_RUN_COORDINATOR", "class_name": "AuditRunCoordinator" },
-      { "name": "TENANT_LIMITER",        "class_name": "TenantLimiter"        }
+      { "name": "TENANT_LIMITER", "class_name": "TenantLimiter" }
     ]
   },
 
-  "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["AuditRunCoordinator", "TenantLimiter"] }
-  ],
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["AuditRunCoordinator", "TenantLimiter"] }],
 
   "vars": {
     "OAA_ENV": "production",

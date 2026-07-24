@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { driftGuard } from './index.js';
 import type { CanonicalEvent } from '@openagentaudit/schema';
+import { driftGuard } from './index.js';
 import type { DriftWindow } from './index.js';
 
 // ---------------------------------------------------------------------------
@@ -9,7 +9,9 @@ import type { DriftWindow } from './index.js';
 
 let _seq = 0;
 
-function makeEvent(overrides: Partial<CanonicalEvent> & { type: CanonicalEvent['type'] }): CanonicalEvent {
+function makeEvent(
+  overrides: Partial<CanonicalEvent> & { type: CanonicalEvent['type'] },
+): CanonicalEvent {
   _seq += 1;
   return {
     schema_version: 'open-agent-audit/v0.1',
@@ -76,10 +78,7 @@ describe('driftGuard', () => {
       observationEvent(),
       modelOutputEvent(50),
     ];
-    const result = await driftGuard(
-      window('A', events),
-      window('B', [...events]),
-    );
+    const result = await driftGuard(window('A', events), window('B', [...events]));
 
     expect(result.drifted_metrics).toHaveLength(0);
     expect(result.drift_score).toBe(0);

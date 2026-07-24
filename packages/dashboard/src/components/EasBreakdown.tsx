@@ -4,27 +4,27 @@
  */
 
 export interface EasSubScore {
-  label: string
-  score: number // 0-100
+  label: string;
+  score: number; // 0-100
 }
 
 function barColor(score: number): string {
-  if (score > 80) return 'bg-emerald-500'
-  if (score >= 60) return 'bg-yellow-500'
-  return 'bg-red-500'
+  if (score > 80) return 'bg-emerald-500';
+  if (score >= 60) return 'bg-yellow-500';
+  return 'bg-red-500';
 }
 
 function textColor(score: number): string {
-  if (score > 80) return 'text-emerald-700'
-  if (score >= 60) return 'text-yellow-700'
-  return 'text-red-700'
+  if (score > 80) return 'text-emerald-700';
+  if (score >= 60) return 'text-yellow-700';
+  return 'text-red-700';
 }
 
 export function EasBreakdown({ scores }: { scores: EasSubScore[] }) {
   return (
     <div className="space-y-3">
       {scores.map(({ label, score }) => {
-        const clamped = Math.max(0, Math.min(100, score))
+        const clamped = Math.max(0, Math.min(100, score));
         return (
           <div key={label} className="flex items-center gap-3">
             <span className="text-xs text-slate-600 w-28 shrink-0 truncate font-medium">
@@ -43,8 +43,8 @@ export function EasBreakdown({ scores }: { scores: EasSubScore[] }) {
               {clamped}
             </span>
           </div>
-        )
+        );
       })}
     </div>
-  )
+  );
 }

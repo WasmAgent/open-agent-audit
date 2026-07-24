@@ -1,6 +1,6 @@
-import { describe, test, expect } from 'bun:test';
-import { validate } from './index.js';
+import { describe, expect, test } from 'bun:test';
 import type { CanonicalEvent } from '@openagentaudit/schema';
+import { validate } from './index.js';
 
 function makeEvent(overrides: Partial<CanonicalEvent> = {}): CanonicalEvent {
   return {
@@ -60,7 +60,7 @@ describe('validate', () => {
     const result = await validate([event]);
     const schemaVersionErrors = result.errors.filter((e) => e.path === 'schema_version');
     expect(schemaVersionErrors.length).toBeGreaterThan(0);
-    expect(schemaVersionErrors[0]!.message).toContain('open-agent-audit/v0.1');
+    expect(schemaVersionErrors[0]?.message).toContain('open-agent-audit/v0.1');
   });
 
   // 4. Missing run_id — error
@@ -69,7 +69,7 @@ describe('validate', () => {
     const result = await validate([event]);
     const runIdErrors = result.errors.filter((e) => e.path === 'run_id');
     expect(runIdErrors.length).toBeGreaterThan(0);
-    expect(runIdErrors[0]!.message).toContain('run_id');
+    expect(runIdErrors[0]?.message).toContain('run_id');
   });
 
   // 5. Duplicate event_ids — error
@@ -82,8 +82,8 @@ describe('validate', () => {
       (e) => e.path === 'event_id' && e.message.includes('Duplicate'),
     );
     expect(dupErrors.length).toBeGreaterThan(0);
-    expect(dupErrors[0]!.event_id).toBe(sharedId);
-    expect(dupErrors[0]!.message).toContain('index 0');
+    expect(dupErrors[0]?.event_id).toBe(sharedId);
+    expect(dupErrors[0]?.message).toContain('index 0');
   });
 
   // 6. Mixed run_ids (cross-run) — error on all events with different run_id
@@ -97,7 +97,7 @@ describe('validate', () => {
     );
     // Only e2 (run-B) differs from the first run_id (run-A)
     expect(crossRunErrors.length).toBe(1);
-    expect(crossRunErrors[0]!.event_id).toBe(e2.event_id);
+    expect(crossRunErrors[0]?.event_id).toBe(e2.event_id);
   });
 
   // 7. Invalid timestamp — error
@@ -106,7 +106,7 @@ describe('validate', () => {
     const result = await validate([event]);
     const tsErrors = result.errors.filter((e) => e.path === 'timestamp');
     expect(tsErrors.length).toBeGreaterThan(0);
-    expect(tsErrors[0]!.message).toContain('not-a-date');
+    expect(tsErrors[0]?.message).toContain('not-a-date');
   });
 
   // 8. Invalid event type — error
@@ -115,7 +115,7 @@ describe('validate', () => {
     const result = await validate([event]);
     const typeErrors = result.errors.filter((e) => e.path === 'type');
     expect(typeErrors.length).toBeGreaterThan(0);
-    expect(typeErrors[0]!.message).toContain('unknown_type');
+    expect(typeErrors[0]?.message).toContain('unknown_type');
   });
 
   // 9. tool_call without tool field — error
@@ -124,7 +124,7 @@ describe('validate', () => {
     const result = await validate([event]);
     const toolErrors = result.errors.filter((e) => e.path === 'tool');
     expect(toolErrors.length).toBeGreaterThan(0);
-    expect(toolErrors[0]!.message).toContain('tool field must be present');
+    expect(toolErrors[0]?.message).toContain('tool field must be present');
   });
 
   test('tool_call event with tool field is valid', async () => {
@@ -143,7 +143,7 @@ describe('validate', () => {
     const result = await validate([event]);
     const policyErrors = result.errors.filter((e) => e.path === 'policy');
     expect(policyErrors.length).toBeGreaterThan(0);
-    expect(policyErrors[0]!.message).toContain('policy field must be present');
+    expect(policyErrors[0]?.message).toContain('policy field must be present');
   });
 
   test('policy_decision event with policy field is valid', async () => {
@@ -187,9 +187,7 @@ describe('validate', () => {
     const result = await validate([e1, e2, e3]);
     expect(result.errors).toHaveLength(0);
     // No chain-linkage warnings (prev_hash == previous hash for all)
-    const chainLinkageWarnings = result.warnings.filter(
-      (w) => w.path === 'evidence.prev_hash',
-    );
+    const chainLinkageWarnings = result.warnings.filter((w) => w.path === 'evidence.prev_hash');
     expect(chainLinkageWarnings).toHaveLength(0);
     // Content hash warnings fire because dummy hashes don't match SHA-256
     const contentWarnings = result.warnings.filter(
@@ -221,8 +219,8 @@ describe('validate', () => {
     const result = await validate([e1, e2]);
     const chainWarnings = result.warnings.filter((w) => w.path === 'evidence.prev_hash');
     expect(chainWarnings.length).toBeGreaterThan(0);
-    expect(chainWarnings[0]!.event_id).toBe('evt-2');
-    expect(chainWarnings[0]!.message).toContain('Hash chain broken');
+    expect(chainWarnings[0]?.event_id).toBe('evt-2');
+    expect(chainWarnings[0]?.message).toContain('Hash chain broken');
   });
 
   // 13. Genesis hash with wrong prev_hash (not all zeros) — warning
@@ -237,8 +235,8 @@ describe('validate', () => {
     const result = await validate([e1]);
     const genesisWarnings = result.warnings.filter((w) => w.path === 'evidence.prev_hash');
     expect(genesisWarnings.length).toBeGreaterThan(0);
-    expect(genesisWarnings[0]!.event_id).toBe('evt-genesis');
-    expect(genesisWarnings[0]!.message).toContain('genesis hash');
+    expect(genesisWarnings[0]?.event_id).toBe('evt-genesis');
+    expect(genesisWarnings[0]?.message).toContain('genesis hash');
   });
 
   // Additional edge cases for completeness
@@ -264,7 +262,7 @@ describe('validate', () => {
       (w) => w.path === 'evidence.prev_hash' && w.message.includes('gap'),
     );
     expect(gapWarnings.length).toBeGreaterThan(0);
-    expect(gapWarnings[0]!.event_id).toBe('evt-2');
+    expect(gapWarnings[0]?.event_id).toBe('evt-2');
   });
 
   test('events without evidence.hash are excluded from hash chain checks', async () => {
@@ -282,7 +280,7 @@ describe('validate', () => {
     const result = await validate([event]);
     const humanErrors = result.errors.filter((e) => e.path === 'human');
     expect(humanErrors.length).toBeGreaterThan(0);
-    expect(humanErrors[0]!.message).toContain('human field must be present');
+    expect(humanErrors[0]?.message).toContain('human field must be present');
   });
 
   test('error event without error field produces an error on error path', async () => {
@@ -290,7 +288,7 @@ describe('validate', () => {
     const result = await validate([event]);
     const errFieldErrors = result.errors.filter((e) => e.path === 'error');
     expect(errFieldErrors.length).toBeGreaterThan(0);
-    expect(errFieldErrors[0]!.message).toContain('error field must be present');
+    expect(errFieldErrors[0]?.message).toContain('error field must be present');
   });
 
   // 15. crypto_summary — present on all results
@@ -329,7 +327,7 @@ describe('validate', () => {
       (w) => w.path === 'evidence.hash' && w.message.includes('content mismatch'),
     );
     expect(contentWarnings).toHaveLength(1);
-    expect(contentWarnings[0]!.event_id).toBe('evt-dummy-hash');
+    expect(contentWarnings[0]?.event_id).toBe('evt-dummy-hash');
     expect(result.crypto_summary.hashes_content_mismatch).toBe(1);
     expect(result.crypto_summary.hashes_content_verified).toBe(0);
   });
@@ -353,7 +351,7 @@ describe('adversarial fixtures', () => {
     const result = await validate([event]);
     const sigErrors = result.errors.filter((e) => e.path === 'evidence.signature');
     expect(sigErrors.length).toBeGreaterThan(0);
-    expect(sigErrors[0]!.event_id).toBe('forged-1');
+    expect(sigErrors[0]?.event_id).toBe('forged-1');
   });
 
   // forged signature: signature_algorithm set but signature is empty string
@@ -369,7 +367,7 @@ describe('adversarial fixtures', () => {
     const result = await validate([event]);
     const sigErrors = result.errors.filter((e) => e.path === 'evidence.signature');
     expect(sigErrors.length).toBeGreaterThan(0);
-    expect(sigErrors[0]!.event_id).toBe('forged-2');
+    expect(sigErrors[0]?.event_id).toBe('forged-2');
   });
 
   // replay attack: same event_id appears twice
@@ -394,9 +392,7 @@ describe('adversarial fixtures', () => {
     ]);
     const result = await validate(events);
     // Each of 5 ids has 2 duplicates => at least 10 duplicate errors
-    const dupErrors = result.errors.filter((e) =>
-      e.message.toLowerCase().includes('duplicate'),
-    );
+    const dupErrors = result.errors.filter((e) => e.message.toLowerCase().includes('duplicate'));
     expect(dupErrors.length).toBeGreaterThanOrEqual(10);
   });
 
@@ -442,7 +438,7 @@ describe('adversarial fixtures', () => {
       (e) => e.message.toLowerCase().includes('duplicate') && e.event_id === sharedId,
     );
     expect(dupErrors.length).toBeGreaterThan(0);
-    expect(dupErrors[0]!.event_id).toBe(sharedId);
+    expect(dupErrors[0]?.event_id).toBe(sharedId);
   });
 
   // 4. Replay attack — 5 distinct event_ids, each repeated 3 times (15 events total)
@@ -457,9 +453,7 @@ describe('adversarial fixtures', () => {
     expect(events).toHaveLength(15);
     const result = await validate(events);
     // Each of the 5 ids has 2 duplicate occurrences (2nd and 3rd), so at least 10 duplicate errors
-    const dupErrors = result.errors.filter((e) =>
-      e.message.toLowerCase().includes('duplicate'),
-    );
+    const dupErrors = result.errors.filter((e) => e.message.toLowerCase().includes('duplicate'));
     expect(dupErrors.length).toBeGreaterThanOrEqual(10);
   });
 

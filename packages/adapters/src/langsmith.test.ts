@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { LangSmithAdapter } from './langsmith.js';
-import type { LangSmithTrace, LangSmithRun } from './langsmith.js';
+import type { LangSmithRun, LangSmithTrace } from './langsmith.js';
 
 // ---------------------------------------------------------------------------
 // Helpers

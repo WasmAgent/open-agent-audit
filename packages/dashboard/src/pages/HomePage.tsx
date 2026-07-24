@@ -1,18 +1,13 @@
-import { useState, useCallback, useEffect } from 'react'
-import { useLocation } from 'wouter'
-import { useAudit } from '../AuditContext'
-import { parseJsonl, isAepJson, buildAepMeta } from '../utils'
+import { useCallback, useEffect, useState } from 'react';
+import { useLocation } from 'wouter';
+import { useAudit } from '../AuditContext';
+import { buildAepMeta, isAepJson, parseJsonl } from '../utils';
 
 // ---------- Icon components ----------
 
 function ShieldIcon({ className }: { className?: string }) {
   return (
-    <svg
-      className={className}
-      viewBox="0 0 32 32"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-    >
+    <svg className={className} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
       <path
         d="M16 3L5 7.5V15c0 6.075 4.697 11.745 11 13 6.303-1.255 11-6.925 11-13V7.5L16 3Z"
         fill="currentColor"
@@ -32,17 +27,12 @@ function ShieldIcon({ className }: { className?: string }) {
         strokeLinejoin="round"
       />
     </svg>
-  )
+  );
 }
 
 function UploadIcon({ className }: { className?: string }) {
   return (
-    <svg
-      className={className}
-      fill="none"
-      stroke="currentColor"
-      viewBox="0 0 24 24"
-    >
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path
         strokeLinecap="round"
         strokeLinejoin="round"
@@ -50,7 +40,7 @@ function UploadIcon({ className }: { className?: string }) {
         d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"
       />
     </svg>
-  )
+  );
 }
 
 function WarningIcon({ className }: { className?: string }) {
@@ -63,13 +53,13 @@ function WarningIcon({ className }: { className?: string }) {
         d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"
       />
     </svg>
-  )
+  );
 }
 
 // ---------- HomePage ----------
 
 export default function HomePage() {
-  const [, navigate] = useLocation()
+  const [, navigate] = useLocation();
   const {
     events,
     setEvents,
@@ -85,111 +75,125 @@ export default function HomePage() {
     setReportSummary,
     setReportRunId,
     setReportError,
-  } = useAudit()
+  } = useAudit();
 
-  const [dragging, setDragging] = useState(false)
+  const [dragging, setDragging] = useState(false);
 
-  const hasEvents = events.length > 0
+  const hasEvents = events.length > 0;
 
   // Navigate to /audit once a file is successfully loaded
   useEffect(() => {
     if (hasEvents || isAepRecord) {
-      navigate('/audit')
+      navigate('/audit');
     }
-  }, [hasEvents, isAepRecord, navigate])
+  }, [hasEvents, isAepRecord, navigate]);
 
   const handleFile = useCallback(
     (file: File) => {
       if (!file.name.endsWith('.jsonl') && !file.name.endsWith('.json')) {
-        setParseError('Please select a .jsonl or .json file.')
-        return
+        setParseError('Please select a .jsonl or .json file.');
+        return;
       }
-      setParseError(null)
-      setFileName(file.name)
-      setIsAepRecord(false)
-      setAepMeta(null)
-      setReportSummary(null)
-      const reader = new FileReader()
+      setParseError(null);
+      setFileName(file.name);
+      setIsAepRecord(false);
+      setAepMeta(null);
+      setReportSummary(null);
+      const reader = new FileReader();
       reader.onload = (e) => {
-        const text = e.target?.result as string
-        setFileText(text)
-        setReportRunId(null)
-        setReportError(null)
+        const text = e.target?.result as string;
+        setFileText(text);
+        setReportRunId(null);
+        setReportError(null);
         if (isAepJson(text)) {
-          setIsAepRecord(true)
-          setEvents([])
+          setIsAepRecord(true);
+          setEvents([]);
           try {
-            const aep = JSON.parse(text) as Record<string, unknown>
-            setAepMeta(buildAepMeta(aep))
-          } catch { /* best-effort */ }
-          return
+            const aep = JSON.parse(text) as Record<string, unknown>;
+            setAepMeta(buildAepMeta(aep));
+          } catch {
+            /* best-effort */
+          }
+          return;
         }
-        const parsed = parseJsonl(text)
-        setEvents(parsed)
+        const parsed = parseJsonl(text);
+        setEvents(parsed);
         if (parsed.length === 0) {
-          setParseError('No valid JSON lines found in the file.')
+          setParseError('No valid JSON lines found in the file.');
         }
-      }
-      reader.onerror = () => setParseError('Failed to read file.')
-      reader.readAsText(file)
+      };
+      reader.onerror = () => setParseError('Failed to read file.');
+      reader.readAsText(file);
     },
-    [setEvents, setFileName, setFileText, setParseError, setIsAepRecord, setAepMeta, setReportSummary, setReportRunId, setReportError],
-  )
+    [
+      setEvents,
+      setFileName,
+      setFileText,
+      setParseError,
+      setIsAepRecord,
+      setAepMeta,
+      setReportSummary,
+      setReportRunId,
+      setReportError,
+    ],
+  );
 
   const onInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) handleFile(file)
-  }
+    const file = e.target.files?.[0];
+    if (file) handleFile(file);
+  };
 
   const onDrop = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault()
-    setDragging(false)
-    const file = e.dataTransfer.files[0]
-    if (file) handleFile(file)
-  }
+    e.preventDefault();
+    setDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (file) handleFile(file);
+  };
 
   const onDragOver = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault()
-    setDragging(true)
-  }
+    e.preventDefault();
+    setDragging(true);
+  };
 
-  const onDragLeave = () => setDragging(false)
+  const onDragLeave = () => setDragging(false);
 
   const loadSample = async (file: string) => {
-    const url = `https://raw.githubusercontent.com/WasmAgent/open-agent-audit/main/examples/traces/${file}`
+    const url = `https://raw.githubusercontent.com/WasmAgent/open-agent-audit/main/examples/traces/${file}`;
     try {
-      const res = await fetch(url)
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const text = await res.text()
-      setParseError(null)
-      setFileName(file)
-      setIsAepRecord(false)
-      setAepMeta(null)
-      setReportSummary(null)
-      setFileText(text)
-      setReportRunId(null)
-      setReportError(null)
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const text = await res.text();
+      setParseError(null);
+      setFileName(file);
+      setIsAepRecord(false);
+      setAepMeta(null);
+      setReportSummary(null);
+      setFileText(text);
+      setReportRunId(null);
+      setReportError(null);
       if (isAepJson(text)) {
-        setIsAepRecord(true)
-        setEvents([])
+        setIsAepRecord(true);
+        setEvents([]);
         try {
-          const aep = JSON.parse(text) as Record<string, unknown>
-          setAepMeta(buildAepMeta(aep))
-        } catch { /* best-effort */ }
+          const aep = JSON.parse(text) as Record<string, unknown>;
+          setAepMeta(buildAepMeta(aep));
+        } catch {
+          /* best-effort */
+        }
       } else {
-        const parsed = parseJsonl(text)
-        setEvents(parsed)
-        if (parsed.length === 0) setParseError('No valid JSON lines found in the file.')
+        const parsed = parseJsonl(text);
+        setEvents(parsed);
+        if (parsed.length === 0) setParseError('No valid JSON lines found in the file.');
       }
     } catch (e) {
-      setParseError(`Failed to load sample: ${e instanceof Error ? e.message : String(e)}`)
+      setParseError(`Failed to load sample: ${e instanceof Error ? e.message : String(e)}`);
     }
-  }
+  };
 
   const samples = [
     { label: 'wasmagent-js (Example)', file: 'wasmagent-js-runtime.aep.json' },
     { label: 'bscode (Example)', file: 'bscode-session.aep.json' },
-  ]
+  ];
 
   return (
     <div className="space-y-10">
@@ -226,9 +230,10 @@ export default function HomePage() {
                 {fileName ? (
                   <span className="text-indigo-600 font-semibold">{fileName}</span>
                 ) : (
-                  <>Drop a{' '}
-                    <span className="font-mono text-slate-500">.jsonl</span>
-                    {' '}file here, or click to select</>
+                  <>
+                    Drop a <span className="font-mono text-slate-500">.jsonl</span> file here, or
+                    click to select
+                  </>
                 )}
               </p>
               <p className="text-xs text-slate-400 mt-1">
@@ -301,8 +306,8 @@ export default function HomePage() {
               AI Agent Audit &amp; Compliance Platform
             </h2>
             <p className="text-slate-500 text-sm max-w-md mx-auto leading-relaxed">
-              Upload a JSONL audit trace to inspect agent events, score evidence
-              quality, and generate audit reports accepted under{' '}
+              Upload a JSONL audit trace to inspect agent events, score evidence quality, and
+              generate audit reports accepted under{' '}
               <strong className="text-slate-700">EU AI Act Art.&nbsp;26(6)</strong>.
             </p>
           </div>
@@ -464,5 +469,5 @@ export default function HomePage() {
         </section>
       </>
     </div>
-  )
+  );
 }

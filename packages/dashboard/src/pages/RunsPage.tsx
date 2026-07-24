@@ -1,20 +1,24 @@
-import { useState, useEffect } from 'react'
-import { useLocation } from 'wouter'
+import { useEffect, useState } from 'react';
+import { useLocation } from 'wouter';
 
 /**
  * Sparkline — tiny inline bar chart for EAS score trend.
  * Pure SVG, no external deps.
  */
-function Sparkline({ values, width = 80, height = 24 }: { values: number[]; width?: number; height?: number }) {
-  if (values.length === 0) return null
-  const max = Math.max(...values, 100)
-  const barWidth = Math.max(2, (width - (values.length - 1) * 1) / values.length)
+function Sparkline({
+  values,
+  width = 80,
+  height = 24,
+}: { values: number[]; width?: number; height?: number }) {
+  if (values.length === 0) return null;
+  const max = Math.max(...values, 100);
+  const barWidth = Math.max(2, (width - (values.length - 1) * 1) / values.length);
 
   return (
     <svg width={width} height={height} className="inline-block">
       {values.map((v, i) => {
-        const barH = (v / max) * height
-        const color = v > 80 ? '#16a34a' : v >= 60 ? '#ca8a04' : '#dc2626'
+        const barH = (v / max) * height;
+        const color = v > 80 ? '#16a34a' : v >= 60 ? '#ca8a04' : '#dc2626';
         return (
           <rect
             key={i}
@@ -26,43 +30,41 @@ function Sparkline({ values, width = 80, height = 24 }: { values: number[]; widt
             fill={color}
             opacity={0.85}
           />
-        )
+        );
       })}
     </svg>
-  )
+  );
 }
 
 interface RunEntry {
-  run_id: string
-  created_at: string
-  source_file?: string
-  eas_score?: number
-  eas_grade?: string
-  event_count?: number
+  run_id: string;
+  created_at: string;
+  source_file?: string;
+  eas_score?: number;
+  eas_grade?: string;
+  event_count?: number;
 }
 
 export function RunsPage() {
-  const [, navigate] = useLocation()
-  const [runs, setRuns] = useState<RunEntry[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [, navigate] = useLocation();
+  const [runs, setRuns] = useState<RunEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetch('/api/v1/runs')
       .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`)
-        return r.json()
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
       })
       .then((data) => {
-        setRuns((data as { runs?: RunEntry[] }).runs ?? (data as RunEntry[]))
+        setRuns((data as { runs?: RunEntry[] }).runs ?? (data as RunEntry[]));
       })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)))
-      .finally(() => setLoading(false))
-  }, [])
+      .finally(() => setLoading(false));
+  }, []);
 
-  const easScores = runs
-    .map((r) => r.eas_score)
-    .filter((s): s is number => s != null)
+  const easScores = runs.map((r) => r.eas_score).filter((s): s is number => s != null);
 
   return (
     <div className="space-y-6">
@@ -76,9 +78,7 @@ export function RunsPage() {
         )}
       </div>
 
-      {loading && (
-        <div className="text-center py-12 text-slate-400 text-sm">Loading runs...</div>
-      )}
+      {loading && <div className="text-center py-12 text-slate-400 text-sm">Loading runs...</div>}
 
       {error && (
         <div className="px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-700">
@@ -97,11 +97,21 @@ export function RunsPage() {
           <table className="min-w-full divide-y divide-slate-100 text-sm">
             <thead className="bg-slate-50">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-widest">Run ID</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-widest">Source</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-widest">EAS</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-widest">Events</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-widest">Created</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-widest">
+                  Run ID
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-widest">
+                  Source
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-widest">
+                  EAS
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-widest">
+                  Events
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-widest">
+                  Created
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -119,22 +129,25 @@ export function RunsPage() {
                   </td>
                   <td className="px-4 py-3">
                     {run.eas_score != null ? (
-                      <span className={`text-xs font-bold ${
-                        run.eas_score > 80 ? 'text-emerald-600' : run.eas_score >= 60 ? 'text-yellow-600' : 'text-red-600'
-                      }`}>
-                        {run.eas_score} <span className="font-normal text-slate-400">({run.eas_grade ?? '—'})</span>
+                      <span
+                        className={`text-xs font-bold ${
+                          run.eas_score > 80
+                            ? 'text-emerald-600'
+                            : run.eas_score >= 60
+                              ? 'text-yellow-600'
+                              : 'text-red-600'
+                        }`}
+                      >
+                        {run.eas_score}{' '}
+                        <span className="font-normal text-slate-400">({run.eas_grade ?? '—'})</span>
                       </span>
                     ) : (
                       <span className="text-xs text-slate-300">—</span>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-xs text-slate-600">
-                    {run.event_count ?? '—'}
-                  </td>
+                  <td className="px-4 py-3 text-xs text-slate-600">{run.event_count ?? '—'}</td>
                   <td className="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">
-                    {run.created_at
-                      ? new Date(run.created_at).toLocaleDateString()
-                      : '—'}
+                    {run.created_at ? new Date(run.created_at).toLocaleDateString() : '—'}
                   </td>
                 </tr>
               ))}
@@ -143,5 +156,5 @@ export function RunsPage() {
         </div>
       )}
     </div>
-  )
+  );
 }

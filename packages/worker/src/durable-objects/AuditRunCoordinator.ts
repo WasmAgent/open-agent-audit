@@ -41,7 +41,7 @@ export class AuditRunCoordinator {
   }
 
   private async handleInit(request: Request): Promise<Response> {
-    const body = await request.json() as { run_id?: string; chunks_total?: number };
+    const body = (await request.json()) as { run_id?: string; chunks_total?: number };
     const run_id = body.run_id ?? crypto.randomUUID();
 
     const existing = await this.state.storage.get<RunState>('run');
@@ -71,14 +71,14 @@ export class AuditRunCoordinator {
   }
 
   private async handleChunkComplete(request: Request): Promise<Response> {
-    const body = await request.json() as { chunk_index?: number };
+    const body = (await request.json()) as { chunk_index?: number };
     const runState = await this.state.storage.get<RunState>('run');
 
     if (runState === undefined) {
-      return new Response(
-        JSON.stringify({ error: 'Run not initialized' }),
-        { status: 404, headers: { 'content-type': 'application/json' } },
-      );
+      return new Response(JSON.stringify({ error: 'Run not initialized' }), {
+        status: 404,
+        headers: { 'content-type': 'application/json' },
+      });
     }
 
     runState.chunks_complete += 1;
@@ -99,10 +99,10 @@ export class AuditRunCoordinator {
     const runState = await this.state.storage.get<RunState>('run');
 
     if (runState === undefined) {
-      return new Response(
-        JSON.stringify({ error: 'Run not initialized' }),
-        { status: 404, headers: { 'content-type': 'application/json' } },
-      );
+      return new Response(JSON.stringify({ error: 'Run not initialized' }), {
+        status: 404,
+        headers: { 'content-type': 'application/json' },
+      });
     }
 
     runState.status = 'completed';
@@ -110,7 +110,11 @@ export class AuditRunCoordinator {
     await this.state.storage.put('run', runState);
 
     return new Response(
-      JSON.stringify({ run_id: runState.run_id, status: 'completed', completed_at: runState.completed_at }),
+      JSON.stringify({
+        run_id: runState.run_id,
+        status: 'completed',
+        completed_at: runState.completed_at,
+      }),
       { headers: { 'content-type': 'application/json' } },
     );
   }
@@ -119,10 +123,10 @@ export class AuditRunCoordinator {
     const runState = await this.state.storage.get<RunState>('run');
 
     if (runState === undefined) {
-      return new Response(
-        JSON.stringify({ error: 'Run not initialized' }),
-        { status: 404, headers: { 'content-type': 'application/json' } },
-      );
+      return new Response(JSON.stringify({ error: 'Run not initialized' }), {
+        status: 404,
+        headers: { 'content-type': 'application/json' },
+      });
     }
 
     return new Response(JSON.stringify(runState), {

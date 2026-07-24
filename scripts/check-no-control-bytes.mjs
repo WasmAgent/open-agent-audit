@@ -13,18 +13,25 @@ import { fileURLToPath } from 'node:url';
 const SELF = fileURLToPath(import.meta.url);
 const ROOT = dirname(dirname(SELF));
 
-const IGNORE_DIRS = new Set([
-  'node_modules',
-  'dist',
-  'build',
-  '.turbo',
-  '.wrangler',
-  '.git',
-]);
+const IGNORE_DIRS = new Set(['node_modules', 'dist', 'build', '.turbo', '.wrangler', '.git']);
 
 const TEXT_EXT = new Set([
-  '.md', '.ts', '.tsx', '.js', '.mjs', '.cjs', '.json', '.jsonc',
-  '.yaml', '.yml', '.toml', '.sql', '.txt', '.j2', '.html', '.css',
+  '.md',
+  '.ts',
+  '.tsx',
+  '.js',
+  '.mjs',
+  '.cjs',
+  '.json',
+  '.jsonc',
+  '.yaml',
+  '.yml',
+  '.toml',
+  '.sql',
+  '.txt',
+  '.j2',
+  '.html',
+  '.css',
 ]);
 
 function* walk(dir) {
@@ -51,10 +58,7 @@ for (const file of walk(ROOT)) {
   for (let i = 0; i < text.length; i++) {
     const code = text.charCodeAt(i);
     // Allow \t (0x09), \n (0x0A), \r (0x0D); reject other 0x00–0x1F and 0x7F.
-    if (
-      (code < 0x20 && code !== 0x09 && code !== 0x0a && code !== 0x0d) ||
-      code === 0x7f
-    ) {
+    if ((code < 0x20 && code !== 0x09 && code !== 0x0a && code !== 0x0d) || code === 0x7f) {
       const rel = relative(ROOT, file);
       // eslint-disable-next-line no-console
       console.error(`[control-bytes] ${rel}: control byte 0x${code.toString(16)} at offset ${i}`);

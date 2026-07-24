@@ -19,7 +19,7 @@ export interface LangfuseObservation {
   traceId: string;
   name: string;
   type: 'SPAN' | 'GENERATION' | 'EVENT';
-  startTime: string;        // ISO 8601
+  startTime: string; // ISO 8601
   endTime?: string;
   model?: string;
   input?: unknown;
@@ -91,9 +91,7 @@ function obsToEvent(obs: LangfuseObservation, record: LangfuseTrace): CanonicalE
     const inputTokens = obs.usage?.input ?? 0;
     const outputTokens = obs.usage?.output ?? 0;
     const tokenCount =
-      obs.usage?.total !== undefined
-        ? obs.usage.total
-        : inputTokens + outputTokens || undefined;
+      obs.usage?.total !== undefined ? obs.usage.total : inputTokens + outputTokens || undefined;
 
     const ev: CanonicalEvent = {
       ...base,
@@ -127,7 +125,7 @@ function obsToEvent(obs: LangfuseObservation, record: LangfuseTrace): CanonicalE
       type: 'observation',
       actor: 'system',
       observation: {
-        source: 'verifier:' + obs.name,
+        source: `verifier:${obs.name}`,
       },
     };
     return ev;
@@ -140,7 +138,7 @@ function obsToEvent(obs: LangfuseObservation, record: LangfuseTrace): CanonicalE
       type: 'observation',
       actor: 'system',
       observation: {
-        source: 'langfuse:' + obs.name,
+        source: `langfuse:${obs.name}`,
       },
     };
     return ev;
@@ -152,7 +150,7 @@ function obsToEvent(obs: LangfuseObservation, record: LangfuseTrace): CanonicalE
     type: 'observation',
     actor: 'system',
     observation: {
-      source: 'langfuse:' + obs.name,
+      source: `langfuse:${obs.name}`,
     },
   };
   return ev;

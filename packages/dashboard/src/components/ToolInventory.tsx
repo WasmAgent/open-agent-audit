@@ -5,26 +5,24 @@
  */
 
 export interface ToolEntry {
-  name: string
-  callCount: number
-  errorCount: number
+  name: string;
+  callCount: number;
+  errorCount: number;
 }
 
 export function ToolInventory({ tools }: { tools: ToolEntry[] }) {
-  const maxCount = Math.max(...tools.map((t) => t.callCount), 1)
+  const maxCount = Math.max(...tools.map((t) => t.callCount), 1);
 
   return (
     <div className="space-y-2">
       {tools.map(({ name, callCount, errorCount }) => {
-        const pct = (callCount / maxCount) * 100
-        const errorPct = callCount > 0 ? (errorCount / callCount) * 100 : 0
-        const hasErrors = errorCount > 0
+        const pct = (callCount / maxCount) * 100;
+        const errorPct = callCount > 0 ? (errorCount / callCount) * 100 : 0;
+        const hasErrors = errorCount > 0;
 
         return (
           <div key={name} className="flex items-center gap-3">
-            <span className="text-xs font-mono text-slate-700 w-32 shrink-0 truncate">
-              {name}
-            </span>
+            <span className="text-xs font-mono text-slate-700 w-32 shrink-0 truncate">{name}</span>
             <div className="flex-1 h-5 relative rounded bg-slate-100 overflow-hidden">
               {/* Normal calls bar */}
               <div
@@ -42,17 +40,15 @@ export function ToolInventory({ tools }: { tools: ToolEntry[] }) {
                 />
               )}
             </div>
-            <span className="text-xs text-slate-500 w-10 text-right font-medium">
-              {callCount}
-            </span>
+            <span className="text-xs text-slate-500 w-10 text-right font-medium">{callCount}</span>
             {hasErrors && (
               <span className="text-xs text-red-600 w-10 text-right font-medium">
                 {errorCount} err
               </span>
             )}
           </div>
-        )
+        );
       })}
     </div>
-  )
+  );
 }

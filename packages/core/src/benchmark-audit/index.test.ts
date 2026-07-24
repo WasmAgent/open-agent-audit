@@ -1,6 +1,6 @@
-import { describe, test, it, expect } from 'bun:test';
+import { describe, expect, it, test } from 'bun:test';
 import { benchmarkAudit } from './index.js';
-import type { PairedSample, BenchmarkPairAggregate } from './index.js';
+import type { BenchmarkPairAggregate, PairedSample } from './index.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -27,13 +27,13 @@ describe('paired mode — McNemar statistics', () => {
     //   2 discordant-C: baseline=F, candidate=T  → c
     //   3 concordant (2 both-pass, 1 both-fail)
     const samples = makeSamples([
-      { id: 'b0', baseline: true,  candidate: false },
-      { id: 'b1', baseline: true,  candidate: false },
-      { id: 'b2', baseline: true,  candidate: false },
-      { id: 'c0', baseline: false, candidate: true  },
-      { id: 'c1', baseline: false, candidate: true  },
-      { id: 'p0', baseline: true,  candidate: true  },
-      { id: 'p1', baseline: true,  candidate: true  },
+      { id: 'b0', baseline: true, candidate: false },
+      { id: 'b1', baseline: true, candidate: false },
+      { id: 'b2', baseline: true, candidate: false },
+      { id: 'c0', baseline: false, candidate: true },
+      { id: 'c1', baseline: false, candidate: true },
+      { id: 'p0', baseline: true, candidate: true },
+      { id: 'p1', baseline: true, candidate: true },
       { id: 'f0', baseline: false, candidate: false },
     ]);
 
@@ -47,13 +47,13 @@ describe('paired mode — McNemar statistics', () => {
   // 2. mcnemar_p is undefined when b+c < 10 (same 8-sample set: b+c = 5)
   test('mcnemar_p is undefined when b+c < 10', async () => {
     const samples = makeSamples([
-      { baseline: true,  candidate: false },
-      { baseline: true,  candidate: false },
-      { baseline: true,  candidate: false },
-      { baseline: false, candidate: true  },
-      { baseline: false, candidate: true  },
-      { baseline: true,  candidate: true  },
-      { baseline: true,  candidate: true  },
+      { baseline: true, candidate: false },
+      { baseline: true, candidate: false },
+      { baseline: true, candidate: false },
+      { baseline: false, candidate: true },
+      { baseline: false, candidate: true },
+      { baseline: true, candidate: true },
+      { baseline: true, candidate: true },
       { baseline: false, candidate: false },
     ]);
 
@@ -65,9 +65,9 @@ describe('paired mode — McNemar statistics', () => {
   test('mcnemar_p is defined when b+c >= 10', async () => {
     // 40 samples: 6 b + 4 c = 10 discordant, 30 concordant-pass
     const specs = [
-      ...Array.from({ length: 6  }, (_, i) => ({ id: `b${i}`, baseline: true,  candidate: false })),
-      ...Array.from({ length: 4  }, (_, i) => ({ id: `c${i}`, baseline: false, candidate: true  })),
-      ...Array.from({ length: 30 }, (_, i) => ({ id: `p${i}`, baseline: true,  candidate: true  })),
+      ...Array.from({ length: 6 }, (_, i) => ({ id: `b${i}`, baseline: true, candidate: false })),
+      ...Array.from({ length: 4 }, (_, i) => ({ id: `c${i}`, baseline: false, candidate: true })),
+      ...Array.from({ length: 30 }, (_, i) => ({ id: `p${i}`, baseline: true, candidate: true })),
     ];
 
     const result = await benchmarkAudit({ mode: 'paired', samples: makeSamples(specs) });
@@ -88,30 +88,30 @@ describe('paired mode — OAA-B-001 regression detection', () => {
     // 40 samples: 20 b (baseline=T, candidate=F), 5 c, 15 concordant-pass
     // candidate_rate = 20/40 = 0.5, baseline_rate = 35/40 = 0.875 → delta = -0.375
     const specs = [
-      ...Array.from({ length: 20 }, (_, i) => ({ id: `b${i}`, baseline: true,  candidate: false })),
-      ...Array.from({ length: 5  }, (_, i) => ({ id: `c${i}`, baseline: false, candidate: true  })),
-      ...Array.from({ length: 15 }, (_, i) => ({ id: `p${i}`, baseline: true,  candidate: true  })),
+      ...Array.from({ length: 20 }, (_, i) => ({ id: `b${i}`, baseline: true, candidate: false })),
+      ...Array.from({ length: 5 }, (_, i) => ({ id: `c${i}`, baseline: false, candidate: true })),
+      ...Array.from({ length: 15 }, (_, i) => ({ id: `p${i}`, baseline: true, candidate: true })),
     ];
 
     const result = await benchmarkAudit({ mode: 'paired', samples: makeSamples(specs) });
 
-    const ruleIds = result.findings.map(f => f.rule_id);
+    const ruleIds = result.findings.map((f) => f.rule_id);
     expect(ruleIds).toContain('OAA-B-001');
-    expect(result.findings.find(f => f.rule_id === 'OAA-B-001')!.severity).toBe('high');
+    expect(result.findings.find((f) => f.rule_id === 'OAA-B-001')?.severity).toBe('high');
     expect(result.statistics.absolute_delta).toBeLessThan(0);
   });
 
   test('OAA-B-001 is NOT emitted when candidate rate is higher than baseline', async () => {
     // 40 samples: 5 b, 10 c, 25 concordant-pass → candidate_rate > baseline_rate
     const specs = [
-      ...Array.from({ length: 5  }, (_, i) => ({ id: `b${i}`, baseline: true,  candidate: false })),
-      ...Array.from({ length: 10 }, (_, i) => ({ id: `c${i}`, baseline: false, candidate: true  })),
-      ...Array.from({ length: 25 }, (_, i) => ({ id: `p${i}`, baseline: true,  candidate: true  })),
+      ...Array.from({ length: 5 }, (_, i) => ({ id: `b${i}`, baseline: true, candidate: false })),
+      ...Array.from({ length: 10 }, (_, i) => ({ id: `c${i}`, baseline: false, candidate: true })),
+      ...Array.from({ length: 25 }, (_, i) => ({ id: `p${i}`, baseline: true, candidate: true })),
     ];
 
     const result = await benchmarkAudit({ mode: 'paired', samples: makeSamples(specs) });
 
-    expect(result.findings.map(f => f.rule_id)).not.toContain('OAA-B-001');
+    expect(result.findings.map((f) => f.rule_id)).not.toContain('OAA-B-001');
     expect(result.statistics.absolute_delta).toBeGreaterThanOrEqual(0);
   });
 });
@@ -128,9 +128,9 @@ describe('paired mode — OAA-B-002 small sample', () => {
 
     const result = await benchmarkAudit({ mode: 'paired', samples });
 
-    const f = result.findings.find(f => f.rule_id === 'OAA-B-002');
+    const f = result.findings.find((f) => f.rule_id === 'OAA-B-002');
     expect(f).toBeDefined();
-    expect(f!.severity).toBe('medium');
+    expect(f?.severity).toBe('medium');
   });
 
   test('OAA-B-002 is NOT emitted when n >= 30', async () => {
@@ -140,7 +140,7 @@ describe('paired mode — OAA-B-002 small sample', () => {
 
     const result = await benchmarkAudit({ mode: 'paired', samples });
 
-    expect(result.findings.find(f => f.rule_id === 'OAA-B-002')).toBeUndefined();
+    expect(result.findings.find((f) => f.rule_id === 'OAA-B-002')).toBeUndefined();
   });
 });
 
@@ -154,10 +154,10 @@ describe('paired mode — OAA-B-003 inconclusive claim', () => {
     // candidate_rate = (4+30)/40 = 0.85, baseline_rate = (3+30)/40 = 0.825 → delta = +2.5pp
     // b+c = 7 < 10 → mcnemar_p undefined → delta < 0.05 → verdict = inconclusive
     const specs = [
-      ...Array.from({ length: 3  }, (_, i) => ({ id: `b${i}`, baseline: true,  candidate: false })),
-      ...Array.from({ length: 4  }, (_, i) => ({ id: `c${i}`, baseline: false, candidate: true  })),
-      ...Array.from({ length: 30 }, (_, i) => ({ id: `p${i}`, baseline: true,  candidate: true  })),
-      ...Array.from({ length: 3  }, (_, i) => ({ id: `f${i}`, baseline: false, candidate: false })),
+      ...Array.from({ length: 3 }, (_, i) => ({ id: `b${i}`, baseline: true, candidate: false })),
+      ...Array.from({ length: 4 }, (_, i) => ({ id: `c${i}`, baseline: false, candidate: true })),
+      ...Array.from({ length: 30 }, (_, i) => ({ id: `p${i}`, baseline: true, candidate: true })),
+      ...Array.from({ length: 3 }, (_, i) => ({ id: `f${i}`, baseline: false, candidate: false })),
     ];
 
     const result = await benchmarkAudit({
@@ -166,23 +166,23 @@ describe('paired mode — OAA-B-003 inconclusive claim', () => {
       claim: 'Candidate passes at least 10pp more than baseline',
     });
 
-    const f = result.findings.find(f => f.rule_id === 'OAA-B-003');
+    const f = result.findings.find((f) => f.rule_id === 'OAA-B-003');
     expect(f).toBeDefined();
-    expect(f!.severity).toBe('low');
+    expect(f?.severity).toBe('low');
     expect(result.statistics.verdict).toBe('inconclusive');
-    expect(f!.evidence_ids.length).toBeGreaterThan(0);
+    expect(f?.evidence_ids.length).toBeGreaterThan(0);
   });
 
   test('OAA-B-003 is NOT emitted when no claim is provided', async () => {
     const specs = [
-      ...Array.from({ length: 3  }, (_, i) => ({ id: `b${i}`, baseline: true,  candidate: false })),
-      ...Array.from({ length: 4  }, (_, i) => ({ id: `c${i}`, baseline: false, candidate: true  })),
-      ...Array.from({ length: 33 }, (_, i) => ({ id: `p${i}`, baseline: true,  candidate: true  })),
+      ...Array.from({ length: 3 }, (_, i) => ({ id: `b${i}`, baseline: true, candidate: false })),
+      ...Array.from({ length: 4 }, (_, i) => ({ id: `c${i}`, baseline: false, candidate: true })),
+      ...Array.from({ length: 33 }, (_, i) => ({ id: `p${i}`, baseline: true, candidate: true })),
     ];
 
     const result = await benchmarkAudit({ mode: 'paired', samples: makeSamples(specs) });
 
-    expect(result.findings.find(f => f.rule_id === 'OAA-B-003')).toBeUndefined();
+    expect(result.findings.find((f) => f.rule_id === 'OAA-B-003')).toBeUndefined();
   });
 });
 
@@ -193,36 +193,36 @@ describe('paired mode — OAA-B-003 inconclusive claim', () => {
 describe('paired mode — evidence_ids on OAA-B-001 regression finding', () => {
   test('evidence_ids contains discordant-B sample_ids but not discordant-C', async () => {
     const specs = [
-      { id: 'regress-1', baseline: true,  candidate: false },
-      { id: 'regress-2', baseline: true,  candidate: false },
-      { id: 'regress-3', baseline: true,  candidate: false },
-      { id: 'improve-1', baseline: false, candidate: true  },
+      { id: 'regress-1', baseline: true, candidate: false },
+      { id: 'regress-2', baseline: true, candidate: false },
+      { id: 'regress-3', baseline: true, candidate: false },
+      { id: 'improve-1', baseline: false, candidate: true },
       ...Array.from({ length: 26 }, (_, i) => ({ id: `ok${i}`, baseline: true, candidate: true })),
     ];
 
     const result = await benchmarkAudit({ mode: 'paired', samples: makeSamples(specs) });
 
-    const f001 = result.findings.find(f => f.rule_id === 'OAA-B-001');
+    const f001 = result.findings.find((f) => f.rule_id === 'OAA-B-001');
     expect(f001).toBeDefined();
-    expect(f001!.evidence_ids).toContain('regress-1');
-    expect(f001!.evidence_ids).toContain('regress-2');
-    expect(f001!.evidence_ids).toContain('regress-3');
+    expect(f001?.evidence_ids).toContain('regress-1');
+    expect(f001?.evidence_ids).toContain('regress-2');
+    expect(f001?.evidence_ids).toContain('regress-3');
     // improve-1 is discordant-C (baseline=F, candidate=T) — must NOT appear
-    expect(f001!.evidence_ids).not.toContain('improve-1');
+    expect(f001?.evidence_ids).not.toContain('improve-1');
   });
 
   test('evidence_ids count equals number of discordant-B samples', async () => {
     const specs = [
-      ...Array.from({ length: 5 }, (_, i) => ({ id: `b${i}`, baseline: true,  candidate: false })),
-      ...Array.from({ length: 2 }, (_, i) => ({ id: `c${i}`, baseline: false, candidate: true  })),
-      ...Array.from({ length: 23 }, (_, i) => ({ id: `p${i}`, baseline: true,  candidate: true  })),
+      ...Array.from({ length: 5 }, (_, i) => ({ id: `b${i}`, baseline: true, candidate: false })),
+      ...Array.from({ length: 2 }, (_, i) => ({ id: `c${i}`, baseline: false, candidate: true })),
+      ...Array.from({ length: 23 }, (_, i) => ({ id: `p${i}`, baseline: true, candidate: true })),
     ];
 
     const result = await benchmarkAudit({ mode: 'paired', samples: makeSamples(specs) });
 
-    const f001 = result.findings.find(f => f.rule_id === 'OAA-B-001');
+    const f001 = result.findings.find((f) => f.rule_id === 'OAA-B-001');
     expect(f001).toBeDefined();
-    expect(f001!.evidence_ids.length).toBe(5);
+    expect(f001?.evidence_ids.length).toBe(5);
   });
 });
 
@@ -235,14 +235,14 @@ describe('aggregate mode — OAA-B-001 regression detection', () => {
     const pair: BenchmarkPairAggregate = {
       mode: 'aggregate',
       candidate: { samples_total: 100, samples_pass: 60 },
-      baseline:  { samples_total: 100, samples_pass: 80 },
+      baseline: { samples_total: 100, samples_pass: 80 },
     };
 
     const result = await benchmarkAudit(pair);
 
-    const ruleIds = result.findings.map(f => f.rule_id);
+    const ruleIds = result.findings.map((f) => f.rule_id);
     expect(ruleIds).toContain('OAA-B-001');
-    expect(result.findings.find(f => f.rule_id === 'OAA-B-001')!.severity).toBe('high');
+    expect(result.findings.find((f) => f.rule_id === 'OAA-B-001')?.severity).toBe('high');
     expect(result.statistics.absolute_delta).toBeLessThan(0);
   });
 
@@ -250,12 +250,12 @@ describe('aggregate mode — OAA-B-001 regression detection', () => {
     const pair: BenchmarkPairAggregate = {
       mode: 'aggregate',
       candidate: { samples_total: 100, samples_pass: 85 },
-      baseline:  { samples_total: 100, samples_pass: 80 },
+      baseline: { samples_total: 100, samples_pass: 80 },
     };
 
     const result = await benchmarkAudit(pair);
 
-    expect(result.findings.map(f => f.rule_id)).not.toContain('OAA-B-001');
+    expect(result.findings.map((f) => f.rule_id)).not.toContain('OAA-B-001');
     expect(result.statistics.absolute_delta).toBeGreaterThanOrEqual(0);
   });
 });
@@ -269,36 +269,36 @@ describe('aggregate mode — OAA-B-002 small sample', () => {
     const pair: BenchmarkPairAggregate = {
       mode: 'aggregate',
       candidate: { samples_total: 20, samples_pass: 15 },
-      baseline:  { samples_total: 100, samples_pass: 80 },
+      baseline: { samples_total: 100, samples_pass: 80 },
     };
 
     const result = await benchmarkAudit(pair);
 
-    expect(result.findings.map(f => f.rule_id)).toContain('OAA-B-002');
+    expect(result.findings.map((f) => f.rule_id)).toContain('OAA-B-002');
   });
 
   test('OAA-B-002 is emitted when baseline.samples_total < 30', async () => {
     const pair: BenchmarkPairAggregate = {
       mode: 'aggregate',
       candidate: { samples_total: 100, samples_pass: 80 },
-      baseline:  { samples_total: 10, samples_pass: 8 },
+      baseline: { samples_total: 10, samples_pass: 8 },
     };
 
     const result = await benchmarkAudit(pair);
 
-    expect(result.findings.map(f => f.rule_id)).toContain('OAA-B-002');
+    expect(result.findings.map((f) => f.rule_id)).toContain('OAA-B-002');
   });
 
   test('OAA-B-002 is NOT emitted when both sets have >= 30 samples', async () => {
     const pair: BenchmarkPairAggregate = {
       mode: 'aggregate',
       candidate: { samples_total: 50, samples_pass: 40 },
-      baseline:  { samples_total: 50, samples_pass: 38 },
+      baseline: { samples_total: 50, samples_pass: 38 },
     };
 
     const result = await benchmarkAudit(pair);
 
-    expect(result.findings.map(f => f.rule_id)).not.toContain('OAA-B-002');
+    expect(result.findings.map((f) => f.rule_id)).not.toContain('OAA-B-002');
   });
 });
 
@@ -311,7 +311,7 @@ describe('aggregate mode — no McNemar, OAA-B-004 on claim', () => {
     const pair: BenchmarkPairAggregate = {
       mode: 'aggregate',
       candidate: { samples_total: 100, samples_pass: 85 },
-      baseline:  { samples_total: 100, samples_pass: 80 },
+      baseline: { samples_total: 100, samples_pass: 80 },
     };
 
     const result = await benchmarkAudit(pair);
@@ -324,7 +324,7 @@ describe('aggregate mode — no McNemar, OAA-B-004 on claim', () => {
     const pair: BenchmarkPairAggregate = {
       mode: 'aggregate',
       candidate: { samples_total: 100, samples_pass: 90 },
-      baseline:  { samples_total: 100, samples_pass: 50 },
+      baseline: { samples_total: 100, samples_pass: 50 },
       claim: 'candidate is much better',
     };
 
@@ -337,7 +337,7 @@ describe('aggregate mode — no McNemar, OAA-B-004 on claim', () => {
     const pair: BenchmarkPairAggregate = {
       mode: 'aggregate',
       candidate: { samples_total: 100, samples_pass: 70 },
-      baseline:  { samples_total: 100, samples_pass: 80 },
+      baseline: { samples_total: 100, samples_pass: 80 },
     };
 
     const result = await benchmarkAudit(pair);
@@ -349,27 +349,27 @@ describe('aggregate mode — no McNemar, OAA-B-004 on claim', () => {
     const pair: BenchmarkPairAggregate = {
       mode: 'aggregate',
       candidate: { samples_total: 100, samples_pass: 83 },
-      baseline:  { samples_total: 100, samples_pass: 80 },
+      baseline: { samples_total: 100, samples_pass: 80 },
       claim: 'Candidate performs better than baseline',
     };
 
     const result = await benchmarkAudit(pair);
 
-    const f004 = result.findings.find(f => f.rule_id === 'OAA-B-004');
+    const f004 = result.findings.find((f) => f.rule_id === 'OAA-B-004');
     expect(f004).toBeDefined();
-    expect(f004!.severity).toBe('low');
+    expect(f004?.severity).toBe('low');
   });
 
   test('OAA-B-004 is NOT emitted when no claim is provided', async () => {
     const pair: BenchmarkPairAggregate = {
       mode: 'aggregate',
       candidate: { samples_total: 100, samples_pass: 83 },
-      baseline:  { samples_total: 100, samples_pass: 80 },
+      baseline: { samples_total: 100, samples_pass: 80 },
     };
 
     const result = await benchmarkAudit(pair);
 
-    expect(result.findings.map(f => f.rule_id)).not.toContain('OAA-B-004');
+    expect(result.findings.map((f) => f.rule_id)).not.toContain('OAA-B-004');
   });
 });
 
@@ -382,7 +382,7 @@ describe('aggregate mode — audit_sufficiency = aggregate_only', () => {
     const pair: BenchmarkPairAggregate = {
       mode: 'aggregate',
       candidate: { samples_total: 50, samples_pass: 40 },
-      baseline:  { samples_total: 50, samples_pass: 38 },
+      baseline: { samples_total: 50, samples_pass: 38 },
     };
 
     const result = await benchmarkAudit(pair);
@@ -394,7 +394,7 @@ describe('aggregate mode — audit_sufficiency = aggregate_only', () => {
     const pair: BenchmarkPairAggregate = {
       mode: 'aggregate',
       candidate: { samples_total: 50, samples_pass: 40 },
-      baseline:  { samples_total: 50, samples_pass: 38 },
+      baseline: { samples_total: 50, samples_pass: 38 },
     };
 
     const result = await benchmarkAudit(pair);
@@ -407,7 +407,7 @@ describe('aggregate mode — audit_sufficiency = aggregate_only', () => {
   test('works when mode field is omitted (default aggregate)', async () => {
     const result = await benchmarkAudit({
       candidate: { samples_total: 50, samples_pass: 40 },
-      baseline:  { samples_total: 50, samples_pass: 38 },
+      baseline: { samples_total: 50, samples_pass: 38 },
     } as BenchmarkPairAggregate);
 
     expect(result.statistics.audit_sufficiency).toBe('aggregate_only');
@@ -452,10 +452,10 @@ describe('statistics accuracy — rates and wilson_ci', () => {
     // candidate_pass = 20 + 5 = 25 → 25/40 = 0.625
     // baseline_pass  = 20 + 10 = 30 → 30/40 = 0.75
     const specs = [
-      ...Array.from({ length: 20 }, (_, i) => ({ id: `pp${i}`, baseline: true,  candidate: true  })),
-      ...Array.from({ length: 10 }, (_, i) => ({ id: `b${i}`,  baseline: true,  candidate: false })),
-      ...Array.from({ length: 5  }, (_, i) => ({ id: `c${i}`,  baseline: false, candidate: true  })),
-      ...Array.from({ length: 5  }, (_, i) => ({ id: `ff${i}`, baseline: false, candidate: false })),
+      ...Array.from({ length: 20 }, (_, i) => ({ id: `pp${i}`, baseline: true, candidate: true })),
+      ...Array.from({ length: 10 }, (_, i) => ({ id: `b${i}`, baseline: true, candidate: false })),
+      ...Array.from({ length: 5 }, (_, i) => ({ id: `c${i}`, baseline: false, candidate: true })),
+      ...Array.from({ length: 5 }, (_, i) => ({ id: `ff${i}`, baseline: false, candidate: false })),
     ];
 
     const result = await benchmarkAudit({ mode: 'paired', samples: makeSamples(specs) });
@@ -469,7 +469,7 @@ describe('statistics accuracy — rates and wilson_ci', () => {
     const pair: BenchmarkPairAggregate = {
       mode: 'aggregate',
       candidate: { samples_total: 200, samples_pass: 160 },
-      baseline:  { samples_total: 200, samples_pass: 140 },
+      baseline: { samples_total: 200, samples_pass: 140 },
     };
 
     const result = await benchmarkAudit(pair);
@@ -492,17 +492,17 @@ describe('statistics accuracy — rates and wilson_ci', () => {
 
     expect(ci).toBeDefined();
     expect(Array.isArray(ci)).toBe(true);
-    expect(ci!.length).toBe(2);
-    expect(ci![0]).toBeGreaterThanOrEqual(0);
-    expect(ci![1]).toBeLessThanOrEqual(1);
-    expect(ci![0]).toBeLessThan(ci![1]);
+    expect(ci?.length).toBe(2);
+    expect(ci?.[0]).toBeGreaterThanOrEqual(0);
+    expect(ci?.[1]).toBeLessThanOrEqual(1);
+    expect(ci?.[0]).toBeLessThan(ci?.[1]);
   });
 
   test('wilson_ci is present and valid in aggregate mode', async () => {
     const pair: BenchmarkPairAggregate = {
       mode: 'aggregate',
       candidate: { samples_total: 100, samples_pass: 60 },
-      baseline:  { samples_total: 100, samples_pass: 55 },
+      baseline: { samples_total: 100, samples_pass: 55 },
     };
 
     const result = await benchmarkAudit(pair);
@@ -531,10 +531,22 @@ describe('mcnemar p-value — golden statistical fixtures', () => {
   it('b=c 时 p-value 约为 1.0（对称，无差异）', async () => {
     // 5 baseline-only, 5 candidate-only => b=5, c=5 => chi2 ≈ 0 => p ≈ 1
     const samples = [
-      ...Array.from({ length: 5 }, (_, i) => ({ sample_id: `b${i}`, baseline_pass: true, candidate_pass: false })),
-      ...Array.from({ length: 5 }, (_, i) => ({ sample_id: `c${i}`, baseline_pass: false, candidate_pass: true })),
+      ...Array.from({ length: 5 }, (_, i) => ({
+        sample_id: `b${i}`,
+        baseline_pass: true,
+        candidate_pass: false,
+      })),
+      ...Array.from({ length: 5 }, (_, i) => ({
+        sample_id: `c${i}`,
+        baseline_pass: false,
+        candidate_pass: true,
+      })),
       // pad to reach b+c >= 10
-      ...Array.from({ length: 10 }, (_, i) => ({ sample_id: `cc${i}`, baseline_pass: true, candidate_pass: true })),
+      ...Array.from({ length: 10 }, (_, i) => ({
+        sample_id: `cc${i}`,
+        baseline_pass: true,
+        candidate_pass: true,
+      })),
     ];
     const result = await benchmarkAudit({ mode: 'paired', samples });
     // p should be high (not significant)
@@ -545,8 +557,16 @@ describe('mcnemar p-value — golden statistical fixtures', () => {
   it('强回归（b=20, c=0）时 p-value < 0.05', async () => {
     // 20 baseline-pass/candidate-fail, 0 reverse => very significant
     const samples = [
-      ...Array.from({ length: 20 }, (_, i) => ({ sample_id: `b${i}`, baseline_pass: true, candidate_pass: false })),
-      ...Array.from({ length: 10 }, (_, i) => ({ sample_id: `cc${i}`, baseline_pass: true, candidate_pass: true })),
+      ...Array.from({ length: 20 }, (_, i) => ({
+        sample_id: `b${i}`,
+        baseline_pass: true,
+        candidate_pass: false,
+      })),
+      ...Array.from({ length: 10 }, (_, i) => ({
+        sample_id: `cc${i}`,
+        baseline_pass: true,
+        candidate_pass: true,
+      })),
     ];
     const result = await benchmarkAudit({ mode: 'paired', samples });
     expect(result.statistics.mcnemar_p).toBeDefined();
@@ -555,8 +575,16 @@ describe('mcnemar p-value — golden statistical fixtures', () => {
 
   it('强改进（b=0, c=20）时 p-value < 0.05', async () => {
     const samples = [
-      ...Array.from({ length: 20 }, (_, i) => ({ sample_id: `c${i}`, baseline_pass: false, candidate_pass: true })),
-      ...Array.from({ length: 10 }, (_, i) => ({ sample_id: `cc${i}`, baseline_pass: true, candidate_pass: true })),
+      ...Array.from({ length: 20 }, (_, i) => ({
+        sample_id: `c${i}`,
+        baseline_pass: false,
+        candidate_pass: true,
+      })),
+      ...Array.from({ length: 10 }, (_, i) => ({
+        sample_id: `cc${i}`,
+        baseline_pass: true,
+        candidate_pass: true,
+      })),
     ];
     const result = await benchmarkAudit({ mode: 'paired', samples });
     expect(result.statistics.mcnemar_p).toBeDefined();

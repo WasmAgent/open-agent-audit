@@ -98,9 +98,9 @@ describe('policyAudit', () => {
   test('empty events and empty manifest produce one info finding about skipped audit', async () => {
     const findings = await policyAudit([], ctx());
     expect(findings).toHaveLength(1);
-    expect(findings[0]!.rule_id).toBe('OAA-R-CAP-000');
-    expect(findings[0]!.severity).toBe('info');
-    expect(findings[0]!.title).toContain('capability audit skipped');
+    expect(findings[0]?.rule_id).toBe('OAA-R-CAP-000');
+    expect(findings[0]?.severity).toBe('info');
+    expect(findings[0]?.title).toContain('capability audit skipped');
   });
 
   // 2. tool_call with undeclared capability — OAA-R-CAP-001 (high)
@@ -110,7 +110,7 @@ describe('policyAudit', () => {
     const findings = await policyAudit([ev], ctx(['other.cap'])); // non-empty manifest so CAP-001 fires
     const cap001 = findings.filter((f) => f.rule_id === 'OAA-R-CAP-001');
     expect(cap001).toHaveLength(1);
-    expect(cap001[0]!.severity).toBe('high');
+    expect(cap001[0]?.severity).toBe('high');
   });
 
   // 2b. tool_call with empty manifest — only info finding (OAA-R-CAP-000), no per-event high findings (issue #12)
@@ -120,7 +120,7 @@ describe('policyAudit', () => {
     // The info finding is OAA-R-CAP-000 (not OAA-R-CAP-001 which is reserved for per-event undeclared)
     const cap000 = findings.filter((f) => f.rule_id === 'OAA-R-CAP-000');
     expect(cap000).toHaveLength(1);
-    expect(cap000[0]!.severity).toBe('info');
+    expect(cap000[0]?.severity).toBe('info');
     // Ensure no per-event high findings were emitted
     const cap001High = findings.filter(
       (f) => f.rule_id === 'OAA-R-CAP-001' && f.severity === 'high',
@@ -145,7 +145,7 @@ describe('policyAudit', () => {
     );
     const cap002 = findings.filter((f) => f.rule_id === 'OAA-R-CAP-002');
     expect(cap002).toHaveLength(1);
-    expect(cap002[0]!.severity).toBe('critical');
+    expect(cap002[0]?.severity).toBe('critical');
   });
 
   // 5. tool_call with high_risk capability, no human_approval in run — OAA-R-OVERSIGHT-001 (high)
@@ -154,7 +154,7 @@ describe('policyAudit', () => {
     const findings = await policyAudit([ev], ctx(['infra.deploy'], ['infra.deploy'], []));
     const oversight001 = findings.filter((f) => f.rule_id === 'OAA-R-OVERSIGHT-001');
     expect(oversight001).toHaveLength(1);
-    expect(oversight001[0]!.severity).toBe('high');
+    expect(oversight001[0]?.severity).toBe('high');
   });
 
   // 6. tool_call with high_risk capability, human_approval present in same run — no OAA-R-OVERSIGHT-001
@@ -174,7 +174,7 @@ describe('policyAudit', () => {
     const findings = await policyAudit([deny, call], ctx(['filesystem.read']));
     const policy001 = findings.filter((f) => f.rule_id === 'OAA-R-POLICY-001');
     expect(policy001).toHaveLength(1);
-    expect(policy001[0]!.severity).toBe('critical');
+    expect(policy001[0]?.severity).toBe('critical');
   });
 
   // 7b. tool_call BEFORE a policy_decision deny does not fire OAA-R-POLICY-001
@@ -192,7 +192,7 @@ describe('policyAudit', () => {
     const findings = await policyAudit([ev], ctx());
     const policy002 = findings.filter((f) => f.rule_id === 'OAA-R-POLICY-002');
     expect(policy002).toHaveLength(1);
-    expect(policy002[0]!.severity).toBe('medium');
+    expect(policy002[0]?.severity).toBe('medium');
   });
 
   // 8b. tool_call with mutation risk_tag, no policy_decision — OAA-R-POLICY-002 (medium)
@@ -201,7 +201,7 @@ describe('policyAudit', () => {
     const findings = await policyAudit([ev], ctx());
     const policy002 = findings.filter((f) => f.rule_id === 'OAA-R-POLICY-002');
     expect(policy002).toHaveLength(1);
-    expect(policy002[0]!.severity).toBe('medium');
+    expect(policy002[0]?.severity).toBe('medium');
   });
 
   // 9. tool_call with high_risk risk_tag, policy_decision present — no OAA-R-POLICY-002
@@ -226,7 +226,7 @@ describe('policyAudit', () => {
     const findings = await policyAudit([e1, e2], ctx());
     const integrity001 = findings.filter((f) => f.rule_id === 'OAA-R-INTEGRITY-001');
     expect(integrity001).toHaveLength(1);
-    expect(integrity001[0]!.severity).toBe('medium');
+    expect(integrity001[0]?.severity).toBe('medium');
   });
 
   // 11. valid hash chain — no OAA-R-INTEGRITY-001
@@ -257,7 +257,7 @@ describe('policyAudit', () => {
       const findings = await policyAudit([ev], ctx(['other.cap'])); // non-empty manifest
       const f = findings.find((x) => x.rule_id === 'OAA-R-CAP-001');
       expect(f).toBeDefined();
-      expect(f!.evidence_ids).toContain('ev-cap001');
+      expect(f?.evidence_ids).toContain('ev-cap001');
     });
 
     test('OAA-R-CAP-002 evidence_ids contains the offending event_id', async () => {
@@ -268,7 +268,7 @@ describe('policyAudit', () => {
       );
       const f = findings.find((x) => x.rule_id === 'OAA-R-CAP-002');
       expect(f).toBeDefined();
-      expect(f!.evidence_ids).toContain('ev-cap002');
+      expect(f?.evidence_ids).toContain('ev-cap002');
     });
 
     test('OAA-R-OVERSIGHT-001 evidence_ids contains the offending event_id', async () => {
@@ -276,7 +276,7 @@ describe('policyAudit', () => {
       const findings = await policyAudit([ev], ctx(['infra.deploy'], ['infra.deploy'], []));
       const f = findings.find((x) => x.rule_id === 'OAA-R-OVERSIGHT-001');
       expect(f).toBeDefined();
-      expect(f!.evidence_ids).toContain('ev-oversight');
+      expect(f?.evidence_ids).toContain('ev-oversight');
     });
 
     test('OAA-R-POLICY-001 evidence_ids contains the offending tool_call event_id', async () => {
@@ -285,7 +285,7 @@ describe('policyAudit', () => {
       const findings = await policyAudit([deny, call], ctx());
       const f = findings.find((x) => x.rule_id === 'OAA-R-POLICY-001');
       expect(f).toBeDefined();
-      expect(f!.evidence_ids).toContain('ev-policy001');
+      expect(f?.evidence_ids).toContain('ev-policy001');
     });
 
     test('OAA-R-POLICY-002 evidence_ids contains the offending event_id', async () => {
@@ -293,7 +293,7 @@ describe('policyAudit', () => {
       const findings = await policyAudit([ev], ctx());
       const f = findings.find((x) => x.rule_id === 'OAA-R-POLICY-002');
       expect(f).toBeDefined();
-      expect(f!.evidence_ids).toContain('ev-policy002');
+      expect(f?.evidence_ids).toContain('ev-policy002');
     });
 
     test('OAA-R-INTEGRITY-001 evidence_ids contains both prev and current event_id', async () => {
@@ -305,8 +305,8 @@ describe('policyAudit', () => {
       const findings = await policyAudit([e1, e2], ctx());
       const f = findings.find((x) => x.rule_id === 'OAA-R-INTEGRITY-001');
       expect(f).toBeDefined();
-      expect(f!.evidence_ids).toContain('ev-prev');
-      expect(f!.evidence_ids).toContain('ev-break');
+      expect(f?.evidence_ids).toContain('ev-prev');
+      expect(f?.evidence_ids).toContain('ev-break');
     });
   });
 
@@ -325,7 +325,7 @@ describe('policyAudit', () => {
     const f2 = run2.find((x) => x.rule_id === 'OAA-R-CAP-001');
     expect(f1).toBeDefined();
     expect(f2).toBeDefined();
-    expect(f1!.finding_id).toBe(f2!.finding_id);
+    expect(f1?.finding_id).toBe(f2?.finding_id);
   });
 
   test('different event_ids produce different finding_ids for the same rule', async () => {
@@ -340,7 +340,7 @@ describe('policyAudit', () => {
     const f2 = findings2.find((x) => x.rule_id === 'OAA-R-CAP-001');
     expect(f1).toBeDefined();
     expect(f2).toBeDefined();
-    expect(f1!.finding_id).not.toBe(f2!.finding_id);
+    expect(f1?.finding_id).not.toBe(f2?.finding_id);
   });
 
   // Additional edge cases

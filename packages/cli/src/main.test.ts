@@ -1,10 +1,10 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 import {
-  validate,
+  computeRiskScore,
   inventory,
   policyAudit,
-  computeRiskScore,
   renderReport,
+  validate,
 } from '@openagentaudit/core';
 import { validateEvents } from '@openagentaudit/schema';
 

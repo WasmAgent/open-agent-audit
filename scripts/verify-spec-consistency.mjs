@@ -9,7 +9,7 @@
  *      five allowed levels.
  */
 
-import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -17,7 +17,7 @@ const SELF = fileURLToPath(import.meta.url);
 const ROOT = dirname(dirname(SELF));
 
 const ALLOWED_SEVERITIES = new Set(['info', 'low', 'medium', 'high', 'critical']);
-let problems = [];
+const problems = [];
 
 // (1) schemas/index.json points at existing schema files.
 {

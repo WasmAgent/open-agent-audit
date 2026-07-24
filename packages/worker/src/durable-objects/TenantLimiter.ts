@@ -28,7 +28,7 @@ export class TenantLimiter {
   }
 
   private async handleCheck(request: Request): Promise<Response> {
-    const body = await request.json() as { tenant_id?: string };
+    const body = (await request.json()) as { tenant_id?: string };
     const tenant_id = body.tenant_id ?? 'unknown';
 
     const storageKey = `window:${tenant_id}`;
@@ -51,9 +51,8 @@ export class TenantLimiter {
     const remaining = Math.max(0, LIMIT_PER_MINUTE - window.count);
     const reset_at = window.window_start + WINDOW_MS;
 
-    return new Response(
-      JSON.stringify({ allowed, remaining, reset_at, count: window.count }),
-      { headers: { 'content-type': 'application/json' } },
-    );
+    return new Response(JSON.stringify({ allowed, remaining, reset_at, count: window.count }), {
+      headers: { 'content-type': 'application/json' },
+    });
   }
 }

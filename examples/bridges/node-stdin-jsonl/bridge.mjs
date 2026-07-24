@@ -23,8 +23,8 @@
  *     must be resolvable (install from the monorepo root or npm)
  */
 
+import { argv, exit, stderr, stdin, stdout } from 'node:process';
 import { createInterface } from 'node:readline';
-import { stdin, stdout, stderr, argv, exit } from 'node:process';
 
 // ---------------------------------------------------------------------------
 // Argument parsing
@@ -48,7 +48,7 @@ function parseManifestArg() {
 
 async function readStdin() {
   const lines = [];
-  const rl = createInterface({ input: stdin, crlfDelay: Infinity });
+  const rl = createInterface({ input: stdin, crlfDelay: Number.POSITIVE_INFINITY });
   for await (const line of rl) {
     lines.push(line);
   }
@@ -124,7 +124,8 @@ async function main() {
   }
 
   // Run audit pipeline
-  let findings, score;
+  let findings;
+  let score;
   try {
     const { policyAudit, computeRiskScore } = await import('@openagentaudit/core');
     findings = await policyAudit(events, { manifest });
@@ -151,7 +152,7 @@ async function main() {
     findings,
   };
 
-  stdout.write(JSON.stringify(output, null, 2) + '\n');
+  stdout.write(`${JSON.stringify(output, null, 2)}\n`);
   exit(0);
 }
 
