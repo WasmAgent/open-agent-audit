@@ -1,6 +1,6 @@
 # Bot State
 
-_Last updated: 2026-07-24 10:49 UTC by patrol_
+_Last updated: 2026-07-24 10:53 UTC by patrol_
 
 ## Queue
 
@@ -8,7 +8,7 @@ _Last updated: 2026-07-24 10:49 UTC by patrol_
 |---|---|
 | Pending | 6 |
 | Active (running/reviewing) | 1 |
-| Blocked | 9 |
+| Blocked | 8 |
 | Completed/Merged (all time) | 52 |
 
 ## Recent Activity (last 5)
@@ -31,8 +31,8 @@ _Last updated: 2026-07-24 10:49 UTC by patrol_
 - #121: [milestone Milestone 4] Add example ingestion scripts for each supported adapter.
 - #120: [milestone Milestone 4] Implement adapter error handling for malformed, incomplete, and unsupported sour...
 - #119: [milestone Milestone 4] Add adapter conformance tests to verify output matches canonical event schemas.
-- #117: [milestone Milestone 4] Implement adapter normalization for Langfuse events.
 - #113: [milestone Milestone 3] Add template tests to verify report output structure across all supported format...
+- #112: [milestone Milestone 3] Implement deterministic report IDs and content hashes for generated reports.
 
 ---
 _Maintained automatically by claude-bot-go patrol. Do not edit._
