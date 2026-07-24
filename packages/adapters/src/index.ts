@@ -37,6 +37,8 @@ export interface AdapterCoverage {
 }
 
 // Adapter modules — placeholders.
+export { AdapterError } from './errors.js';
+export type { AdapterErrorCode } from './errors.js';
 export * as aepV0_2 from './aep-v0_2.js';
 export * as complianceEvalRecord from './compliance-eval-record.js';
 export * as bscode from './bscode.js';

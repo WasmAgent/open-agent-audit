@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
+import { AdapterError } from './errors.js';
 import { LangSmithAdapter } from './langsmith.js';
-import type { LangSmithTrace, LangSmithRun } from './langsmith.js';
+import type { LangSmithRun, LangSmithTrace } from './langsmith.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -338,5 +339,61 @@ describe('langsmith adapter — beginRun', () => {
     const auditRun = LangSmithAdapter.beginRun(noNameTrace);
     expect(auditRun.agent_id).toBe('langsmith-agent');
     expect(auditRun.task.description).toBe('LangSmith trace import');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Validation — malformed, incomplete payloads
+// ---------------------------------------------------------------------------
+
+describe('LangSmithAdapter — validation', () => {
+  it('toEvents throws AdapterError with malformed_payload for null input', () => {
+    try {
+      LangSmithAdapter.toEvents(null as unknown as LangSmithTrace);
+    } catch (e) {
+      expect(e).toBeInstanceOf(AdapterError);
+      expect((e as AdapterError).code).toBe('malformed_payload');
+    }
+  });
+
+  it('toEvents throws AdapterError when id is missing', () => {
+    const bad = makeTrace([], { id: '' });
+    try {
+      LangSmithAdapter.toEvents(bad);
+    } catch (e) {
+      expect(e).toBeInstanceOf(AdapterError);
+      expect((e as AdapterError).code).toBe('missing_required_field');
+      expect((e as AdapterError).message).toContain('id');
+    }
+  });
+
+  it('toEvents throws AdapterError when start_time is missing', () => {
+    const bad = makeTrace([], { start_time: '' });
+    try {
+      LangSmithAdapter.toEvents(bad);
+    } catch (e) {
+      expect(e).toBeInstanceOf(AdapterError);
+      expect((e as AdapterError).code).toBe('missing_required_field');
+      expect((e as AdapterError).message).toContain('start_time');
+    }
+  });
+
+  it('beginRun throws the same AdapterError as toEvents for the same bad input', () => {
+    const bad = makeTrace([], { id: '' });
+    try {
+      LangSmithAdapter.beginRun(bad);
+    } catch (e) {
+      expect(e).toBeInstanceOf(AdapterError);
+      expect((e as AdapterError).code).toBe('missing_required_field');
+    }
+  });
+
+  it('AdapterError carries the adapter identifier', () => {
+    const bad = makeTrace([], { id: '' });
+    try {
+      LangSmithAdapter.toEvents(bad);
+    } catch (e) {
+      expect((e as AdapterError).adapter).toBe('langsmith-export-v0.1');
+    }
   });
 });

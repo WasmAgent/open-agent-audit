@@ -7,6 +7,7 @@
  */
 
 import type { AuditRun, CanonicalEvent } from '@openagentaudit/schema';
+import { AdapterError } from './errors.js';
 import type { SourceFormatAdapter } from './index.js';
 
 // ---------------------------------------------------------------------------
@@ -216,13 +217,21 @@ function validateRecord(record: AEPRecordInput): void {
   if (!record.signature?.key_id) missing.push('signature.key_id');
   if (!record.signature?.sig) missing.push('signature.sig');
   if (missing.length > 0) {
-    throw new Error(
-      `AEP adapter: missing required fields [${missing.join(', ')}]. ` +
-        'Ensure the AEPRecord was produced by a compliant emitter (aep/v0.2).',
+    throw new AdapterError(
+      id,
+      'missing_required_field',
+      `AEP adapter: missing required fields [${missing.join(', ')}]. Ensure the AEPRecord was produced by a compliant emitter (aep/v0.2).`,
     );
   }
-  if (record.schema_version !== 'aep/v0.2' && record.schema_version !== 'aep/v0.1' && record.schema_version !== 'aep/v0.3' && record.schema_version !== 'aep/v0.4') {
-    throw new Error(
+  if (
+    record.schema_version !== 'aep/v0.2' &&
+    record.schema_version !== 'aep/v0.1' &&
+    record.schema_version !== 'aep/v0.3' &&
+    record.schema_version !== 'aep/v0.4'
+  ) {
+    throw new AdapterError(
+      id,
+      'unsupported_version',
       `AEP adapter: unsupported schema_version "${record.schema_version}". ` +
         `Expected one of: ${SUPPORTED_AEP_VERSIONS.join(', ')}.`,
     );
@@ -248,12 +257,9 @@ function toEvents(record: AEPRecordInput, opts?: { prevHash?: string }): Canonic
   // v0.4: When a DSSE envelope is present, extract the signature from the envelope
   // rather than from record.signature.sig directly.
   const hasDsse = record.dsse_envelope !== undefined && record.dsse_envelope.signatures.length > 0;
-  const sigSig = hasDsse
-    ? record.dsse_envelope!.signatures[0]!.sig
-    : record.signature.sig;
-  const sigKeyId = hasDsse
-    ? record.dsse_envelope!.signatures[0]!.keyid
-    : record.signature.key_id;
+  const dsseSig = hasDsse ? record.dsse_envelope?.signatures[0] : undefined;
+  const sigSig = (dsseSig?.sig ?? record.signature.sig) as string;
+  const sigKeyId = (dsseSig?.keyid ?? record.signature.key_id) as string;
 
   // Build up prev_hash chain. Continues from opts.prevHash when provided.
   let prevHash = opts?.prevHash ?? '0'.repeat(64);
@@ -261,7 +267,10 @@ function toEvents(record: AEPRecordInput, opts?: { prevHash?: string }): Canonic
   let globalIndex = 0;
 
   function nextEvent(
-    partial: Omit<CanonicalEvent, 'schema_version' | 'run_id' | 'agent_id' | 'model_id' | 'event_id' | 'evidence'>,
+    partial: Omit<
+      CanonicalEvent,
+      'schema_version' | 'run_id' | 'agent_id' | 'model_id' | 'event_id' | 'evidence'
+    >,
   ): CanonicalEvent {
     const idx = globalIndex++;
     const eventId = makeEventId(`${runId}:${partial.type}:${idx}`);
@@ -350,11 +359,7 @@ function toEvents(record: AEPRecordInput, opts?: { prevHash?: string }): Canonic
     // Map AEP decision to canonical PolicyDecision
     // "dry_run" is not a canonical PolicyDecision — map it to "allow" (closest semantic).
     const policyDecision: 'allow' | 'deny' | 'ask_user' =
-      cd.decision === 'deny'
-        ? 'deny'
-        : cd.decision === 'ask_user'
-          ? 'ask_user'
-          : 'allow';
+      cd.decision === 'deny' ? 'deny' : cd.decision === 'ask_user' ? 'ask_user' : 'allow';
 
     const policyObj: NonNullable<CanonicalEvent['policy']> = {
       decision: policyDecision,
@@ -363,9 +368,7 @@ function toEvents(record: AEPRecordInput, opts?: { prevHash?: string }): Canonic
 
     // Use the matching action's timestamp so policy_decision sorts correctly
     // relative to its tool_call event (avoids hash chain breakage after sort).
-    const matchingAction = actions.find(
-      (a) => a.capability_decision?.capability === cd.capability,
-    );
+    const matchingAction = actions.find((a) => a.capability_decision?.capability === cd.capability);
     const ts = matchingAction ? matchingAction.timestamp_ms + 1 : record.created_at_ms;
 
     events.push(

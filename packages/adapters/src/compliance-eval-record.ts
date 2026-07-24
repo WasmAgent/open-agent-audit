@@ -8,6 +8,7 @@
 
 import type { AuditRun, CanonicalEvent } from '@openagentaudit/schema';
 import { SPEC_VERSION } from '@openagentaudit/schema';
+import { AdapterError } from './errors.js';
 import type { SourceFormatAdapter } from './index.js';
 
 // ---------------------------------------------------------------------------
@@ -101,14 +102,49 @@ function taskToEvent(record: ComplianceEvalRecord, task: ComplianceEvalTask): Ca
 }
 
 // ---------------------------------------------------------------------------
+// Validation
+// ---------------------------------------------------------------------------
+
+function validateRecord(record: ComplianceEvalRecord): void {
+  if (typeof record !== 'object' || record === null) {
+    throw new AdapterError(
+      id,
+      'malformed_payload',
+      'ComplianceEvalRecord adapter: payload must be a non-null object.',
+    );
+  }
+  const missing: string[] = [];
+  if (!record.run_id) missing.push('run_id');
+  if (!record.agent_id) missing.push('agent_id');
+  if (!record.created_at) missing.push('created_at');
+  if (!record.schema_version) missing.push('schema_version');
+  if (missing.length > 0) {
+    throw new AdapterError(
+      id,
+      'missing_required_field',
+      `ComplianceEvalRecord adapter: missing required fields [${missing.join(', ')}].`,
+    );
+  }
+  if (record.schema_version !== 'compliance-eval-record/v0.1') {
+    throw new AdapterError(
+      id,
+      'unsupported_version',
+      `ComplianceEvalRecord adapter: unsupported schema_version "${record.schema_version}". Expected "compliance-eval-record/v0.1".`,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Adapter implementation
 // ---------------------------------------------------------------------------
 
 function toEvents(record: ComplianceEvalRecord): CanonicalEvent[] {
+  validateRecord(record);
   return record.tasks.map((task) => taskToEvent(record, task));
 }
 
 function beginRun(record: ComplianceEvalRecord): AuditRun {
+  validateRecord(record);
   return {
     schema_version: SPEC_VERSION,
     run_id: record.run_id,

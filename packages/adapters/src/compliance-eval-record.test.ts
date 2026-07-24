@@ -1,6 +1,8 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, expect, it } from 'bun:test';
+import type { CanonicalEvent } from '@openagentaudit/schema';
 import { ComplianceEvalRecordAdapter } from './compliance-eval-record.js';
 import type { ComplianceEvalRecord } from './compliance-eval-record.js';
+import { AdapterError } from './errors.js';
 
 const BASE_RECORD: ComplianceEvalRecord = {
   schema_version: 'compliance-eval-record/v0.1',
@@ -31,7 +33,7 @@ describe('ComplianceEvalRecordAdapter', () => {
     const events = ComplianceEvalRecordAdapter.toEvents(record);
     expect(events).toHaveLength(1);
 
-    const ev = events[0]!;
+    const ev = events[0] as CanonicalEvent;
     expect(ev.type).toBe('observation');
     expect(ev.actor).toBe('system');
     expect(ev.observation?.source).toBe('verifier:verifier-policy');
@@ -75,7 +77,7 @@ describe('ComplianceEvalRecordAdapter', () => {
     const events = ComplianceEvalRecordAdapter.toEvents(record);
     expect(events).toHaveLength(1);
 
-    const ev = events[0]!;
+    const ev = events[0] as CanonicalEvent;
     expect(ev.type).toBe('error');
     expect(ev.actor).toBe('system');
     expect(ev.error?.kind).toBe('compliance_failure');
@@ -176,5 +178,92 @@ describe('ComplianceEvalRecordAdapter', () => {
 
     const run = ComplianceEvalRecordAdapter.beginRun(record);
     expect(run.model_id).toBe('compliance-eval');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Validation — malformed, incomplete, and unsupported payloads
+// ---------------------------------------------------------------------------
+
+describe('ComplianceEvalRecordAdapter — validation', () => {
+  it('toEvents throws AdapterError with malformed_payload for null input', () => {
+    expect(() =>
+      ComplianceEvalRecordAdapter.toEvents(null as unknown as ComplianceEvalRecord),
+    ).toThrow();
+    try {
+      ComplianceEvalRecordAdapter.toEvents(null as unknown as ComplianceEvalRecord);
+    } catch (e) {
+      expect(e).toBeInstanceOf(AdapterError);
+      expect((e as AdapterError).code).toBe('malformed_payload');
+    }
+  });
+
+  it('toEvents throws AdapterError with missing_required_field when run_id is missing', () => {
+    const bad = { ...BASE_RECORD, run_id: '' } as unknown as ComplianceEvalRecord;
+    try {
+      ComplianceEvalRecordAdapter.toEvents(bad);
+    } catch (e) {
+      expect(e).toBeInstanceOf(AdapterError);
+      expect((e as AdapterError).code).toBe('missing_required_field');
+      expect((e as AdapterError).message).toContain('run_id');
+    }
+  });
+
+  it('toEvents throws AdapterError when agent_id is missing', () => {
+    const bad = {
+      ...BASE_RECORD,
+      agent_id: undefined as unknown as string,
+    } as unknown as ComplianceEvalRecord;
+    try {
+      ComplianceEvalRecordAdapter.toEvents(bad);
+    } catch (e) {
+      expect(e).toBeInstanceOf(AdapterError);
+      expect((e as AdapterError).code).toBe('missing_required_field');
+      expect((e as AdapterError).message).toContain('agent_id');
+    }
+  });
+
+  it('toEvents throws AdapterError when created_at is missing', () => {
+    const bad = { ...BASE_RECORD, created_at: '' } as unknown as ComplianceEvalRecord;
+    try {
+      ComplianceEvalRecordAdapter.toEvents(bad);
+    } catch (e) {
+      expect(e).toBeInstanceOf(AdapterError);
+      expect((e as AdapterError).code).toBe('missing_required_field');
+      expect((e as AdapterError).message).toContain('created_at');
+    }
+  });
+
+  it('toEvents throws AdapterError with unsupported_version for wrong schema_version', () => {
+    const bad = {
+      ...BASE_RECORD,
+      schema_version: 'compliance-eval-record/v99',
+    } as unknown as ComplianceEvalRecord;
+    try {
+      ComplianceEvalRecordAdapter.toEvents(bad);
+    } catch (e) {
+      expect(e).toBeInstanceOf(AdapterError);
+      expect((e as AdapterError).code).toBe('unsupported_version');
+      expect((e as AdapterError).message).toContain('unsupported schema_version');
+    }
+  });
+
+  it('beginRun throws the same AdapterError as toEvents for the same bad input', () => {
+    const bad = { ...BASE_RECORD, run_id: '' } as unknown as ComplianceEvalRecord;
+    try {
+      ComplianceEvalRecordAdapter.beginRun(bad);
+    } catch (e) {
+      expect(e).toBeInstanceOf(AdapterError);
+      expect((e as AdapterError).code).toBe('missing_required_field');
+    }
+  });
+
+  it('AdapterError carries the adapter identifier', () => {
+    const bad = { ...BASE_RECORD, run_id: '' } as unknown as ComplianceEvalRecord;
+    try {
+      ComplianceEvalRecordAdapter.toEvents(bad);
+    } catch (e) {
+      expect((e as AdapterError).adapter).toBe('compliance-eval-record-v0.1');
+    }
   });
 });

@@ -6,6 +6,7 @@
  */
 
 import type { AuditRun, CanonicalEvent } from '@openagentaudit/schema';
+import { AdapterError } from './errors.js';
 import type { SourceFormatAdapter } from './index.js';
 
 // ---------------------------------------------------------------------------
@@ -109,10 +110,44 @@ function msToIso(ms: number): string {
 }
 
 // ---------------------------------------------------------------------------
+// Validation
+// ---------------------------------------------------------------------------
+
+function validateRecord(record: RolloutWireRecord): void {
+  if (typeof record !== 'object' || record === null) {
+    throw new AdapterError(
+      id,
+      'malformed_payload',
+      'bscode adapter: payload must be a non-null object.',
+    );
+  }
+  const missing: string[] = [];
+  if (!record.rollout_id) missing.push('rollout_id');
+  if (!record.task) missing.push('task');
+  if (!record.provenance) missing.push('provenance');
+  if (!record.schema_version) missing.push('schema_version');
+  if (missing.length > 0) {
+    throw new AdapterError(
+      id,
+      'missing_required_field',
+      `bscode adapter: missing required fields [${missing.join(', ')}].`,
+    );
+  }
+  if (record.schema_version !== 'rollout-wire/v1') {
+    throw new AdapterError(
+      id,
+      'unsupported_version',
+      `bscode adapter: unsupported schema_version "${record.schema_version}". Expected "rollout-wire/v1".`,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Adapter implementation
 // ---------------------------------------------------------------------------
 
 function toEvents(record: RolloutWireRecord): CanonicalEvent[] {
+  validateRecord(record);
   const events: CanonicalEvent[] = [];
 
   const runId = record.rollout_id;
@@ -122,7 +157,10 @@ function toEvents(record: RolloutWireRecord): CanonicalEvent[] {
   let idx = 0;
 
   function nextEvent(
-    partial: Omit<CanonicalEvent, 'schema_version' | 'run_id' | 'session_id' | 'agent_id' | 'model_id' | 'event_id'>,
+    partial: Omit<
+      CanonicalEvent,
+      'schema_version' | 'run_id' | 'session_id' | 'agent_id' | 'model_id' | 'event_id'
+    >,
   ): CanonicalEvent {
     const i = idx++;
     const eventId = makeEventId(`${runId}:${i}`);
@@ -143,8 +181,7 @@ function toEvents(record: RolloutWireRecord): CanonicalEvent[] {
     const ts = msToIso(ev.timestamp_ms ?? fallbackTs);
 
     if (ev.event === 'tool_call') {
-      const toolName =
-        typeof ev.data['name'] === 'string' ? ev.data['name'] : 'unknown';
+      const toolName = typeof ev.data.name === 'string' ? ev.data.name : 'unknown';
 
       events.push(
         nextEvent({
@@ -213,6 +250,7 @@ function toEvents(record: RolloutWireRecord): CanonicalEvent[] {
 }
 
 function beginRun(record: RolloutWireRecord): AuditRun {
+  validateRecord(record);
   const description = record.task.length > 200 ? record.task.slice(0, 200) : record.task;
 
   return {

@@ -8,6 +8,7 @@
 
 import type { AuditRun, CanonicalEvent } from '@openagentaudit/schema';
 import { SPEC_VERSION } from '@openagentaudit/schema';
+import { AdapterError } from './errors.js';
 import type { SourceFormatAdapter } from './index.js';
 
 // ---------------------------------------------------------------------------
@@ -53,7 +54,9 @@ function nanoToIso(nanos: number): string {
 }
 
 /** Pull every OtelSpan out of an OtelTrace regardless of nesting form. */
-function flattenSpans(record: OtelTrace): Array<{ span: OtelSpan; serviceAttrs: Record<string, string> }> {
+function flattenSpans(
+  record: OtelTrace,
+): Array<{ span: OtelSpan; serviceAttrs: Record<string, string> }> {
   const result: Array<{ span: OtelSpan; serviceAttrs: Record<string, string> }> = [];
 
   if (record.resource_spans) {
@@ -92,7 +95,10 @@ function firstTraceId(record: OtelTrace): string {
 }
 
 /** Derive a stable agent_id from resource / span attributes. */
-function agentId(serviceAttrs: Record<string, string>, spanAttrs: Record<string, string | number | boolean>): string {
+function agentId(
+  serviceAttrs: Record<string, string>,
+  spanAttrs: Record<string, string | number | boolean>,
+): string {
   return (
     (serviceAttrs['service.name'] as string | undefined) ??
     (spanAttrs['gen_ai.system'] as string | undefined) ??
@@ -119,6 +125,7 @@ function spanToEvent(
   serviceAttrs: Record<string, string>,
   runId: string,
 ): CanonicalEvent {
+  validateSpan(span);
   const attrs = span.attributes ?? {};
   const opName = (attrs['gen_ai.operation.name'] as string | undefined) ?? span.name;
   const lowerOp = opName.toLowerCase();
@@ -153,7 +160,7 @@ function spanToEvent(
     const tokenCount =
       inputTokens !== undefined && outputTokens !== undefined
         ? inputTokens + outputTokens
-        : inputTokens ?? outputTokens;
+        : (inputTokens ?? outputTokens);
 
     const finishReasonsRaw = attrs['gen_ai.response.finish_reasons'] as string | undefined;
     const finishReasonParts = finishReasonsRaw ? finishReasonsRaw.split(',') : undefined;
@@ -193,10 +200,28 @@ function spanToEvent(
     type: 'observation',
     actor: 'system',
     observation: {
-      source: 'otel:' + span.name,
+      source: `otel:${span.name}`,
     },
   };
   return ev;
+}
+
+// ---------------------------------------------------------------------------
+// Validation
+// ---------------------------------------------------------------------------
+
+function validateSpan(span: OtelSpan): void {
+  const missing: string[] = [];
+  if (!span.trace_id) missing.push('trace_id');
+  if (!span.span_id) missing.push('span_id');
+  if (typeof span.start_time_unix_nano !== 'number') missing.push('start_time_unix_nano');
+  if (missing.length > 0) {
+    throw new AdapterError(
+      id,
+      'missing_required_field',
+      `OTel adapter: span missing required fields [${missing.join(', ')}].`,
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------

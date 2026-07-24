@@ -3,6 +3,7 @@
  */
 
 import { describe, expect, it } from 'bun:test';
+import { AdapterError } from './errors.js';
 import { LangfuseAdapter } from './langfuse.js';
 import type { LangfuseTrace } from './langfuse.js';
 
@@ -487,5 +488,61 @@ describe('LangfuseAdapter metadata', () => {
 
   it('has correct version', () => {
     expect(LangfuseAdapter.version).toBe('0.1.0');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Validation — malformed, incomplete payloads
+// ---------------------------------------------------------------------------
+
+describe('LangfuseAdapter — validation', () => {
+  it('toEvents throws AdapterError with malformed_payload for null input', () => {
+    try {
+      LangfuseAdapter.toEvents(null as unknown as LangfuseTrace);
+    } catch (e) {
+      expect(e).toBeInstanceOf(AdapterError);
+      expect((e as AdapterError).code).toBe('malformed_payload');
+    }
+  });
+
+  it('toEvents throws AdapterError when id is missing', () => {
+    const bad: LangfuseTrace = { ...BASE_TRACE, id: '' };
+    try {
+      LangfuseAdapter.toEvents(bad);
+    } catch (e) {
+      expect(e).toBeInstanceOf(AdapterError);
+      expect((e as AdapterError).code).toBe('missing_required_field');
+      expect((e as AdapterError).message).toContain('id');
+    }
+  });
+
+  it('toEvents throws AdapterError when createdAt is missing', () => {
+    const bad: LangfuseTrace = { ...BASE_TRACE, createdAt: '' };
+    try {
+      LangfuseAdapter.toEvents(bad);
+    } catch (e) {
+      expect(e).toBeInstanceOf(AdapterError);
+      expect((e as AdapterError).code).toBe('missing_required_field');
+      expect((e as AdapterError).message).toContain('createdAt');
+    }
+  });
+
+  it('beginRun throws the same AdapterError as toEvents for the same bad input', () => {
+    const bad: LangfuseTrace = { ...BASE_TRACE, id: '' };
+    try {
+      LangfuseAdapter.beginRun(bad);
+    } catch (e) {
+      expect(e).toBeInstanceOf(AdapterError);
+      expect((e as AdapterError).code).toBe('missing_required_field');
+    }
+  });
+
+  it('AdapterError carries the adapter identifier', () => {
+    const bad: LangfuseTrace = { ...BASE_TRACE, id: '' };
+    try {
+      LangfuseAdapter.toEvents(bad);
+    } catch (e) {
+      expect((e as AdapterError).adapter).toBe('langfuse-export-v0.1');
+    }
   });
 });

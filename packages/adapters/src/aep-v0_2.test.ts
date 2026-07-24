@@ -1,8 +1,14 @@
 import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { AepV0_2Adapter, getProvenance, SUPPORTED_AEP_VERSIONS, toEventsBatch } from './aep-v0_2.js';
+import {
+  AepV0_2Adapter,
+  SUPPORTED_AEP_VERSIONS,
+  getProvenance,
+  toEventsBatch,
+} from './aep-v0_2.js';
 import type { AEPRecordInput } from './aep-v0_2.js';
+import { AdapterError } from './errors.js';
 
 // Fixture paths relative to the repo root — both were committed under examples/traces/
 const FIXTURES_DIR = join(import.meta.dir, '../../../examples/traces');
@@ -136,24 +142,66 @@ describe('aep-v0_2 adapter — bscode fixture', () => {
 // ---------------------------------------------------------------------------
 
 describe('aep-v0_2 adapter — validation', () => {
-  it('toEvents throws an actionable error when run_id is missing', () => {
-    const bad = { schema_version: 'aep/v0.2', created_at_ms: 1700000000000, signature: { alg: 'ed25519', key_id: 'k1', sig: 'sig' } } as unknown as AEPRecordInput;
+  it('toEvents throws an AdapterError when run_id is missing', () => {
+    const bad = {
+      schema_version: 'aep/v0.2',
+      created_at_ms: 1700000000000,
+      signature: { alg: 'ed25519', key_id: 'k1', sig: 'sig' },
+    } as unknown as AEPRecordInput;
     expect(() => AepV0_2Adapter.toEvents(bad)).toThrow('run_id');
+    try {
+      AepV0_2Adapter.toEvents(bad);
+    } catch (e) {
+      expect(e).toBeInstanceOf(AdapterError);
+      expect((e as AdapterError).code).toBe('missing_required_field');
+      expect((e as AdapterError).adapter).toBe('aep-v0.2');
+    }
   });
 
-  it('toEvents throws an actionable error when signature block is missing', () => {
-    const bad = { schema_version: 'aep/v0.2', run_id: 'r1', created_at_ms: 1700000000000 } as unknown as AEPRecordInput;
+  it('toEvents throws an AdapterError when signature block is missing', () => {
+    const bad = {
+      schema_version: 'aep/v0.2',
+      run_id: 'r1',
+      created_at_ms: 1700000000000,
+    } as unknown as AEPRecordInput;
     expect(() => AepV0_2Adapter.toEvents(bad)).toThrow('signature');
+    try {
+      AepV0_2Adapter.toEvents(bad);
+    } catch (e) {
+      expect(e).toBeInstanceOf(AdapterError);
+      expect((e as AdapterError).code).toBe('missing_required_field');
+    }
   });
 
-  it('beginRun throws the same error as toEvents for the same bad input', () => {
-    const bad = { schema_version: 'aep/v0.2', created_at_ms: 1700000000000, signature: { alg: 'ed25519', key_id: 'k1', sig: 'sig' } } as unknown as AEPRecordInput;
-    expect(() => AepV0_2Adapter.beginRun(bad)).toThrow('run_id');
+  it('beginRun throws the same AdapterError as toEvents for the same bad input', () => {
+    const bad = {
+      schema_version: 'aep/v0.2',
+      created_at_ms: 1700000000000,
+      signature: { alg: 'ed25519', key_id: 'k1', sig: 'sig' },
+    } as unknown as AEPRecordInput;
+    try {
+      AepV0_2Adapter.beginRun(bad);
+    } catch (e) {
+      expect(e).toBeInstanceOf(AdapterError);
+      expect((e as AdapterError).code).toBe('missing_required_field');
+      expect((e as AdapterError).message).toContain('run_id');
+    }
   });
 
-  it('toEvents throws when schema_version is unsupported', () => {
-    const bad = { schema_version: 'aep/v99', run_id: 'r1', created_at_ms: 1700000000000, signature: { alg: 'ed25519', key_id: 'k1', sig: 'sig' } } as unknown as AEPRecordInput;
+  it('toEvents throws AdapterError with unsupported_version when schema_version is unsupported', () => {
+    const bad = {
+      schema_version: 'aep/v99',
+      run_id: 'r1',
+      created_at_ms: 1700000000000,
+      signature: { alg: 'ed25519', key_id: 'k1', sig: 'sig' },
+    } as unknown as AEPRecordInput;
     expect(() => AepV0_2Adapter.toEvents(bad)).toThrow('unsupported schema_version');
+    try {
+      AepV0_2Adapter.toEvents(bad);
+    } catch (e) {
+      expect(e).toBeInstanceOf(AdapterError);
+      expect((e as AdapterError).code).toBe('unsupported_version');
+    }
   });
 });
 

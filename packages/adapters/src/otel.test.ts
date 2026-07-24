@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
+import { AdapterError } from './errors.js';
 import { OtelAdapter } from './otel.js';
-import type { OtelTrace, OtelSpan } from './otel.js';
+import type { OtelSpan, OtelTrace } from './otel.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -224,9 +225,7 @@ describe('otel adapter — agent_id fallback', () => {
 
   it('agent_id falls back to gen_ai.system when no service.name', () => {
     const trace: OtelTrace = {
-      spans: [
-        makeSpan({ attributes: { 'gen_ai.system': 'openai' } }),
-      ],
+      spans: [makeSpan({ attributes: { 'gen_ai.system': 'openai' } })],
     };
     const events = OtelAdapter.toEvents(trace);
     expect(events[0]?.agent_id).toBe('openai');
@@ -331,5 +330,78 @@ describe('otel adapter — input format compatibility', () => {
     };
     const events = OtelAdapter.toEvents(trace);
     expect(events.length).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Validation — malformed, incomplete span payloads
+// ---------------------------------------------------------------------------
+
+describe('otel adapter — span validation', () => {
+  it('toEvents throws AdapterError when span is missing trace_id', () => {
+    const trace: OtelTrace = {
+      spans: [{ ...makeSpan(), trace_id: '' }],
+    };
+    try {
+      OtelAdapter.toEvents(trace);
+    } catch (e) {
+      expect(e).toBeInstanceOf(AdapterError);
+      expect((e as AdapterError).code).toBe('missing_required_field');
+      expect((e as AdapterError).message).toContain('trace_id');
+    }
+  });
+
+  it('toEvents throws AdapterError when span is missing span_id', () => {
+    const trace: OtelTrace = {
+      spans: [{ ...makeSpan(), span_id: '' }],
+    };
+    try {
+      OtelAdapter.toEvents(trace);
+    } catch (e) {
+      expect(e).toBeInstanceOf(AdapterError);
+      expect((e as AdapterError).code).toBe('missing_required_field');
+      expect((e as AdapterError).message).toContain('span_id');
+    }
+  });
+
+  it('toEvents throws AdapterError when span is missing start_time_unix_nano', () => {
+    const trace: OtelTrace = {
+      spans: [{ trace_id: 'tr', span_id: 'sp', name: 'chat' }],
+    };
+    try {
+      OtelAdapter.toEvents(trace);
+    } catch (e) {
+      expect(e).toBeInstanceOf(AdapterError);
+      expect((e as AdapterError).code).toBe('missing_required_field');
+      expect((e as AdapterError).message).toContain('start_time_unix_nano');
+    }
+  });
+
+  it('AdapterError carries the adapter identifier', () => {
+    const trace: OtelTrace = {
+      spans: [{ ...makeSpan(), trace_id: '' }],
+    };
+    try {
+      OtelAdapter.toEvents(trace);
+    } catch (e) {
+      expect((e as AdapterError).adapter).toBe('otel-genai-v0.1');
+    }
+  });
+
+  it('validates spans in resource_spans format as well', () => {
+    const trace: OtelTrace = {
+      resource_spans: [
+        {
+          resource: { attributes: {} },
+          scope_spans: [{ spans: [{ ...makeSpan(), trace_id: '' }] }],
+        },
+      ],
+    };
+    try {
+      OtelAdapter.toEvents(trace);
+    } catch (e) {
+      expect(e).toBeInstanceOf(AdapterError);
+      expect((e as AdapterError).code).toBe('missing_required_field');
+    }
   });
 });
