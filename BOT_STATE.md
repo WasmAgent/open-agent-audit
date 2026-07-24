@@ -1,13 +1,13 @@
 # Bot State
 
-_Last updated: 2026-07-24 09:02 UTC by patrol_
+_Last updated: 2026-07-24 09:03 UTC by patrol_
 
 ## Queue
 
 | State | Count |
 |---|---|
-| Pending | 3 |
-| Active (running/reviewing) | 2 |
+| Pending | 5 |
+| Active (running/reviewing) | 1 |
 | Blocked | 14 |
 | Completed/Merged (all time) | 42 |
 
@@ -30,9 +30,9 @@ _Last updated: 2026-07-24 09:02 UTC by patrol_
 - #129: [milestone Milestone 5] Add deployment checks for Trustavo production configuration.
 - #128: [milestone Milestone 5] Implement persistent passport storage using Cloudflare-native bindings.
 - #127: [milestone Milestone 5] Add Cloudflare Worker route tests for passport issue, fetch, revoke, and status ...
+- #122: [milestone Milestone 4] Refactor adapter shared mapping logic into reusable typed utilities.
 - #121: [milestone Milestone 4] Add example ingestion scripts for each supported adapter.
 - #120: [milestone Milestone 4] Implement adapter error handling for malformed, incomplete, and unsupported sour...
-- #119: [milestone Milestone 4] Add adapter conformance tests to verify output matches canonical event schemas.
 
 ---
 _Maintained automatically by claude-bot-go patrol. Do not edit._
