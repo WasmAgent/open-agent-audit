@@ -6,9 +6,9 @@ _Last updated: 2026-07-24 01:24 UTC by patrol_
 
 | State | Count |
 |---|---|
-| Pending | 22 |
-| Active (running/reviewing) | 1 |
-| Blocked | 0 |
+| Pending | 20 |
+| Active (running/reviewing) | 2 |
+| Blocked | 1 |
 | Completed/Merged (all time) | 17 |
 
 ## Recent Activity (last 5)
