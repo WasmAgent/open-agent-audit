@@ -1,35 +1,33 @@
 # Bot State
 
-_Last updated: 2026-07-24 23:50 UTC by patrol_
+_Last updated: 2026-07-25 00:01 UTC by patrol_
 
 ## Queue
 
 | State | Count |
 |---|---|
-| Pending | 9 |
-| Active (running/reviewing) | 3 |
-| Blocked | 0 |
-| Completed/Merged (all time) | 99 |
+| Pending | 6 |
+| Active (running/reviewing) | 1 |
+| Blocked | 1 |
+| Completed/Merged (all time) | 104 |
 
 ## Recent Activity (last 5)
 
 | Issue | Title | Outcome | Date |
 |---|---|---|---|
-| #101 | Fix WasmAgent/open-agent-audit#100 ([milestone Milestone ... | completed/complexity_gate_split | 2026-07-24 |
-| #105 | [milestone Milestone 2] Add policy boundary violation det... | merged/auto_closed_resolved | 2026-07-24 |
-| #107 | [milestone Milestone 2] Implement `computeRiskScore(event... | completed/maintenance_done | 2026-07-24 |
+| #120 | [milestone Milestone 4] Implement adapter error handling ... | merged/auto_closed_resolved | 2026-07-24 |
+| #121 | [milestone Milestone 4] Add example ingestion scripts for... | completed/complexity_gate_split | 2026-07-24 |
+| #113 | [milestone Milestone 3] Add template tests to verify repo... | merged/auto_closed_resolved | 2026-07-24 |
 | #120 | [milestone Milestone 4] Implement adapter error handling ... | completed/maintenance_done | 2026-07-24 |
 | #107 | [milestone Milestone 2] Implement `computeRiskScore(event... | completed/maintenance_done | 2026-07-24 |
 
 ## Waiting for Human
 
+- #149: Fix WasmAgent/open-agent-audit#101 (Fix WasmAgent/open-agent-audit#100 ([milestone Milestone 1] Add JSON Schema export s
 - #139: Fix WasmAgent/open-agent-audit#129 ([milestone Milestone 5] Add deployment checks for Trustavo production configuration.
 - #127: [milestone Milestone 5] Add Cloudflare Worker route tests for passport issue, fetch, revoke, and status ...
 - #122: [milestone Milestone 4] Refactor adapter shared mapping logic into reusable typed utilities.
-- #121: [milestone Milestone 4] Add example ingestion scripts for each supported adapter.
-- #120: [milestone Milestone 4] Implement adapter error handling for malformed, incomplete, and unsupported sour...
 - #119: [milestone Milestone 4] Add adapter conformance tests to verify output matches canonical event schemas.
-- #113: [milestone Milestone 3] Add template tests to verify report output structure across all supported format...
 - #112: [milestone Milestone 3] Implement deterministic report IDs and content hashes for generated reports.
 - #107: [milestone Milestone 2] Implement `computeRiskScore(events, runId)` with configurable risk weights.
 
