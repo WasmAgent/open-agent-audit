@@ -101,3 +101,67 @@ See `CONSTRAINTS.md` for the full list.
 | Runtime evidence collection (MCP firewall, capability attestation) | `wasmagent-js` |
 | Training data pipeline (SFT/DPO export, contamination stats) | `trace-pipeline` |
 | Dynamic evaluation protocol (FAEP) | `fresharena` |
+
+
+## Adapter Addition Checklist (MANDATORY — CI will fail without all steps)
+
+When adding or modifying an adapter in `packages/adapters/src/`:
+
+**1. Create the adapter implementation file**
+```
+packages/adapters/src/<name>.ts
+```
+- Export a named function `map<Name>(input: InputType): AEPRecord`
+- Import `AEPRecord` from `@open-agent-audit/schema`
+- Map all required fields: `schema_version`, `run_id`, `created_at_ms`
+
+**2. Add to `packages/adapters/src/index.ts`**
+Export the new adapter:
+```typescript
+export { mapName } from './<name>';
+```
+
+**3. Create a test file** (required for CI to pass):
+```
+packages/adapters/src/<name>.test.ts
+```
+Pattern (copy from `langsmith.test.ts`):
+```typescript
+import { describe, it, expect } from 'bun:test';
+import { mapName } from './<name>';
+
+describe('<name> adapter', () => {
+  it('maps required fields', () => {
+    const result = mapName({ /* minimal input */ });
+    expect(result.schema_version).toBeDefined();
+    expect(result.run_id).toBeDefined();
+    expect(result.created_at_ms).toBeGreaterThan(0);
+  });
+  it('rejects invalid input', () => {
+    expect(() => mapName(null as any)).toThrow();
+  });
+});
+```
+
+**4. Build order is strict** — always build in this order:
+```
+packages/schema → packages/core → packages/adapters
+```
+TypeScript check before committing:
+```bash
+npx tsc -p packages/schema/tsconfig.json --noEmit
+npx tsc -p packages/core/tsconfig.json --noEmit
+npx tsc -p packages/adapters/tsconfig.json --noEmit
+```
+
+**5. Run tests** before pushing:
+```bash
+bun run test
+```
+Must exit 0 with all tests passing.
+
+### Common failure modes:
+- Missing export in `index.ts` → TypeScript build fails
+- Test file absent → CI test step fails (bun:test finds no tests for new file)
+- Missing required AEPRecord fields in output → schema validation fails at runtime
+- Build order wrong → import resolution errors in packages/adapters
