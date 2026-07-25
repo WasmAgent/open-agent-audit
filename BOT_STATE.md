@@ -1,25 +1,25 @@
 # Bot State
 
-_Last updated: 2026-07-25 15:52 UTC by patrol_
+_Last updated: 2026-07-25 16:02 UTC by patrol_
 
 ## Queue
 
 | State | Count |
 |---|---|
-| Pending | 4 |
-| Active (running/reviewing) | 1 |
+| Pending | 3 |
+| Active (running/reviewing) | 0 |
 | Blocked | 2 |
-| Completed/Merged (all time) | 127 |
+| Completed/Merged (all time) | 129 |
 
 ## Recent Activity (last 5)
 
 | Issue | Title | Outcome | Date |
 |---|---|---|---|
+| #173 | [milestone Milestone 2] Implement `validate(events)` to r... | merged/auto_closed_resolved | 2026-07-25 |
+| #174 | [milestone Milestone 3] Implement `renderReport(events, f... | merged/auto_closed_resolved | 2026-07-25 |
 | #150 | Fix WasmAgent/open-agent-audit#121 ([milestone Milestone ... | completed/complexity_gate_split | 2026-07-25 |
 | #169 | Fix WasmAgent/open-agent-audit#168 ([milestone Milestone ... | merged/auto_closed_resolved | 2026-07-25 |
 | #153 | Fix WasmAgent/open-agent-audit#127 ([milestone Milestone ... | completed/complexity_gate_split | 2026-07-25 |
-| #171 | [milestone Milestone 2] Implement `validate(events)` to r... | merged/auto_closed_resolved | 2026-07-25 |
-| #167 | [milestone Milestone 2] Implement `validate(events)` to r... | merged/auto_closed_resolved | 2026-07-25 |
 
 ## Waiting for Human
 
