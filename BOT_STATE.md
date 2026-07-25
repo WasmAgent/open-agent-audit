@@ -1,25 +1,25 @@
 # Bot State
 
-_Last updated: 2026-07-25 07:56 UTC by patrol_
+_Last updated: 2026-07-25 08:04 UTC by patrol_
 
 ## Queue
 
 | State | Count |
 |---|---|
-| Pending | 4 |
-| Active (running/reviewing) | 0 |
+| Pending | 0 |
+| Active (running/reviewing) | 2 |
 | Blocked | 4 |
-| Completed/Merged (all time) | 112 |
+| Completed/Merged (all time) | 114 |
 
 ## Recent Activity (last 5)
 
 | Issue | Title | Outcome | Date |
 |---|---|---|---|
+| #157 | [milestone Milestone 2] Implement `validate(events)` to r... | merged/auto_closed_resolved | 2026-07-25 |
+| #156 | [milestone Milestone 1] Implement `validateEvents(raw)` t... | merged/auto_closed_resolved | 2026-07-25 |
 | #158 | [milestone Milestone 3] Implement `renderReport(events, f... | merged/auto_closed_resolved | 2026-07-25 |
 | #154 | Fix WasmAgent/open-agent-audit#149 (Fix WasmAgent/open-ag... | completed/complexity_gate_split | 2026-07-25 |
 | #149 | Fix WasmAgent/open-agent-audit#101 (Fix WasmAgent/open-ag... | completed/complexity_gate_split | 2026-07-25 |
-| #139 | Fix WasmAgent/open-agent-audit#129 ([milestone Milestone ... | merged/auto_closed_resolved | 2026-07-25 |
-| #127 | [milestone Milestone 5] Add Cloudflare Worker route tests... | completed/complexity_gate_split | 2026-07-25 |
 
 ## Waiting for Human
 
