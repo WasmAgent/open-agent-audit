@@ -1,6 +1,6 @@
 # Bot State
 
-_Last updated: 2026-07-25 19:57 UTC by patrol_
+_Last updated: 2026-07-25 20:05 UTC by patrol_
 
 ## Queue
 
@@ -26,6 +26,7 @@ _Last updated: 2026-07-25 19:57 UTC by patrol_
 - #165: [milestone Milestone 2] Implement `computeRiskScore(events, runId)` with configurable risk weights.
 - #152: Fix WasmAgent/open-agent-audit#122 ([milestone Milestone 4] Refactor adapter shared mapping logic into reusable typed ut
 - #119: [milestone Milestone 4] Add adapter conformance tests to verify output matches canonical event schemas.
+- #112: [milestone Milestone 3] Implement deterministic report IDs and content hashes for generated reports.
 
 ---
 _Maintained automatically by claude-bot-go patrol. Do not edit._
