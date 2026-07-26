@@ -343,6 +343,48 @@ function computeAgentRiskScore(events: CanonicalEvent[]): number {
 }
 
 /**
+ * Configurable weights for the six Evidence Admission Score (EAS) components.
+ *
+ * All weights must be non-negative. They do not need to sum to 1 — the
+ * function normalises them internally so that `sum(weights)` becomes the
+ * denominator.  Passing only a subset of keys uses the default for any
+ * omitted key (partial override).
+ *
+ * @example
+ * ```ts
+ * // Double the importance of provenance_integrity, halve contamination
+ * const score = await computeRiskScore(events, runId, undefined, undefined, undefined, undefined, {
+ *   provenance_integrity: 0.40,
+ *   contamination_risk_inverted: 0.05,
+ * });
+ * ```
+ */
+export interface RiskWeights {
+  /** Weight for trace_completeness (default 0.20). */
+  trace_completeness?: number;
+  /** Weight for provenance_integrity (default 0.20). */
+  provenance_integrity?: number;
+  /** Weight for objective_verification (default 0.20). */
+  objective_verification?: number;
+  /** Weight for policy_coverage (default 0.15). */
+  policy_coverage?: number;
+  /** Weight for human_oversight_evidence (default 0.15). */
+  human_oversight_evidence?: number;
+  /** Weight for contamination_risk_inverted (default 0.10). */
+  contamination_risk_inverted?: number;
+}
+
+/** Default EAS component weights (sum = 1.0). */
+export const DEFAULT_RISK_WEIGHTS: Required<RiskWeights> = {
+  trace_completeness: 0.2,
+  provenance_integrity: 0.2,
+  objective_verification: 0.2,
+  policy_coverage: 0.15,
+  human_oversight_evidence: 0.15,
+  contamination_risk_inverted: 0.1,
+};
+
+/**
  * Optional drift detection result that can be passed to {@link computeRiskScore}
  * to factor behavioral drift into the Agent Risk Score (ARS).
  *
@@ -384,6 +426,8 @@ export interface DriftResultForScoring {
  * @param contaminationResult - Optional contamination detection result
  * @param driftResult - Optional drift detection result from driftGuard(); when provided,
  *   the drift_score is factored into the Agent Risk Score as a penalty (max -15 pts)
+ * @param weights - Optional per-component EAS weights; omitted keys fall back to
+ *   {@link DEFAULT_RISK_WEIGHTS}. Weights are normalised so they need not sum to 1.
  * @returns RiskScore containing EAS, ARS, and component breakdowns
  *
  * @see computeObjectiveVerification — details on the 50-point default
@@ -399,6 +443,7 @@ export async function computeRiskScore(
   },
   contaminationResult?: { contamination_score: number },
   driftResult?: DriftResultForScoring,
+  weights?: RiskWeights,
 ): Promise<RiskScore> {
   const trace_completeness = computeTraceCompleteness(events);
   const provenance_integrity = computeProvenanceIntegrity(events, aepProvenance, cryptoSummary);
@@ -407,13 +452,50 @@ export async function computeRiskScore(
   const human_oversight_evidence = computeHumanOversightEvidence(events);
   const contamination_risk_inverted = computeContaminationRiskInverted(contaminationResult);
 
-  const eas =
-    0.2 * trace_completeness +
-    0.2 * provenance_integrity +
-    0.2 * objective_verification +
-    0.15 * policy_coverage +
-    0.15 * human_oversight_evidence +
-    0.1 * contamination_risk_inverted;
+  let eas: number;
+
+  if (weights === undefined) {
+    // Hardcoded default coefficients — avoids floating-point drift from
+    // summing 0.1+0.15+0.15+0.2+0.2+0.2 (which is 1.000…002 in IEEE 754).
+    eas =
+      0.2 * trace_completeness +
+      0.2 * provenance_integrity +
+      0.2 * objective_verification +
+      0.15 * policy_coverage +
+      0.15 * human_oversight_evidence +
+      0.1 * contamination_risk_inverted;
+  } else {
+    // Custom weights: resolve partial override over defaults, then normalise.
+    const w: Required<RiskWeights> = {
+      trace_completeness: weights.trace_completeness ?? DEFAULT_RISK_WEIGHTS.trace_completeness,
+      provenance_integrity:
+        weights.provenance_integrity ?? DEFAULT_RISK_WEIGHTS.provenance_integrity,
+      objective_verification:
+        weights.objective_verification ?? DEFAULT_RISK_WEIGHTS.objective_verification,
+      policy_coverage: weights.policy_coverage ?? DEFAULT_RISK_WEIGHTS.policy_coverage,
+      human_oversight_evidence:
+        weights.human_oversight_evidence ?? DEFAULT_RISK_WEIGHTS.human_oversight_evidence,
+      contamination_risk_inverted:
+        weights.contamination_risk_inverted ?? DEFAULT_RISK_WEIGHTS.contamination_risk_inverted,
+    };
+
+    const weightSum =
+      w.trace_completeness +
+      w.provenance_integrity +
+      w.objective_verification +
+      w.policy_coverage +
+      w.human_oversight_evidence +
+      w.contamination_risk_inverted;
+
+    eas =
+      (w.trace_completeness * trace_completeness +
+        w.provenance_integrity * provenance_integrity +
+        w.objective_verification * objective_verification +
+        w.policy_coverage * policy_coverage +
+        w.human_oversight_evidence * human_oversight_evidence +
+        w.contamination_risk_inverted * contamination_risk_inverted) /
+      weightSum;
+  }
 
   const easRounded = Math.round(eas);
   let arsRounded = computeAgentRiskScore(events);

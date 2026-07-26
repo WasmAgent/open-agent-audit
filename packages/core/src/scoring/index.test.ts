@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import type { CanonicalEvent } from '@openagentaudit/schema';
-import { computeRiskScore } from './index.js';
+import { DEFAULT_RISK_WEIGHTS, computeRiskScore } from './index.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -51,26 +51,26 @@ describe('computeRiskScore — provenance_integrity scoring', () => {
   it('returns 100 when all events have ed25519 signatures (no AEP provenance)', async () => {
     const events = withHashChain([makeToolCall('e1'), makeToolCall('e2')], true);
     const score = await computeRiskScore(events, 'r1');
-    expect(score.components['provenance_integrity']).toBe(100);
+    expect(score.components.provenance_integrity).toBe(100);
   });
 
   it('returns 60 when hash chain present but no signatures', async () => {
     const events = withHashChain([makeToolCall('e1'), makeToolCall('e2')], false);
     const score = await computeRiskScore(events, 'r1');
-    expect(score.components['provenance_integrity']).toBe(60);
+    expect(score.components.provenance_integrity).toBe(60);
   });
 
   it('adds +5 per AEP provenance field when base=60 (no sigs)', async () => {
     const events = withHashChain([makeToolCall('e1'), makeToolCall('e2')], false);
 
     const score1 = await computeRiskScore(events, 'r1', { repo_commit: 'abc' });
-    expect(score1.components['provenance_integrity']).toBe(65);
+    expect(score1.components.provenance_integrity).toBe(65);
 
     const score2 = await computeRiskScore(events, 'r1', {
       repo_commit: 'abc',
       runtime_version: 'v1',
     });
-    expect(score2.components['provenance_integrity']).toBe(70);
+    expect(score2.components.provenance_integrity).toBe(70);
 
     const score4 = await computeRiskScore(events, 'r1', {
       repo_commit: 'abc',
@@ -78,7 +78,7 @@ describe('computeRiskScore — provenance_integrity scoring', () => {
       policy_bundle_digest: 'p'.repeat(64),
       tool_manifest_digest: 't'.repeat(64),
     });
-    expect(score4.components['provenance_integrity']).toBe(80);
+    expect(score4.components.provenance_integrity).toBe(80);
   });
 
   it('caps provenance_integrity at 100 even when all 4 fields present and base=100', async () => {
@@ -89,30 +89,33 @@ describe('computeRiskScore — provenance_integrity scoring', () => {
       policy_bundle_digest: 'p'.repeat(64),
       tool_manifest_digest: 't'.repeat(64),
     });
-    expect(score.components['provenance_integrity']).toBe(100);
+    expect(score.components.provenance_integrity).toBe(100);
   });
 
   it('returns 20 when no events have evidence at all', async () => {
     const events = [makeToolCall('e1'), makeToolCall('e2')];
     const score = await computeRiskScore(events, 'r1');
-    expect(score.components['provenance_integrity']).toBe(20);
+    expect(score.components.provenance_integrity).toBe(20);
   });
 
   it('returns 0 when hash chain is broken', async () => {
     const events = withHashChain([makeToolCall('e1'), makeToolCall('e2')], true);
     // Break the chain on the second event
     const broken = [
-      events[0]!,
-      { ...events[1]!, evidence: { ...events[1]!.evidence, prev_hash: 'wrong-hash' } },
+      events[0] as CanonicalEvent,
+      {
+        ...(events[1] as CanonicalEvent),
+        evidence: { ...events[1]?.evidence, prev_hash: 'wrong-hash' },
+      },
     ];
     const score = await computeRiskScore(broken, 'r1');
-    expect(score.components['provenance_integrity']).toBe(0);
+    expect(score.components.provenance_integrity).toBe(0);
   });
 
   it('AEP provenance bonus does NOT apply when no aepProvenance passed', async () => {
     const events = withHashChain([makeToolCall('e1')], false);
     const score = await computeRiskScore(events, 'r1');
-    expect(score.components['provenance_integrity']).toBe(60);
+    expect(score.components.provenance_integrity).toBe(60);
   });
 });
 
@@ -237,8 +240,11 @@ describe('computeRiskScore — agent_risk_score (ARS)', () => {
     // Build a chain and break the second event's prev_hash => ARS = 80
     const chained = withHashChain([makeToolCall('e1'), makeToolCall('e2')], false);
     const broken: CanonicalEvent[] = [
-      chained[0]!,
-      { ...chained[1]!, evidence: { ...chained[1]!.evidence, prev_hash: 'wrong-hash' } },
+      chained[0] as CanonicalEvent,
+      {
+        ...(chained[1] as CanonicalEvent),
+        evidence: { ...chained[1]?.evidence, prev_hash: 'wrong-hash' },
+      },
     ];
     const score = await computeRiskScore(broken, 'r1');
     expect(score.agent_risk_score.score).toBe(80);
@@ -336,5 +342,139 @@ describe('computeRiskScore — driftResult integration (#82)', () => {
       drift_score: 100,
     });
     expect(score.agent_risk_score.score).toBeGreaterThanOrEqual(0);
+  });
+});
+
+// ---------- Configurable risk weights ----------
+
+describe('computeRiskScore — configurable risk weights', () => {
+  it('DEFAULT_RISK_WEIGHTS sum to 1.0', () => {
+    const sum =
+      DEFAULT_RISK_WEIGHTS.trace_completeness +
+      DEFAULT_RISK_WEIGHTS.provenance_integrity +
+      DEFAULT_RISK_WEIGHTS.objective_verification +
+      DEFAULT_RISK_WEIGHTS.policy_coverage +
+      DEFAULT_RISK_WEIGHTS.human_oversight_evidence +
+      DEFAULT_RISK_WEIGHTS.contamination_risk_inverted;
+    expect(sum).toBeCloseTo(1.0, 10);
+  });
+
+  it('omitting weights produces the same EAS as before (backward compat)', async () => {
+    const events = [makeToolCall('e1'), makeToolCall('e2')];
+    const without = await computeRiskScore(events, 'r1');
+    const withEmpty = await computeRiskScore(
+      events,
+      'r1',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {},
+    );
+    expect(withEmpty.evidence_admission_score.score).toBe(without.evidence_admission_score.score);
+  });
+
+  it('full override of weights changes EAS', async () => {
+    const events = [makeToolCall('e1'), makeToolCall('e2')];
+    const baseline = await computeRiskScore(events, 'r1');
+
+    // Weight provenance_integrity at 1.0 and everything else at 0
+    const weighted = await computeRiskScore(
+      events,
+      'r1',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        trace_completeness: 0,
+        provenance_integrity: 1,
+        objective_verification: 0,
+        policy_coverage: 0,
+        human_oversight_evidence: 0,
+        contamination_risk_inverted: 0,
+      },
+    );
+    // provenance_integrity for events without evidence is 20
+    expect(weighted.evidence_admission_score.score).toBe(20);
+    expect(weighted.evidence_admission_score.score).not.toBe(
+      baseline.evidence_admission_score.score,
+    );
+  });
+
+  it('partial override keeps defaults for omitted keys', async () => {
+    const events = [makeToolCall('e1')];
+    const baseline = await computeRiskScore(events, 'r1');
+
+    // Only override one weight — EAS should differ from baseline
+    const partial = await computeRiskScore(
+      events,
+      'r1',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { trace_completeness: 1 },
+    );
+    // With trace_completeness=1 and defaults for the rest (sum > 1),
+    // trace_completeness dominates but doesn't equal 100 exactly due to
+    // normalisation. It should differ from baseline though.
+    expect(partial.evidence_admission_score.score).not.toBe(
+      baseline.evidence_admission_score.score,
+    );
+  });
+
+  it('equal weights produce a simple average of components', async () => {
+    const events = [makeToolCall('e1')];
+    const score = await computeRiskScore(events, 'r1', undefined, undefined, undefined, undefined, {
+      trace_completeness: 1,
+      provenance_integrity: 1,
+      objective_verification: 1,
+      policy_coverage: 1,
+      human_oversight_evidence: 1,
+      contamination_risk_inverted: 1,
+    });
+    const comps = score.components;
+    const avg =
+      ((comps.trace_completeness ?? 0) +
+        (comps.provenance_integrity ?? 0) +
+        (comps.objective_verification ?? 0) +
+        (comps.policy_coverage ?? 0) +
+        (comps.human_oversight_evidence ?? 0) +
+        (comps.contamination_risk_inverted ?? 0)) /
+      6;
+    expect(score.evidence_admission_score.score).toBe(Math.round(avg));
+  });
+
+  it('weights do not affect ARS', async () => {
+    const events: CanonicalEvent[] = Array.from({ length: 3 }, (_, i) => ({
+      schema_version: 'open-agent-audit/v0.1' as const,
+      run_id: 'run-test',
+      agent_id: 'agent-test',
+      model_id: 'model-test',
+      event_id: `deny-${i}`,
+      timestamp: '2023-11-14T22:13:20.000Z',
+      type: 'policy_decision' as const,
+      actor: 'system' as const,
+      policy: { decision: 'deny' as const, reason: 'denied' },
+    }));
+    const base = await computeRiskScore(events, 'r1');
+    const custom = await computeRiskScore(
+      events,
+      'r1',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        trace_completeness: 0,
+        provenance_integrity: 0,
+        objective_verification: 0,
+        policy_coverage: 1,
+        human_oversight_evidence: 0,
+        contamination_risk_inverted: 0,
+      },
+    );
+    expect(custom.agent_risk_score.score).toBe(base.agent_risk_score.score);
   });
 });
