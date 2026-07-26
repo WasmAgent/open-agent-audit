@@ -356,16 +356,135 @@ export interface DriftResultForScoring {
 }
 
 /**
+ * Configurable weights for the Evidence Admission Score (EAS) components.
+ *
+ * Each weight controls how much its corresponding component influences the
+ * final EAS. Weights are **relative** — they are normalised to sum to 1.0 at
+ * scoring time (see {@link computeRiskScore}), so the EAS always lands in
+ * [0, 100] regardless of the magnitudes supplied. Set a weight to `0` to
+ * exclude that component from the score entirely.
+ *
+ * When `riskWeights` is omitted the {@link DEFAULT_RISK_WEIGHTS} are used.
+ * When partially provided, any field not supplied falls back to its default
+ * value, so callers can override a single component without restating the
+ * whole rubric.
+ *
+ * @example
+ * ```ts
+ * // Emphasise provenance 3x relative to its default, de-emphasise trace completeness
+ * const score = await computeRiskScore(events, runId, undefined, undefined, undefined, undefined, {
+ *   trace_completeness: 0.1,
+ *   provenance_integrity: 0.6,
+ * });
+ * ```
+ */
+export interface RiskWeights {
+  /** Weight for the trace_completeness component (default 0.20). */
+  trace_completeness?: number;
+  /** Weight for the provenance_integrity component (default 0.20). */
+  provenance_integrity?: number;
+  /** Weight for the objective_verification component (default 0.20). */
+  objective_verification?: number;
+  /** Weight for the policy_coverage component (default 0.15). */
+  policy_coverage?: number;
+  /** Weight for the human_oversight_evidence component (default 0.15). */
+  human_oversight_evidence?: number;
+  /** Weight for the contamination_risk_inverted component (default 0.10). */
+  contamination_risk_inverted?: number;
+}
+
+/**
+ * Default EAS component weights used when {@link computeRiskScore} is called
+ * without a `riskWeights` argument. These sum to 1.0, so normalisation is a
+ * no-op and the score matches the original fixed-weight formula exactly.
+ */
+export const DEFAULT_RISK_WEIGHTS: Required<RiskWeights> = {
+  trace_completeness: 0.2,
+  provenance_integrity: 0.2,
+  objective_verification: 0.2,
+  policy_coverage: 0.15,
+  human_oversight_evidence: 0.15,
+  contamination_risk_inverted: 0.1,
+};
+
+/**
+ * Resolve a (possibly partial) {@link RiskWeights} into a complete, normalised
+ * weight set used by {@link computeRiskScore}.
+ *
+ * - Any field that is missing or not a finite number falls back to its
+ *   {@link DEFAULT_RISK_WEIGHTS} value, so callers can override a single
+ *   component without restating the whole rubric.
+ * - Negative weights are clamped to 0 (a weight expresses non-negative
+ *   relative emphasis; use 0 to exclude a component).
+ * - The resolved weights are normalised to sum to 1.0, so the EAS always
+ *   lands in [0, 100] regardless of the magnitudes supplied.
+ * - If every resolved weight is 0 (e.g. the caller explicitly zeroed every
+ *   component), the {@link DEFAULT_RISK_WEIGHTS} are used — this keeps the
+ *   score meaningful instead of collapsing to 0.
+ */
+function resolveRiskWeights(riskWeights?: RiskWeights): Required<RiskWeights> {
+  const pick = (key: keyof RiskWeights): number => {
+    const value = riskWeights?.[key];
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+      return DEFAULT_RISK_WEIGHTS[key];
+    }
+    return value;
+  };
+
+  const merged: Required<RiskWeights> = {
+    trace_completeness: pick('trace_completeness'),
+    provenance_integrity: pick('provenance_integrity'),
+    objective_verification: pick('objective_verification'),
+    policy_coverage: pick('policy_coverage'),
+    human_oversight_evidence: pick('human_oversight_evidence'),
+    contamination_risk_inverted: pick('contamination_risk_inverted'),
+  };
+
+  const sum =
+    merged.trace_completeness +
+    merged.provenance_integrity +
+    merged.objective_verification +
+    merged.policy_coverage +
+    merged.human_oversight_evidence +
+    merged.contamination_risk_inverted;
+
+  if (!(sum > 0)) {
+    // Every weight is 0 → fall back to defaults so the score stays meaningful.
+    return DEFAULT_RISK_WEIGHTS;
+  }
+
+  // Already (effectively) unit-sum: return as-is. This is the path the default
+  // weights take — 0.2+0.2+0.2+0.15+0.15+0.1 is within float error of 1.0 but
+  // not exactly 1.0, so a strict `sum === 1` check would pointlessly renormalise
+  // them and introduce rounding drift. Passing them through unchanged keeps the
+  // score bit-for-bit identical to the original fixed-weight formula.
+  if (Math.abs(sum - 1) < 1e-9) {
+    return merged;
+  }
+
+  return {
+    trace_completeness: merged.trace_completeness / sum,
+    provenance_integrity: merged.provenance_integrity / sum,
+    objective_verification: merged.objective_verification / sum,
+    policy_coverage: merged.policy_coverage / sum,
+    human_oversight_evidence: merged.human_oversight_evidence / sum,
+    contamination_risk_inverted: merged.contamination_risk_inverted / sum,
+  };
+}
+
+/**
  * Compute the Evidence Admission Score (EAS) and Agent Risk Score (ARS) for
  * a set of canonical events.
  *
- * EAS formula:
- *   0.20 * trace_completeness
- * + 0.20 * provenance_integrity
- * + 0.20 * objective_verification
- * + 0.15 * policy_coverage
- * + 0.15 * human_oversight_evidence
- * + 0.10 * contamination_risk_inverted
+ * EAS formula (weights are configurable via `riskWeights`, defaulting to
+ * {@link DEFAULT_RISK_WEIGHTS}; the resolved weights are normalised to sum
+ * to 1.0 so the score stays in [0, 100]):
+ *   w_trace * trace_completeness
+ * + w_prov  * provenance_integrity
+ * + w_obj   * objective_verification
+ * + w_pol   * policy_coverage
+ * + w_human * human_oversight_evidence
+ * + w_cont  * contamination_risk_inverted
  *
  * NOTE: The `objective_verification` component defaults to 50 (neutral)
  * when no verifier results are present in the event stream. For tool-calling
@@ -384,6 +503,11 @@ export interface DriftResultForScoring {
  * @param contaminationResult - Optional contamination detection result
  * @param driftResult - Optional drift detection result from driftGuard(); when provided,
  *   the drift_score is factored into the Agent Risk Score as a penalty (max -15 pts)
+ * @param riskWeights - Optional configurable EAS component weights. Missing
+ *   fields fall back to {@link DEFAULT_RISK_WEIGHTS}. Resolved weights are
+ *   normalised to sum to 1.0, so they act as relative emphasis and the EAS
+ *   remains in [0, 100]; a weight of 0 excludes that component. If every
+ *   resolved weight is 0 the defaults are used.
  * @returns RiskScore containing EAS, ARS, and component breakdowns
  *
  * @see computeObjectiveVerification — details on the 50-point default
@@ -399,6 +523,7 @@ export async function computeRiskScore(
   },
   contaminationResult?: { contamination_score: number },
   driftResult?: DriftResultForScoring,
+  riskWeights?: RiskWeights,
 ): Promise<RiskScore> {
   const trace_completeness = computeTraceCompleteness(events);
   const provenance_integrity = computeProvenanceIntegrity(events, aepProvenance, cryptoSummary);
@@ -407,13 +532,19 @@ export async function computeRiskScore(
   const human_oversight_evidence = computeHumanOversightEvidence(events);
   const contamination_risk_inverted = computeContaminationRiskInverted(contaminationResult);
 
+  // Resolve configurable weights (partial overrides fall back to defaults) and
+  // normalise to sum=1 so weights act as relative emphasis and the EAS stays
+  // in [0, 100]. When the defaults are in effect they already sum to 1.0, so
+  // normalisation is a no-op and the score matches the fixed-weight formula.
+  const weights = resolveRiskWeights(riskWeights);
+
   const eas =
-    0.2 * trace_completeness +
-    0.2 * provenance_integrity +
-    0.2 * objective_verification +
-    0.15 * policy_coverage +
-    0.15 * human_oversight_evidence +
-    0.1 * contamination_risk_inverted;
+    weights.trace_completeness * trace_completeness +
+    weights.provenance_integrity * provenance_integrity +
+    weights.objective_verification * objective_verification +
+    weights.policy_coverage * policy_coverage +
+    weights.human_oversight_evidence * human_oversight_evidence +
+    weights.contamination_risk_inverted * contamination_risk_inverted;
 
   const easRounded = Math.round(eas);
   let arsRounded = computeAgentRiskScore(events);
