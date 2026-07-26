@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import type { CanonicalEvent } from '@openagentaudit/schema';
-import { computeRiskScore } from './index.js';
+import { DEFAULT_RISK_WEIGHTS, computeRiskScore } from './index.js';
+import type { RiskWeights } from './index.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -336,5 +337,97 @@ describe('computeRiskScore — driftResult integration (#82)', () => {
       drift_score: 100,
     });
     expect(score.agent_risk_score.score).toBeGreaterThanOrEqual(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #177: configurable risk weights
+// ---------------------------------------------------------------------------
+
+describe('computeRiskScore — configurable risk weights (#177)', () => {
+  // Two plain tool_calls produce stable, hand-verifiable components:
+  //   trace_completeness=48, provenance_integrity=20, objective_verification=50,
+  //   policy_coverage=0, human_oversight_evidence=80, contamination_risk_inverted=100
+  // Default EAS = 0.2*48 + 0.2*20 + 0.2*50 + 0.15*0 + 0.15*80 + 0.1*100 = 45.6 → 46
+  const events = [makeToolCall('e1'), makeToolCall('e2')];
+
+  /** Replicate the normalised weighted-average so assertions stay in sync. */
+  function expectedEas(components: Record<string, number>, override: RiskWeights): number {
+    const w = { ...DEFAULT_RISK_WEIGHTS, ...override };
+    const sum =
+      w.trace_completeness * (components.trace_completeness ?? 0) +
+      w.provenance_integrity * (components.provenance_integrity ?? 0) +
+      w.objective_verification * (components.objective_verification ?? 0) +
+      w.policy_coverage * (components.policy_coverage ?? 0) +
+      w.human_oversight_evidence * (components.human_oversight_evidence ?? 0) +
+      w.contamination_risk_inverted * (components.contamination_risk_inverted ?? 0);
+    const wsum =
+      w.trace_completeness +
+      w.provenance_integrity +
+      w.objective_verification +
+      w.policy_coverage +
+      w.human_oversight_evidence +
+      w.contamination_risk_inverted;
+    return Math.round(sum / Math.max(wsum, Number.EPSILON));
+  }
+
+  /** Call computeRiskScore with only the riskWeights override set. */
+  function scoreWith(override: RiskWeights) {
+    return computeRiskScore(events, 'r1', undefined, undefined, undefined, undefined, override);
+  }
+
+  it('uses DEFAULT_RISK_WEIGHTS when no riskWeights argument is supplied', async () => {
+    const implicit = await computeRiskScore(events, 'r1');
+    const explicit = await scoreWith(DEFAULT_RISK_WEIGHTS);
+    expect(implicit.evidence_admission_score.score).toBe(46);
+    expect(explicit.evidence_admission_score.score).toBe(implicit.evidence_admission_score.score);
+  });
+
+  it('collapses EAS to a single component when only its weight is non-zero', async () => {
+    const zeroOthers = {
+      trace_completeness: 0,
+      provenance_integrity: 0,
+      objective_verification: 0,
+      policy_coverage: 0,
+      human_oversight_evidence: 0,
+      contamination_risk_inverted: 0,
+    };
+    // provenance_integrity component is 20 → EAS is 20.
+    const prov = await scoreWith({ ...zeroOthers, provenance_integrity: 1 });
+    expect(prov.evidence_admission_score.score).toBe(20);
+    // contamination_risk_inverted component is 100 → EAS is 100.
+    const cont = await scoreWith({ ...zeroOthers, contamination_risk_inverted: 1 });
+    expect(cont.evidence_admission_score.score).toBe(100);
+  });
+
+  it('normalises arbitrary magnitudes so weights act as relative emphasis', async () => {
+    // 3x emphasis on provenance without pre-normalising — the engine normalises.
+    const override = { provenance_integrity: 0.6 };
+    const score = await scoreWith(override);
+    expect(score.evidence_admission_score.score).toBe(expectedEas(score.components, override));
+  });
+
+  it('merges a partial override with DEFAULT_RISK_WEIGHTS for the other fields', async () => {
+    const override = { policy_coverage: 0.5 };
+    const score = await scoreWith(override);
+    expect(score.evidence_admission_score.score).toBe(expectedEas(score.components, override));
+    // Sanity: emphasising the weakest component (policy_coverage=0) drags the
+    // score below the default of 46.
+    expect(score.evidence_admission_score.score).toBeLessThan(46);
+  });
+
+  it('falls back to defaults when every resolved weight is zero (no div-by-zero)', async () => {
+    const allZero = {
+      trace_completeness: 0,
+      provenance_integrity: 0,
+      objective_verification: 0,
+      policy_coverage: 0,
+      human_oversight_evidence: 0,
+      contamination_risk_inverted: 0,
+    };
+    const score = await scoreWith(allZero);
+    const defaultScore = await computeRiskScore(events, 'r1');
+    expect(score.evidence_admission_score.score).toBe(defaultScore.evidence_admission_score.score);
+    expect(score.evidence_admission_score.score).toBe(46);
   });
 });
