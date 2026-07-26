@@ -1,6 +1,6 @@
 # Bot State
 
-_Last updated: 2026-07-26 04:32 UTC by patrol_
+_Last updated: 2026-07-26 05:05 UTC by patrol_
 
 ## Queue
 
@@ -8,7 +8,7 @@ _Last updated: 2026-07-26 04:32 UTC by patrol_
 |---|---|
 | Pending | 0 |
 | Active (running/reviewing) | 0 |
-| Blocked | 5 |
+| Blocked | 4 |
 | Completed/Merged (all time) | 132 |
 
 ## Recent Activity (last 5)
@@ -23,7 +23,6 @@ _Last updated: 2026-07-26 04:32 UTC by patrol_
 
 ## Waiting for Human
 
-- #165: [milestone Milestone 2] Implement `computeRiskScore(events, runId)` with configurable risk weights.
 - #152: Fix WasmAgent/open-agent-audit#122 ([milestone Milestone 4] Refactor adapter shared mapping logic into reusable typed ut
 - #119: [milestone Milestone 4] Add adapter conformance tests to verify output matches canonical event schemas.
 - #112: [milestone Milestone 3] Implement deterministic report IDs and content hashes for generated reports.
