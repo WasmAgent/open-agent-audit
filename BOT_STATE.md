@@ -1,25 +1,25 @@
 # Bot State
 
-_Last updated: 2026-07-27 18:43 UTC by patrol_
+_Last updated: 2026-07-27 19:42 UTC by patrol_
 
 ## Queue
 
 | State | Count |
 |---|---|
-| Pending | 3 |
+| Pending | 2 |
 | Active (running/reviewing) | 0 |
 | Blocked | 0 |
-| Completed/Merged (all time) | 140 |
+| Completed/Merged (all time) | 141 |
 
 ## Recent Activity (last 5)
 
 | Issue | Title | Outcome | Date |
 |---|---|---|---|
+| #152 | Fix WasmAgent/open-agent-audit#122 ([milestone Milestone ... | completed/maintenance_done | 2026-07-27 |
 | #188 | Strip forked trust-passport schema and competing schemas/... | completed/retry_split | 2026-07-27 |
 | #185 | [milestone Milestone 2] Implement `computeRiskScore(event... | merged/auto_closed_resolved | 2026-07-26 |
 | #186 | [milestone Milestone 3] Implement `renderReport(events, f... | merged/auto_closed_resolved | 2026-07-26 |
 | #177 | [milestone Milestone 2] Implement `computeRiskScore(event... | merged/auto_closed_resolved | 2026-07-26 |
-| #184 | [milestone Milestone 3] Implement `renderReport(events, f... | merged/auto_closed_resolved | 2026-07-26 |
 
 ## Waiting for Human
 
