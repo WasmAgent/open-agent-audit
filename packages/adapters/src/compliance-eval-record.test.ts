@@ -1,4 +1,5 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, expect, it } from 'bun:test';
+import { AuditRunSchema, validateEvents } from '@openagentaudit/schema';
 import { ComplianceEvalRecordAdapter } from './compliance-eval-record.js';
 import type { ComplianceEvalRecord } from './compliance-eval-record.js';
 
@@ -176,5 +177,54 @@ describe('ComplianceEvalRecordAdapter', () => {
 
     const run = ComplianceEvalRecordAdapter.beginRun(record);
     expect(run.model_id).toBe('compliance-eval');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Canonical event schema conformance
+// ---------------------------------------------------------------------------
+
+describe('ComplianceEvalRecordAdapter — canonical event schema conformance', () => {
+  // Exercise both branches the adapter can emit (passed -> observation, failed -> error).
+  const record: ComplianceEvalRecord = {
+    ...BASE_RECORD,
+    tasks: [
+      {
+        task_id: 'conf-pass',
+        task_description: 'Data retention policy enforced',
+        risk_level: 'low',
+        passed: true,
+        score: 0.9,
+        verifier_id: 'verifier-policy',
+        evaluated_at: '2025-01-01T01:00:00.000Z',
+      },
+      {
+        task_id: 'conf-fail',
+        task_description: 'PII redaction must be applied before storage',
+        risk_level: 'high',
+        passed: false,
+        evaluated_at: '2025-01-01T02:00:00.000Z',
+      },
+    ],
+  };
+
+  it('emits the full set of event types the adapter supports', () => {
+    const events = ComplianceEvalRecordAdapter.toEvents(record);
+    expect(events.length).toBe(2);
+    const types = new Set(events.map((e) => e.type));
+    expect(types.has('observation')).toBe(true);
+    expect(types.has('error')).toBe(true);
+  });
+
+  it('every emitted event validates against CanonicalEventSchema', () => {
+    const events = ComplianceEvalRecordAdapter.toEvents(record);
+    const { valid, errors } = validateEvents(events);
+    expect(errors).toEqual([]);
+    expect(valid.length).toBe(events.length);
+  });
+
+  it('beginRun() output validates against AuditRunSchema', () => {
+    const result = AuditRunSchema.safeParse(ComplianceEvalRecordAdapter.beginRun(record));
+    expect(result.success).toBe(true);
   });
 });

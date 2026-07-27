@@ -3,6 +3,7 @@
  */
 
 import { describe, expect, it } from 'bun:test';
+import { AuditRunSchema, validateEvents } from '@openagentaudit/schema';
 import { LangfuseAdapter } from './langfuse.js';
 import type { LangfuseTrace } from './langfuse.js';
 
@@ -487,5 +488,84 @@ describe('LangfuseAdapter metadata', () => {
 
   it('has correct version', () => {
     expect(LangfuseAdapter.version).toBe('0.1.0');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Canonical event schema conformance
+// ---------------------------------------------------------------------------
+
+describe('LangfuseAdapter — canonical event schema conformance', () => {
+  // One observation per event-type branch the adapter can emit.
+  const trace: LangfuseTrace = {
+    ...BASE_TRACE,
+    observations: [
+      {
+        id: 'conf-gen',
+        traceId: 'trace-001',
+        name: 'llm',
+        type: 'GENERATION',
+        startTime: '2024-01-15T10:00:00.000Z',
+        level: 'DEFAULT',
+        model: 'gpt-4o',
+        usage: { input: 10, output: 5, total: 15 },
+        statusMessage: 'stop',
+      },
+      {
+        id: 'conf-tool',
+        traceId: 'trace-001',
+        name: 'execute-tool-search',
+        type: 'SPAN',
+        startTime: '2024-01-15T10:01:00.000Z',
+        level: 'DEFAULT',
+      },
+      {
+        id: 'conf-err',
+        traceId: 'trace-001',
+        name: 'TimeoutError',
+        type: 'GENERATION',
+        startTime: '2024-01-15T10:02:00.000Z',
+        level: 'ERROR',
+        statusMessage: 'request timed out',
+      },
+      {
+        id: 'conf-evt',
+        traceId: 'trace-001',
+        name: 'user-feedback',
+        type: 'EVENT',
+        startTime: '2024-01-15T10:03:00.000Z',
+        level: 'DEFAULT',
+      },
+      {
+        id: 'conf-verif',
+        traceId: 'trace-001',
+        name: 'verify-output',
+        type: 'SPAN',
+        startTime: '2024-01-15T10:04:00.000Z',
+        level: 'DEFAULT',
+      },
+    ],
+  };
+
+  it('emits the full set of event types the adapter supports', () => {
+    const events = LangfuseAdapter.toEvents(trace);
+    expect(events.length).toBe(5);
+    const types = new Set(events.map((e) => e.type));
+    expect(types.has('model_output')).toBe(true);
+    expect(types.has('tool_call')).toBe(true);
+    expect(types.has('error')).toBe(true);
+    expect(types.has('observation')).toBe(true);
+  });
+
+  it('every emitted event validates against CanonicalEventSchema', () => {
+    const events = LangfuseAdapter.toEvents(trace);
+    const { valid, errors } = validateEvents(events);
+    expect(errors).toEqual([]);
+    expect(valid.length).toBe(events.length);
+  });
+
+  it('beginRun() output validates against AuditRunSchema', () => {
+    const result = AuditRunSchema.safeParse(LangfuseAdapter.beginRun(trace));
+    expect(result.success).toBe(true);
   });
 });

@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { AepV0_2Adapter, getProvenance, SUPPORTED_AEP_VERSIONS, toEventsBatch } from './aep-v0_2.js';
+import { AuditRunSchema, validateEvents } from '@openagentaudit/schema';
+import {
+  AepV0_2Adapter,
+  SUPPORTED_AEP_VERSIONS,
+  getProvenance,
+  toEventsBatch,
+} from './aep-v0_2.js';
 import type { AEPRecordInput } from './aep-v0_2.js';
 
 // Fixture paths relative to the repo root — both were committed under examples/traces/
@@ -137,22 +143,39 @@ describe('aep-v0_2 adapter — bscode fixture', () => {
 
 describe('aep-v0_2 adapter — validation', () => {
   it('toEvents throws an actionable error when run_id is missing', () => {
-    const bad = { schema_version: 'aep/v0.2', created_at_ms: 1700000000000, signature: { alg: 'ed25519', key_id: 'k1', sig: 'sig' } } as unknown as AEPRecordInput;
+    const bad = {
+      schema_version: 'aep/v0.2',
+      created_at_ms: 1700000000000,
+      signature: { alg: 'ed25519', key_id: 'k1', sig: 'sig' },
+    } as unknown as AEPRecordInput;
     expect(() => AepV0_2Adapter.toEvents(bad)).toThrow('run_id');
   });
 
   it('toEvents throws an actionable error when signature block is missing', () => {
-    const bad = { schema_version: 'aep/v0.2', run_id: 'r1', created_at_ms: 1700000000000 } as unknown as AEPRecordInput;
+    const bad = {
+      schema_version: 'aep/v0.2',
+      run_id: 'r1',
+      created_at_ms: 1700000000000,
+    } as unknown as AEPRecordInput;
     expect(() => AepV0_2Adapter.toEvents(bad)).toThrow('signature');
   });
 
   it('beginRun throws the same error as toEvents for the same bad input', () => {
-    const bad = { schema_version: 'aep/v0.2', created_at_ms: 1700000000000, signature: { alg: 'ed25519', key_id: 'k1', sig: 'sig' } } as unknown as AEPRecordInput;
+    const bad = {
+      schema_version: 'aep/v0.2',
+      created_at_ms: 1700000000000,
+      signature: { alg: 'ed25519', key_id: 'k1', sig: 'sig' },
+    } as unknown as AEPRecordInput;
     expect(() => AepV0_2Adapter.beginRun(bad)).toThrow('run_id');
   });
 
   it('toEvents throws when schema_version is unsupported', () => {
-    const bad = { schema_version: 'aep/v99', run_id: 'r1', created_at_ms: 1700000000000, signature: { alg: 'ed25519', key_id: 'k1', sig: 'sig' } } as unknown as AEPRecordInput;
+    const bad = {
+      schema_version: 'aep/v99',
+      run_id: 'r1',
+      created_at_ms: 1700000000000,
+      signature: { alg: 'ed25519', key_id: 'k1', sig: 'sig' },
+    } as unknown as AEPRecordInput;
     expect(() => AepV0_2Adapter.toEvents(bad)).toThrow('unsupported schema_version');
   });
 });
@@ -360,5 +383,75 @@ describe('aep-v0_2 adapter — aep/v0.4 support', () => {
       expect(ev.evidence?.attestation_format).toBeUndefined();
       expect(ev.evidence?.dsse_pre_verified).toBeUndefined();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Canonical event schema conformance
+// ---------------------------------------------------------------------------
+
+describe('aep-v0_2 adapter — canonical event schema conformance', () => {
+  // Every committed AEP fixture, across all supported schema versions, must
+  // produce CanonicalEvents that satisfy the canonical event schema. This is
+  // the core adapter-conformance guarantee for the AEP integration.
+  const FIXTURES = [
+    'aep-wasmagent-fixture.json',
+    'aep-bscode-fixture.json',
+    'aep-v0.3-fixture.json',
+    'aep-v0.4-fixture.json',
+  ] as const;
+
+  for (const name of FIXTURES) {
+    it(`toEvents() output for ${name} validates against CanonicalEventSchema`, () => {
+      const events = AepV0_2Adapter.toEvents(loadFixture(name));
+      expect(events.length).toBeGreaterThan(0);
+      const { valid, errors } = validateEvents(events);
+      expect(errors).toEqual([]);
+      expect(valid.length).toBe(events.length);
+    });
+
+    it(`beginRun() output for ${name} validates against AuditRunSchema`, () => {
+      const result = AuditRunSchema.safeParse(AepV0_2Adapter.beginRun(loadFixture(name)));
+      expect(result.success).toBe(true);
+    });
+  }
+
+  it('toEventsBatch() across all versions produces schema-valid events', () => {
+    const records = FIXTURES.map((n) => loadFixture(n));
+    const events = toEventsBatch(records);
+    expect(events.length).toBeGreaterThan(0);
+    const { valid, errors } = validateEvents(events);
+    expect(errors).toEqual([]);
+    expect(valid.length).toBe(events.length);
+  });
+
+  it('a minimal aep/v0.2 record (tool_call + evidence) validates against CanonicalEventSchema', () => {
+    const minimal: AEPRecordInput = {
+      schema_version: 'aep/v0.2',
+      run_id: 'conf-minimal',
+      created_at_ms: 1_700_000_000_000,
+      model_id: 'claude-conformance',
+      run_context: { agent_id: 'conf-agent' },
+      actions: [
+        {
+          action_id: 'a1',
+          tool_name: 'bash',
+          state_changing: true,
+          timestamp_ms: 1_700_000_001_000,
+          capability_decision: {
+            capability: 'shell.exec',
+            subject: 'agent',
+            resource: '/tmp',
+            decision: 'allow',
+          },
+        },
+      ],
+      signature: { alg: 'ed25519', key_id: 'k1', sig: 'a'.repeat(64) },
+    };
+    const events = AepV0_2Adapter.toEvents(minimal);
+    expect(events.length).toBeGreaterThan(0);
+    const { valid, errors } = validateEvents(events);
+    expect(errors).toEqual([]);
+    expect(valid.length).toBe(events.length);
   });
 });

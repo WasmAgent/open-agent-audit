@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
+import { AuditRunSchema, validateEvents } from '@openagentaudit/schema';
 import { OtelAdapter } from './otel.js';
-import type { OtelTrace, OtelSpan } from './otel.js';
+import type { OtelSpan, OtelTrace } from './otel.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -224,9 +225,7 @@ describe('otel adapter — agent_id fallback', () => {
 
   it('agent_id falls back to gen_ai.system when no service.name', () => {
     const trace: OtelTrace = {
-      spans: [
-        makeSpan({ attributes: { 'gen_ai.system': 'openai' } }),
-      ],
+      spans: [makeSpan({ attributes: { 'gen_ai.system': 'openai' } })],
     };
     const events = OtelAdapter.toEvents(trace);
     expect(events[0]?.agent_id).toBe('openai');
@@ -331,5 +330,72 @@ describe('otel adapter — input format compatibility', () => {
     };
     const events = OtelAdapter.toEvents(trace);
     expect(events.length).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Canonical event schema conformance
+// ---------------------------------------------------------------------------
+
+describe('otel adapter — canonical event schema conformance', () => {
+  // One span per event-type branch the adapter can emit (model_output, tool_call,
+  // error, observation), so the schema assertion covers every emitted shape.
+  const trace: OtelTrace = {
+    resource_spans: [
+      {
+        resource: { attributes: { 'service.name': 'svc-conformance' } },
+        scope_spans: [
+          {
+            spans: [
+              makeSpan({
+                span_id: 'conf-mo',
+                name: 'chat',
+                trace_id: 'trace-conf',
+                attributes: {
+                  'gen_ai.input.tokens': 10,
+                  'gen_ai.output.tokens': 5,
+                  'gen_ai.response.finish_reasons': 'stop',
+                },
+              }),
+              makeSpan({
+                span_id: 'conf-tc',
+                name: 'work',
+                trace_id: 'trace-conf',
+                attributes: { 'gen_ai.tool.name': 'web_search' },
+              }),
+              makeSpan({
+                span_id: 'conf-err',
+                name: 'chat',
+                trace_id: 'trace-conf',
+                status: { code: 'ERROR', message: 'rate limited' },
+              }),
+              makeSpan({ span_id: 'conf-obs', name: 'misc', trace_id: 'trace-conf' }),
+            ],
+          },
+        ],
+      },
+    ],
+  };
+
+  it('emits the full set of event types the adapter supports', () => {
+    const events = OtelAdapter.toEvents(trace);
+    expect(events.length).toBe(4);
+    const types = new Set(events.map((e) => e.type));
+    expect(types.has('model_output')).toBe(true);
+    expect(types.has('tool_call')).toBe(true);
+    expect(types.has('error')).toBe(true);
+    expect(types.has('observation')).toBe(true);
+  });
+
+  it('every emitted event validates against CanonicalEventSchema', () => {
+    const events = OtelAdapter.toEvents(trace);
+    const { valid, errors } = validateEvents(events);
+    expect(errors).toEqual([]);
+    expect(valid.length).toBe(events.length);
+  });
+
+  it('beginRun() output validates against AuditRunSchema', () => {
+    const result = AuditRunSchema.safeParse(OtelAdapter.beginRun(trace));
+    expect(result.success).toBe(true);
   });
 });

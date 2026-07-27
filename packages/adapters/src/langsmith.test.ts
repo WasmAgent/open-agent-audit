@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
+import { AuditRunSchema, validateEvents } from '@openagentaudit/schema';
 import { LangSmithAdapter } from './langsmith.js';
-import type { LangSmithTrace, LangSmithRun } from './langsmith.js';
+import type { LangSmithRun, LangSmithTrace } from './langsmith.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -338,5 +339,52 @@ describe('langsmith adapter — beginRun', () => {
     const auditRun = LangSmithAdapter.beginRun(noNameTrace);
     expect(auditRun.agent_id).toBe('langsmith-agent');
     expect(auditRun.task.description).toBe('LangSmith trace import');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Canonical event schema conformance
+// ---------------------------------------------------------------------------
+
+describe('langsmith adapter — canonical event schema conformance', () => {
+  // One run per event-type branch the adapter can emit.
+  const trace = makeTrace([
+    makeRun({
+      id: 'conf-llm',
+      name: 'gpt-4o',
+      run_type: 'llm',
+      extra: { invocation_params: { model_name: 'gpt-4o' } },
+      outputs: {
+        llm_output: { token_usage: { total_tokens: 42 } },
+        generations: [[{ text: 'hi', generation_info: { finish_reason: 'stop' } }]],
+      },
+    }),
+    makeRun({ id: 'conf-tool', name: 'web_search', run_type: 'tool' }),
+    makeRun({ id: 'conf-err', name: 'failing-chain', run_type: 'chain', error: 'boom' }),
+    makeRun({ id: 'conf-ret', name: 'vector-store', run_type: 'retriever' }),
+    makeRun({ id: 'conf-chain', name: 'qa-chain', run_type: 'chain' }),
+    makeRun({ id: 'conf-emb', name: 'text-embedding-3', run_type: 'embedding' }),
+  ]);
+
+  it('emits the full set of event types the adapter supports', () => {
+    const events = LangSmithAdapter.toEvents(trace);
+    expect(events.length).toBe(6);
+    const types = new Set(events.map((e) => e.type));
+    expect(types.has('model_output')).toBe(true);
+    expect(types.has('tool_call')).toBe(true);
+    expect(types.has('error')).toBe(true);
+    expect(types.has('observation')).toBe(true);
+  });
+
+  it('every emitted event validates against CanonicalEventSchema', () => {
+    const events = LangSmithAdapter.toEvents(trace);
+    const { valid, errors } = validateEvents(events);
+    expect(errors).toEqual([]);
+    expect(valid.length).toBe(events.length);
+  });
+
+  it('beginRun() output validates against AuditRunSchema', () => {
+    const result = AuditRunSchema.safeParse(LangSmithAdapter.beginRun(trace));
+    expect(result.success).toBe(true);
   });
 });
