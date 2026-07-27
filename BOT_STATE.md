@@ -1,6 +1,6 @@
 # Bot State
 
-_Last updated: 2026-07-27 14:52 UTC by patrol_
+_Last updated: 2026-07-27 18:41 UTC by patrol_
 
 ## Queue
 
@@ -25,7 +25,6 @@ _Last updated: 2026-07-27 14:52 UTC by patrol_
 
 - #189: Fix WasmAgent/open-agent-audit#188 (Strip forked trust-passport schema and competing schemas/index.json; consume @wasmag
 - #152: Fix WasmAgent/open-agent-audit#122 ([milestone Milestone 4] Refactor adapter shared mapping logic into reusable typed ut
-- #112: [milestone Milestone 3] Implement deterministic report IDs and content hashes for generated reports.
 
 ---
 _Maintained automatically by claude-bot-go patrol. Do not edit._
