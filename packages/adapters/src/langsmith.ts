@@ -9,6 +9,13 @@
 import type { AuditRun, CanonicalEvent } from '@openagentaudit/schema';
 import { SPEC_VERSION } from '@openagentaudit/schema';
 import type { SourceFormatAdapter } from './index.js';
+import {
+  buildEventBase,
+  makeErrorEvent,
+  makeModelOutputEvent,
+  makeObservationEvent,
+  makeToolCallEvent,
+} from './mapping-utils.js';
 
 // ---------------------------------------------------------------------------
 // Public LangSmith input types
@@ -59,27 +66,17 @@ function runToEvent(run: LangSmithRun, traceId: string, agentId: string): Canoni
     run.name ??
     'unknown';
 
-  const base = {
-    schema_version: SPEC_VERSION,
+  const base = buildEventBase({
     run_id: traceId,
     agent_id: agentId,
     model_id: modelId,
     event_id: run.id,
     timestamp: run.start_time,
-  } as const;
+  });
 
   // Error event takes priority
   if (run.error !== undefined) {
-    const ev: CanonicalEvent = {
-      ...base,
-      type: 'error',
-      actor: 'system',
-      error: {
-        kind: run.run_type,
-        message: run.error,
-      },
-    };
-    return ev;
+    return makeErrorEvent(base, { kind: run.run_type, message: run.error });
   }
 
   if (run.run_type === 'llm') {
@@ -97,64 +94,26 @@ function runToEvent(run: LangSmithRun, traceId: string, agentId: string): Canoni
       )?.['generation_info'] as Record<string, unknown> | undefined
     )?.['finish_reason'] as string | undefined;
 
-    const ev: CanonicalEvent = {
-      ...base,
-      type: 'model_output',
-      actor: 'agent',
-      model_output: {
-        ...(tokenCount !== undefined ? { token_count: tokenCount } : {}),
-        ...(finishReason !== undefined ? { finish_reason: finishReason } : {}),
-      },
-    };
-    return ev;
+    return makeModelOutputEvent(base, {
+      token_count: tokenCount,
+      finish_reason: finishReason,
+    });
   }
 
   if (run.run_type === 'tool') {
-    const ev: CanonicalEvent = {
-      ...base,
-      type: 'tool_call',
-      actor: 'agent',
-      tool: {
-        name: run.name,
-      },
-    };
-    return ev;
+    return makeToolCallEvent(base, { name: run.name });
   }
 
   if (run.run_type === 'retriever') {
-    const ev: CanonicalEvent = {
-      ...base,
-      type: 'observation',
-      actor: 'tool',
-      observation: {
-        source: 'retriever:' + run.name,
-      },
-    };
-    return ev;
+    return makeObservationEvent(base, { actor: 'tool', source: 'retriever:' + run.name });
   }
 
   if (run.run_type === 'chain') {
-    const ev: CanonicalEvent = {
-      ...base,
-      type: 'observation',
-      actor: 'agent',
-      observation: {
-        source: 'chain:' + run.name,
-      },
-    };
-    return ev;
+    return makeObservationEvent(base, { actor: 'agent', source: 'chain:' + run.name });
   }
 
   // Default: embedding, prompt, parser, or unknown
-  const ev: CanonicalEvent = {
-    ...base,
-    type: 'observation',
-    actor: 'system',
-    observation: {
-      source: 'langsmith:' + run.name,
-    },
-  };
-  return ev;
+  return makeObservationEvent(base, { actor: 'system', source: 'langsmith:' + run.name });
 }
 
 // ---------------------------------------------------------------------------

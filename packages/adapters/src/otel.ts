@@ -9,6 +9,14 @@
 import type { AuditRun, CanonicalEvent } from '@openagentaudit/schema';
 import { SPEC_VERSION } from '@openagentaudit/schema';
 import type { SourceFormatAdapter } from './index.js';
+import {
+  buildEventBase,
+  makeErrorEvent,
+  makeModelOutputEvent,
+  makeObservationEvent,
+  makeToolCallEvent,
+  nanoToIso,
+} from './mapping-utils.js';
 
 // ---------------------------------------------------------------------------
 // Public OTel input types
@@ -46,11 +54,6 @@ export const version = '0.1.0' as const;
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/** Nano-second Unix timestamp → ISO 8601 string. */
-function nanoToIso(nanos: number): string {
-  return new Date(nanos / 1e6).toISOString();
-}
 
 /** Pull every OtelSpan out of an OtelTrace regardless of nesting form. */
 function flattenSpans(record: OtelTrace): Array<{ span: OtelSpan; serviceAttrs: Record<string, string> }> {
@@ -123,27 +126,20 @@ function spanToEvent(
   const opName = (attrs['gen_ai.operation.name'] as string | undefined) ?? span.name;
   const lowerOp = opName.toLowerCase();
 
-  const base = {
-    schema_version: SPEC_VERSION,
+  const base = buildEventBase({
     run_id: runId,
     agent_id: agentId(serviceAttrs, attrs),
     model_id: modelId(attrs),
     event_id: span.span_id,
     timestamp: nanoToIso(span.start_time_unix_nano),
-  } as const;
+  });
 
   // ERROR spans
   if (span.status?.code === 'ERROR') {
-    const ev: CanonicalEvent = {
-      ...base,
-      type: 'error',
-      actor: 'system',
-      error: {
-        kind: span.name,
-        message: span.status.message ?? 'span error',
-      },
-    };
-    return ev;
+    return makeErrorEvent(base, {
+      kind: span.name,
+      message: span.status.message ?? 'span error',
+    });
   }
 
   // Model-output operations
@@ -159,44 +155,21 @@ function spanToEvent(
     const finishReasonParts = finishReasonsRaw ? finishReasonsRaw.split(',') : undefined;
     const finishReason = finishReasonParts?.[0]?.trim() || undefined;
 
-    const ev: CanonicalEvent = {
-      ...base,
-      type: 'model_output',
-      actor: 'agent',
-      model_output: {
-        ...(tokenCount !== undefined ? { token_count: tokenCount } : {}),
-        ...(finishReason ? { finish_reason: finishReason } : {}),
-      },
-    };
-    return ev;
+    return makeModelOutputEvent(base, {
+      token_count: tokenCount,
+      finish_reason: finishReason,
+    });
   }
 
   // Tool-call operations (by op name or by presence of gen_ai.tool.name attribute)
   const toolName = attrs['gen_ai.tool.name'] as string | undefined;
   if (TOOL_CALL_OPS.has(lowerOp) || toolName !== undefined) {
     const resolvedToolName = toolName ?? span.name;
-    const ev: CanonicalEvent = {
-      ...base,
-      type: 'tool_call',
-      actor: 'agent',
-      tool: {
-        name: resolvedToolName,
-        ...(toolName !== undefined ? { capability: toolName } : {}),
-      },
-    };
-    return ev;
+    return makeToolCallEvent(base, { name: resolvedToolName, capability: toolName });
   }
 
   // Default: observation
-  const ev: CanonicalEvent = {
-    ...base,
-    type: 'observation',
-    actor: 'system',
-    observation: {
-      source: 'otel:' + span.name,
-    },
-  };
-  return ev;
+  return makeObservationEvent(base, { actor: 'system', source: 'otel:' + span.name });
 }
 
 // ---------------------------------------------------------------------------
