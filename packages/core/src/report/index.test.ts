@@ -255,3 +255,68 @@ describe('renderReport null inventoryReport (#57)', () => {
     expect(report.inventory).toBeUndefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Deterministic report IDs and content hashes
+// ---------------------------------------------------------------------------
+
+describe('deterministic report IDs and content hashes', () => {
+  it('produces the same report_id for identical inputs across multiple calls', async () => {
+    const score = await computeRiskScore(GOLDEN_EVENTS);
+    const findings = await policyAudit(GOLDEN_EVENTS, {
+      manifest: { declared_capabilities: [], high_risk_capabilities: [], denied_capabilities: [] },
+    });
+
+    const bundle1 = await renderReport(GOLDEN_EVENTS, findings, score, null);
+    const bundle2 = await renderReport(GOLDEN_EVENTS, findings, score, null);
+
+    const report1 = JSON.parse(bundle1.json) as { meta: { report_id: string } };
+    const report2 = JSON.parse(bundle2.json) as { meta: { report_id: string } };
+
+    expect(report1.meta.report_id).toBe(report2.meta.report_id);
+    expect(report1.meta.report_id).toMatch(/^OAA-[0-9a-f]{12}$/);
+  });
+
+  it('content_hash is a 64-char lowercase hex string', async () => {
+    const score = await computeRiskScore(GOLDEN_EVENTS);
+    const findings = await policyAudit(GOLDEN_EVENTS, {
+      manifest: { declared_capabilities: [], high_risk_capabilities: [], denied_capabilities: [] },
+    });
+
+    const bundle = await renderReport(GOLDEN_EVENTS, findings, score, null);
+    expect(bundle.content_hash).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('content_hash is SHA-256 of the JSON body without the hash field', async () => {
+    const score = await computeRiskScore(GOLDEN_EVENTS);
+    const findings = await policyAudit(GOLDEN_EVENTS, {
+      manifest: { declared_capabilities: [], high_risk_capabilities: [], denied_capabilities: [] },
+    });
+
+    const bundle = await renderReport(GOLDEN_EVENTS, findings, score, null);
+    const report = JSON.parse(bundle.json) as { content_hash: string; [key: string]: unknown };
+
+    // Reconstruct the JSON without content_hash to verify the hash
+    const { content_hash: _, ...rest } = report;
+    const canonicalJson = JSON.stringify(rest, null, 2);
+    const encoder = new TextEncoder();
+    const buf = await crypto.subtle.digest('SHA-256', encoder.encode(canonicalJson));
+    const expectedHash = Array.from(new Uint8Array(buf))
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+
+    expect(bundle.content_hash).toBe(expectedHash);
+  });
+
+  it('content_hash is embedded in the JSON report', async () => {
+    const score = await computeRiskScore(GOLDEN_EVENTS);
+    const findings = await policyAudit(GOLDEN_EVENTS, {
+      manifest: { declared_capabilities: [], high_risk_capabilities: [], denied_capabilities: [] },
+    });
+
+    const bundle = await renderReport(GOLDEN_EVENTS, findings, score, null);
+    const report = JSON.parse(bundle.json) as { content_hash: string };
+
+    expect(report.content_hash).toBe(bundle.content_hash);
+  });
+});

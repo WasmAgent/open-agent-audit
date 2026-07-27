@@ -8,6 +8,8 @@ export interface ReportBundle {
   html: string;
   json: string;
   csv: string;
+  /** SHA-256 hash of the JSON report body (hex, lowercase). Deterministic for identical inputs. */
+  content_hash: string;
 }
 
 /**
@@ -278,13 +280,41 @@ function generateQrPlaceholderSvg(url: string): string {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="border:1px solid #d1d5db;border-radius:4px">${cells.join('')}</svg>`;
 }
 
-function deriveReportId(generatedAt: string, runId: string): string {
-  const datePart = generatedAt.slice(0, 10).replace(/-/g, '');
-  const hash = Math.abs(runId.split('').reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 0))
-    .toString(16)
-    .slice(0, 6)
-    .toUpperCase();
-  return `OAA-${datePart}-${hash}`;
+/**
+ * Derive a deterministic report ID from the canonical JSON of the report's core inputs.
+ *
+ * The ID is computed as SHA-256(canonical_json(events, score)) truncated to the
+ * first 12 hex characters and prefixed with `OAA-`.  This guarantees that the
+ * same set of events and risk score always produces the same report ID regardless
+ * of when the report is generated.
+ */
+async function deriveReportId(events: CanonicalEvent[], score: RiskScore): Promise<string> {
+  const canonical = JSON.stringify({ events, score }, (_, value) =>
+    value instanceof Array
+      ? value
+      : value && typeof value === 'object'
+        ? Object.keys(value)
+            .sort()
+            .reduce<Record<string, unknown>>((sorted, key) => {
+              sorted[key] = (value as Record<string, unknown>)[key];
+              return sorted;
+            }, {})
+        : value,
+  );
+  const encoded = new TextEncoder().encode(canonical);
+  const buf = await crypto.subtle.digest('SHA-256', encoded);
+  const hex = Array.from(new Uint8Array(buf))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+  return `OAA-${hex.slice(0, 12)}`;
+}
+
+async function sha256Hex(content: string): Promise<string> {
+  const encoded = new TextEncoder().encode(content);
+  const buf = await crypto.subtle.digest('SHA-256', encoded);
+  return Array.from(new Uint8Array(buf))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
 }
 
 function deriveTraceStart(events: CanonicalEvent[]): string {
@@ -316,13 +346,13 @@ function addSixMonths(isoTimestamp: string): string {
   return d.toISOString().slice(0, 10);
 }
 
-function resolveMeta(
+async function resolveMeta(
   events: CanonicalEvent[],
   score: RiskScore,
   generatedAt: string,
   meta: ReportMeta | undefined,
-): ResolvedMeta {
-  const report_id = meta?.report_id ?? deriveReportId(generatedAt, score.run_id);
+): Promise<ResolvedMeta> {
+  const report_id = meta?.report_id ?? await deriveReportId(events, score);
   const issuer = meta?.issuer ?? 'OpenAgentAudit (self-hosted)';
   const issuer_email = meta?.issuer_email ?? 'noreply@localhost';
   const prepared_by = meta?.prepared_by ?? 'automated';
@@ -3459,6 +3489,7 @@ interface JsonReport {
   event_count: number;
   meta?: ResolvedMeta;
   crypto_verification?: ReportMeta['crypto_summary'];
+  content_hash?: string;
 }
 
 function buildJson(
@@ -3470,6 +3501,7 @@ function buildJson(
   resolved: ResolvedMeta,
   complianceMappings: ComplianceMapping[],
   cryptoSummary?: ReportMeta['crypto_summary'],
+  contentHash?: string,
 ): string {
   const obj: JsonReport = {
     schema_version: 'open-agent-audit/v0.1',
@@ -3486,6 +3518,9 @@ function buildJson(
   }
   if (cryptoSummary !== undefined) {
     obj.crypto_verification = cryptoSummary;
+  }
+  if (contentHash !== undefined) {
+    obj.content_hash = contentHash;
   }
   return JSON.stringify(obj, null, 2);
 }
@@ -3506,7 +3541,7 @@ export async function renderReport(
   const inv = inventoryReport ?? undefined;
 
   const generatedAt = new Date().toISOString();
-  const resolved = resolveMeta(events, score, generatedAt, meta);
+  const resolved = await resolveMeta(events, score, generatedAt, meta);
   const complianceMappings = buildComplianceMappings(events, findings, meta, benchmarkResult);
   const cryptoSummary = meta?.crypto_summary;
 
@@ -3537,7 +3572,8 @@ export async function renderReport(
     narrativeIntro,
     narrativeConclusion,
   );
-  const json = buildJson(
+  // Build JSON first without content_hash to get canonical content
+  const jsonWithoutHash = buildJson(
     events,
     findings,
     score,
@@ -3547,7 +3583,19 @@ export async function renderReport(
     complianceMappings,
     cryptoSummary,
   );
+  const contentHash = await sha256Hex(jsonWithoutHash);
+  const json = buildJson(
+    events,
+    findings,
+    score,
+    inv,
+    generatedAt,
+    resolved,
+    complianceMappings,
+    cryptoSummary,
+    contentHash,
+  );
   const csv = buildCsv(events, findings);
 
-  return { markdown, html, json, csv };
+  return { markdown, html, json, csv, content_hash: contentHash };
 }
