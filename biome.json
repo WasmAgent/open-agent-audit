@@ -6,14 +6,48 @@
   "linter": {
     "enabled": true,
     "rules": {
-      "recommended": true
+      "recommended": true,
+      "a11y": {
+        "noSvgWithoutTitle": "warn",
+        "useButtonType": "warn",
+        "useKeyWithClickEvents": "warn"
+      },
+      "complexity": {
+        "noUselessSwitchCase": "warn",
+        "useLiteralKeys": "warn",
+        "useOptionalChain": "warn"
+      },
+      "performance": {
+        "noDelete": "warn"
+      },
+      "security": {
+        "noDangerouslySetInnerHtml": "warn"
+      },
+      "style": {
+        "noNonNullAssertion": "warn",
+        "noUnusedTemplateLiteral": "warn",
+        "noUselessElse": "warn",
+        "useConst": "warn",
+        "useExponentiationOperator": "warn",
+        "useNumberNamespace": "warn",
+        "useSingleVarDeclarator": "warn",
+        "useTemplate": "warn"
+      },
+      "suspicious": {
+        "noArrayIndexKey": "warn",
+        "noGlobalIsNan": "warn",
+        "noImplicitAnyLet": "warn"
+      }
     }
   },
   "formatter": {
-    "enabled": true,
+    "enabled": false,
     "indentStyle": "space",
     "indentWidth": 2,
     "lineWidth": 100
+  },
+  "organizeImports": {
+    "enabled": false
   },
   "javascript": {
     "formatter": {

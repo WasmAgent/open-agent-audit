@@ -28,6 +28,16 @@ export type { PolicyAuditContext, CapabilityManifest } from './policy-audit/inde
 export { benchmarkAudit } from './benchmark-audit/index.js';
 export { contamination } from './contamination/index.js';
 export { driftGuard } from './drift-guard/index.js';
+export { auditDrift } from './drift-guard/index.js';
+export type {
+  DriftWindow,
+  DriftMetric,
+  DriftSummary,
+  AuditDriftReport,
+  PermissionEscalation,
+  NewToolUsage,
+  PolicyChange,
+} from './drift-guard/index.js';
 export { computeRiskScore } from './scoring/index.js';
 export type { AepProvenanceForScoring, DriftResultForScoring } from './scoring/index.js';
 export { renderReport } from './report/index.js';

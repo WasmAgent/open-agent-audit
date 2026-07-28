@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { driftGuard } from './index.js';
 import type { CanonicalEvent } from '@openagentaudit/schema';
+import { auditDrift, driftGuard } from './index.js';
 import type { DriftWindow } from './index.js';
 
 // ---------------------------------------------------------------------------
@@ -9,7 +9,9 @@ import type { DriftWindow } from './index.js';
 
 let _seq = 0;
 
-function makeEvent(overrides: Partial<CanonicalEvent> & { type: CanonicalEvent['type'] }): CanonicalEvent {
+function makeEvent(
+  overrides: Partial<CanonicalEvent> & { type: CanonicalEvent['type'] },
+): CanonicalEvent {
   _seq += 1;
   return {
     schema_version: 'open-agent-audit/v0.1',
@@ -64,6 +66,33 @@ function window(label: string, events: CanonicalEvent[]): DriftWindow {
   return { label, events };
 }
 
+function policyDecisionForTool(
+  toolName: string,
+  decision: 'allow' | 'deny' | 'ask_user' = 'deny',
+  ruleId?: string,
+): CanonicalEvent {
+  return makeEvent({
+    type: 'policy_decision',
+    tool: { name: toolName },
+    policy: {
+      decision,
+      reason: 'rule matched',
+      ...(ruleId !== undefined ? { rule_id: ruleId } : {}),
+    },
+  });
+}
+
+function toolCallWithCapability(
+  name: string,
+  capability: string,
+  riskTags?: string[],
+): CanonicalEvent {
+  return makeEvent({
+    type: 'tool_call',
+    tool: { name, capability, ...(riskTags !== undefined ? { risk_tags: riskTags } : {}) },
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -76,10 +105,7 @@ describe('driftGuard', () => {
       observationEvent(),
       modelOutputEvent(50),
     ];
-    const result = await driftGuard(
-      window('A', events),
-      window('B', [...events]),
-    );
+    const result = await driftGuard(window('A', events), window('B', [...events]));
 
     expect(result.drifted_metrics).toHaveLength(0);
     expect(result.drift_score).toBe(0);
@@ -264,5 +290,197 @@ describe('driftGuard', () => {
     const driftedFromSummary = [...result.drifted_metrics].sort();
 
     expect(driftedFromMetrics).toEqual(driftedFromSummary);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// auditDrift — audit-level drift detection (issue #196)
+// ---------------------------------------------------------------------------
+
+describe('auditDrift', () => {
+  test('identical audits → no drift', async () => {
+    const events = [toolCallEvent('bash'), policyDecisionForTool('bash', 'allow')];
+
+    const result = await auditDrift([...events], [...events]);
+
+    expect(result.drift_detected).toBe(false);
+    expect(result.total_changes).toBe(0);
+    expect(result.permission_escalations).toHaveLength(0);
+    expect(result.new_tools).toHaveLength(0);
+    expect(result.policy_changes).toHaveLength(0);
+  });
+
+  test('flags new tool usage (tool in current, absent in previous)', async () => {
+    const previous = [toolCallEvent('bash')];
+    const current = [toolCallEvent('bash'), toolCallEvent('write_file', ['mutation'])];
+
+    const result = await auditDrift(previous, current);
+
+    expect(result.new_tools.map((t) => t.tool)).toEqual(['write_file']);
+    expect(result.new_tools[0]?.risk_tags).toContain('mutation');
+    expect(result.drift_detected).toBe(true);
+  });
+
+  test('captures capability + risk_tags on a new tool', async () => {
+    const previous = [toolCallEvent('bash')];
+    const current = [
+      toolCallEvent('bash'),
+      toolCallWithCapability('curl', 'network.fetch', ['network']),
+    ];
+
+    const result = await auditDrift(previous, current);
+
+    const newTool = result.new_tools[0];
+    expect(newTool?.tool).toBe('curl');
+    expect(newTool?.capability).toBe('network.fetch');
+    expect(newTool?.risk_tags).toContain('network');
+  });
+
+  test('flags permission escalation deny → allow as critical', async () => {
+    const previous = [policyDecisionForTool('exec', 'deny')];
+    const current = [policyDecisionForTool('exec', 'allow')];
+
+    const result = await auditDrift(previous, current);
+
+    expect(result.permission_escalations).toHaveLength(1);
+    const escalation = result.permission_escalations[0];
+    expect(escalation?.tool).toBe('exec');
+    expect(escalation?.previous_decision).toBe('deny');
+    expect(escalation?.current_decision).toBe('allow');
+    expect(escalation?.severity).toBe('critical');
+    // Escalations must not be double-counted as policy changes.
+    expect(result.policy_changes.map((p) => p.tool)).not.toContain('exec');
+  });
+
+  test('flags permission escalation ask_user → allow as high', async () => {
+    const previous = [policyDecisionForTool('deploy', 'ask_user')];
+    const current = [policyDecisionForTool('deploy', 'allow')];
+
+    const result = await auditDrift(previous, current);
+
+    expect(result.permission_escalations).toHaveLength(1);
+    expect(result.permission_escalations[0]?.severity).toBe('high');
+    expect(result.permission_escalations[0]?.previous_decision).toBe('ask_user');
+    expect(result.permission_escalations[0]?.current_decision).toBe('allow');
+  });
+
+  test('flags permission escalation deny → ask_user as medium', async () => {
+    const previous = [policyDecisionForTool('rm', 'deny')];
+    const current = [policyDecisionForTool('rm', 'ask_user')];
+
+    const result = await auditDrift(previous, current);
+
+    expect(result.permission_escalations).toHaveLength(1);
+    expect(result.permission_escalations[0]?.severity).toBe('medium');
+  });
+
+  test('captures capability on an escalation', async () => {
+    const previous = [
+      toolCallWithCapability('exec', 'shell.execute'),
+      policyDecisionForTool('exec', 'deny'),
+    ];
+    const current = [
+      toolCallWithCapability('exec', 'shell.execute'),
+      policyDecisionForTool('exec', 'allow'),
+    ];
+
+    const result = await auditDrift(previous, current);
+
+    expect(result.permission_escalations[0]?.capability).toBe('shell.execute');
+  });
+
+  test('tightening allow → deny is a policy change, not an escalation', async () => {
+    const previous = [policyDecisionForTool('exec', 'allow')];
+    const current = [policyDecisionForTool('exec', 'deny')];
+
+    const result = await auditDrift(previous, current);
+
+    expect(result.permission_escalations).toHaveLength(0);
+    expect(result.policy_changes.map((p) => p.tool)).toContain('exec');
+    const change = result.policy_changes[0];
+    expect(change?.previous_decisions).toEqual(['allow']);
+    expect(change?.current_decisions).toEqual(['deny']);
+  });
+
+  test('rule_id change with identical decisions is a policy change', async () => {
+    const previous = [policyDecisionForTool('exec', 'allow', 'rule-v1')];
+    const current = [policyDecisionForTool('exec', 'allow', 'rule-v2')];
+
+    const result = await auditDrift(previous, current);
+
+    expect(result.permission_escalations).toHaveLength(0);
+    expect(result.policy_changes).toHaveLength(1);
+    expect(result.policy_changes[0]?.previous_rule_ids).toEqual(['rule-v1']);
+    expect(result.policy_changes[0]?.current_rule_ids).toEqual(['rule-v2']);
+    expect(result.policy_changes[0]?.previous_decisions).toEqual(['allow']);
+    expect(result.policy_changes[0]?.current_decisions).toEqual(['allow']);
+  });
+
+  test('tool with no policy_decision in either audit produces no escalation/change', async () => {
+    const previous = [toolCallEvent('bash')];
+    const current = [toolCallEvent('bash')];
+
+    const result = await auditDrift(previous, current);
+
+    expect(result.permission_escalations).toHaveLength(0);
+    expect(result.policy_changes).toHaveLength(0);
+    expect(result.new_tools).toHaveLength(0);
+    expect(result.drift_detected).toBe(false);
+  });
+
+  test('escalation requires a prior decision — new tool with allow is new_tools only', async () => {
+    const previous = [toolCallEvent('bash')];
+    const current = [toolCallEvent('bash'), policyDecisionForTool('shell', 'allow')];
+
+    const result = await auditDrift(previous, current);
+
+    expect(result.permission_escalations).toHaveLength(0);
+    // 'shell' had no policy_decision in previous → not comparable → no change row.
+    expect(result.policy_changes).toHaveLength(0);
+  });
+
+  test('total_changes equals the sum of all three categories', async () => {
+    const previous = [
+      policyDecisionForTool('exec', 'deny'),
+      policyDecisionForTool('rm', 'allow', 'rule-v1'),
+      toolCallEvent('bash'),
+    ];
+    const current = [
+      policyDecisionForTool('exec', 'allow'), // escalation
+      policyDecisionForTool('rm', 'allow', 'rule-v2'), // policy change (rule_id)
+      toolCallEvent('bash'),
+      toolCallEvent('curl', ['network']), // new tool
+    ];
+
+    const result = await auditDrift(previous, current);
+
+    expect(result.total_changes).toBe(
+      result.permission_escalations.length + result.new_tools.length + result.policy_changes.length,
+    );
+    expect(result.permission_escalations).toHaveLength(1);
+    expect(result.policy_changes).toHaveLength(1);
+    expect(result.new_tools).toHaveLength(1);
+    expect(result.drift_detected).toBe(true);
+  });
+
+  test('empty inputs → no drift', async () => {
+    const result = await auditDrift([], []);
+
+    expect(result.drift_detected).toBe(false);
+    expect(result.total_changes).toBe(0);
+  });
+
+  test('report exposes the three Milestone-6 categories', async () => {
+    const previous = [toolCallEvent('bash')];
+    const current = [toolCallEvent('bash'), toolCallEvent('write_file')];
+
+    const result = await auditDrift(previous, current);
+
+    expect(result).toHaveProperty('permission_escalations');
+    expect(result).toHaveProperty('new_tools');
+    expect(result).toHaveProperty('policy_changes');
+    expect(Array.isArray(result.permission_escalations)).toBe(true);
+    expect(Array.isArray(result.new_tools)).toBe(true);
+    expect(Array.isArray(result.policy_changes)).toBe(true);
   });
 });
