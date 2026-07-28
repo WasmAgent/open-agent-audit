@@ -1,25 +1,30 @@
 # Bot State
 
-_Last updated: 2026-07-28 06:57 UTC by patrol_
+_Last updated: 2026-07-28 09:41 UTC by patrol_
 
 ## Queue
 
 | State | Count |
 |---|---|
-| Pending | 10 |
+| Pending | 9 |
 | Active (running/reviewing) | 0 |
 | Blocked | 0 |
-| Completed/Merged (all time) | 144 |
+| Completed/Merged (all time) | 145 |
 
 ## Recent Activity (last 5)
 
 | Issue | Title | Outcome | Date |
 |---|---|---|---|
+| #198 | [milestone Milestone 6 ] Implement baseline snapshot comp... | completed/retry_split | 2026-07-28 |
 | #189 | Fix WasmAgent/open-agent-audit#188 (Strip forked trust-pa... | completed/retry_split | 2026-07-27 |
 | #152 | Fix WasmAgent/open-agent-audit#122 ([milestone Milestone ... | completed/maintenance_done | 2026-07-27 |
 | #152 | Fix WasmAgent/open-agent-audit#122 ([milestone Milestone ... | completed/maintenance_done | 2026-07-27 |
 | #152 | Fix WasmAgent/open-agent-audit#122 ([milestone Milestone ... | completed/maintenance_done | 2026-07-27 |
-| #188 | Strip forked trust-passport schema and competing schemas/... | completed/retry_split | 2026-07-27 |
+
+## Waiting for Human
+
+- #203: [milestone Milestone 3] Implement `renderReport(events, findings, score)` to generate HTML, Markdown, JS...
+- #202: [milestone Milestone 2] Implement `computeRiskScore(events, runId)` with configurable risk weights.
 
 ---
 _Maintained automatically by claude-bot-go patrol. Do not edit._
