@@ -1,30 +1,25 @@
 # Bot State
 
-_Last updated: 2026-07-27 23:27 UTC by patrol_
+_Last updated: 2026-07-28 01:25 UTC by patrol_
 
 ## Queue
 
 | State | Count |
 |---|---|
-| Pending | 1 |
-| Active (running/reviewing) | 1 |
+| Pending | 0 |
+| Active (running/reviewing) | 0 |
 | Blocked | 0 |
-| Completed/Merged (all time) | 143 |
+| Completed/Merged (all time) | 144 |
 
 ## Recent Activity (last 5)
 
 | Issue | Title | Outcome | Date |
 |---|---|---|---|
+| #189 | Fix WasmAgent/open-agent-audit#188 (Strip forked trust-pa... | completed/retry_split | 2026-07-27 |
 | #152 | Fix WasmAgent/open-agent-audit#122 ([milestone Milestone ... | completed/maintenance_done | 2026-07-27 |
 | #152 | Fix WasmAgent/open-agent-audit#122 ([milestone Milestone ... | completed/maintenance_done | 2026-07-27 |
 | #152 | Fix WasmAgent/open-agent-audit#122 ([milestone Milestone ... | completed/maintenance_done | 2026-07-27 |
 | #188 | Strip forked trust-passport schema and competing schemas/... | completed/retry_split | 2026-07-27 |
-| #185 | [milestone Milestone 2] Implement `computeRiskScore(event... | merged/auto_closed_resolved | 2026-07-26 |
-
-## Waiting for Human
-
-- #189: Fix WasmAgent/open-agent-audit#188 (Strip forked trust-passport schema and competing schemas/index.json; consume @wasmag
-- #152: Fix WasmAgent/open-agent-audit#122 ([milestone Milestone 4] Refactor adapter shared mapping logic into reusable typed ut
 
 ---
 _Maintained automatically by claude-bot-go patrol. Do not edit._
