@@ -7,13 +7,23 @@
 
 import { aepV0_2 } from '@openagentaudit/adapters';
 import {
+  alertContextFromScore,
   computeRiskScore,
   inventory,
+  parseAlertRules,
+  parseAlertTargets,
   policyAudit,
   renderReport,
+  runAlerts,
   validate,
 } from '@openagentaudit/core';
-import type { AepProvenanceForScoring, PolicyAuditContext, ReportMeta } from '@openagentaudit/core';
+import type {
+  AepProvenanceForScoring,
+  AlertRule,
+  AlertTargets,
+  PolicyAuditContext,
+  ReportMeta,
+} from '@openagentaudit/core';
 import { issue, revoke, status } from '@openagentaudit/passport';
 import type { TrustPassport } from '@openagentaudit/passport';
 import { validateEvents } from '@openagentaudit/schema';
@@ -87,6 +97,17 @@ export interface WorkerEnv {
   REPOS_TO_POLL?: string;
   /** Label filter for issue polling. Defaults to "claude". */
   POLL_LABEL?: string;
+  /**
+   * JSON array of AlertRule — threshold-breach alert rules (Milestone 6 #195).
+   * When set, a notification fires for each rule whose EAS/ARS drops below its
+   * threshold. Example: `[{"id":"eas","metric":"eas","threshold":60,"channels":["slack"]}]`.
+   */
+  ALERT_RULES?: string;
+  /**
+   * JSON object of AlertTargets — Slack/webhook/email delivery config for
+   * {@link ALERT_RULES} (Milestone 6 #195).
+   */
+  ALERT_TARGETS?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -705,6 +726,10 @@ async function handlePostRun(request: Request, env: WorkerEnv): Promise<Response
     score,
     completedAt,
   );
+
+  // Alerting (Milestone 6 #195): dispatch threshold-breach notifications for
+  // this run's risk score. Best-effort — never fails the ingestion response.
+  await maybeDispatchAlerts(env, run_id, score);
 
   return corsJson(
     {
@@ -1388,6 +1413,43 @@ async function writeRunToD1(
       ),
     );
     await env.DB.batch(stmts);
+  }
+}
+
+/**
+ * Evaluate the configured alert rules against `score` and, for every breach,
+ * dispatch Slack/webhook/email notifications (Milestone 6 #195).
+ *
+ * No-op when {@link WorkerEnv.ALERT_RULES} is unset. Delivery is best-effort:
+ * any failure (parse error, network error, non-2xx response) is logged and
+ * swallowed so it can never fail the surrounding audit ingestion flow.
+ */
+async function maybeDispatchAlerts(env: WorkerEnv, runId: string, score: RiskScore): Promise<void> {
+  let rules: AlertRule[];
+  try {
+    rules = parseAlertRules(env.ALERT_RULES);
+  } catch (err) {
+    console.error('alert rules parse failed', err instanceof Error ? err.message : String(err));
+    return;
+  }
+  if (rules.length === 0) return;
+
+  let targets: AlertTargets;
+  try {
+    targets = parseAlertTargets(env.ALERT_TARGETS);
+  } catch (err) {
+    console.error('alert targets parse failed', err instanceof Error ? err.message : String(err));
+    return;
+  }
+
+  const context = alertContextFromScore(score, {
+    report_url: `${env.PUBLIC_URL}/r/${runId}`,
+    issuer: env.ISSUER_NAME,
+  });
+  try {
+    await runAlerts(rules, score, context, targets);
+  } catch (err) {
+    console.error('alert dispatch failed', err instanceof Error ? err.message : String(err));
   }
 }
 
