@@ -1,6 +1,6 @@
 # Bot State
 
-_Last updated: 2026-07-28 09:41 UTC by patrol_
+_Last updated: 2026-07-28 09:42 UTC by patrol_
 
 ## Queue
 
@@ -23,7 +23,6 @@ _Last updated: 2026-07-28 09:41 UTC by patrol_
 
 ## Waiting for Human
 
-- #203: [milestone Milestone 3] Implement `renderReport(events, findings, score)` to generate HTML, Markdown, JS...
 - #202: [milestone Milestone 2] Implement `computeRiskScore(events, runId)` with configurable risk weights.
 
 ---
