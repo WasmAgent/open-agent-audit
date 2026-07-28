@@ -450,6 +450,127 @@ components:
           description: Runtime environment label (e.g. "production", "staging").
 
     # ------------------------------------------------------------------
+    # Dashboard — risk & open-finding trends over time
+    # ------------------------------------------------------------------
+    RiskTrendPoint:
+      type: object
+      required:
+        - bucket_start
+        - avg_risk_score
+        - min_risk_score
+        - max_risk_score
+        - run_count
+      properties:
+        bucket_start:
+          type: string
+          description: |
+            Start of the time bucket. Format depends on the `bucket` query
+            parameter: `YYYY-MM-DD` for `day`, `YYYY-MM` for `month`.
+        avg_risk_score:
+          type: number
+          nullable: true
+          description: Mean risk score across completed runs in this bucket.
+        min_risk_score:
+          type: number
+          nullable: true
+          description: Lowest risk score observed in this bucket.
+        max_risk_score:
+          type: number
+          nullable: true
+          description: Highest risk score observed in this bucket.
+        run_count:
+          type: integer
+          description: Number of completed audit runs in this bucket.
+
+    RiskTrendsResponse:
+      type: object
+      required:
+        - bucket
+        - days
+        - since
+        - series
+      properties:
+        bucket:
+          type: string
+          enum: [day, month]
+          description: Time-bucket granularity applied to the series.
+        days:
+          type: integer
+          description: Effective lookback window in days (after clamping).
+        since:
+          type: string
+          format: date-time
+          description: Inclusive lower-bound timestamp for the lookback window.
+        series:
+          type: array
+          items:
+            $ref: '#/components/schemas/RiskTrendPoint'
+          description: Risk-score trend points ordered oldest-first.
+
+    FindingTrendPoint:
+      type: object
+      required:
+        - bucket_start
+        - new_findings
+        - open_findings
+        - by_severity
+      properties:
+        bucket_start:
+          type: string
+          description: |
+            Start of the time bucket (`YYYY-MM-DD` for `day`, `YYYY-MM` for
+            `month`).
+        new_findings:
+          type: integer
+          description: Findings first raised within this bucket.
+        open_findings:
+          type: integer
+          description: |
+            Cumulative open finding count up to and including this bucket
+            (within the queried window). Findings carry no resolution state,
+            so all raised findings remain open.
+        by_severity:
+          type: object
+          additionalProperties:
+            type: integer
+          description: |
+            New findings in this bucket keyed by severity
+            (e.g. `critical`, `high`, `medium`, `low`, `info`).
+
+    FindingTrendsResponse:
+      type: object
+      required:
+        - bucket
+        - days
+        - since
+        - open_findings_total
+        - current_open_by_severity
+        - series
+      properties:
+        bucket:
+          type: string
+          enum: [day, month]
+        days:
+          type: integer
+          description: Effective lookback window in days (after clamping).
+        since:
+          type: string
+          format: date-time
+        open_findings_total:
+          type: integer
+          description: Total open findings within the queried window.
+        current_open_by_severity:
+          type: object
+          additionalProperties:
+            type: integer
+          description: Open findings within the window, keyed by severity.
+        series:
+          type: array
+          items:
+            $ref: '#/components/schemas/FindingTrendPoint'
+          description: Open-finding trend points ordered oldest-first.
+
+    # ------------------------------------------------------------------
     # Error
     # ------------------------------------------------------------------
     ErrorResponse:
@@ -777,6 +898,114 @@ paths:
               example:
                 error: Report not found
 
+  /api/v1/dashboard/risk-trends:
+    get:
+      operationId: getRiskTrends
+      summary: Risk score trend over time
+      description: |
+        Returns a time-bucketed series of agent risk scores across completed
+        audit runs, for building risk-trend charts on the dashboard. Each
+        bucket reports the average, minimum, and maximum risk score plus the
+        run count. Runs with a NULL risk score are excluded. No authentication
+        required.
+      tags:
+        - Dashboard
+      security: []
+      parameters:
+        - in: query
+          name: days
+          required: false
+          schema:
+            type: integer
+            default: 30
+            minimum: 1
+            maximum: 365
+          description: Lookback window in days. Defaults to 30; clamped to [1, 365].
+        - in: query
+          name: bucket
+          required: false
+          schema:
+            type: string
+            enum: [day, month]
+            default: day
+          description: |
+            Time-bucket granularity. `day` produces `YYYY-MM-DD` buckets,
+            `month` produces `YYYY-MM` buckets.
+      responses:
+        '200':
+          description: Risk-score trend series.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RiskTrendsResponse'
+              example:
+                bucket: day
+                days: 30
+                since: '2026-06-28T12:00:00.000Z'
+                series:
+                  - bucket_start: '2026-06-28'
+                    avg_risk_score: 42.5
+                    min_risk_score: 10.0
+                    max_risk_score: 75.0
+                    run_count: 4
+
+  /api/v1/dashboard/finding-trends:
+    get:
+      operationId: getFindingTrends
+      summary: Open finding count trend over time
+      description: |
+        Returns a time-bucketed series of audit findings for building
+        open-finding-count charts on the dashboard. Because findings carry no
+        resolution state, all raised findings are treated as open; each bucket
+        reports the new findings raised in that period, the cumulative open
+        count, and a per-severity breakdown. No authentication required.
+      tags:
+        - Dashboard
+      security: []
+      parameters:
+        - in: query
+          name: days
+          required: false
+          schema:
+            type: integer
+            default: 30
+            minimum: 1
+            maximum: 365
+          description: Lookback window in days. Defaults to 30; clamped to [1, 365].
+        - in: query
+          name: bucket
+          required: false
+          schema:
+            type: string
+            enum: [day, month]
+            default: day
+          description: |
+            Time-bucket granularity. `day` produces `YYYY-MM-DD` buckets,
+            `month` produces `YYYY-MM` buckets.
+      responses:
+        '200':
+          description: Open-finding trend series.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FindingTrendsResponse'
+              example:
+                bucket: day
+                days: 30
+                since: '2026-06-28T12:00:00.000Z'
+                open_findings_total: 9
+                current_open_by_severity:
+                  high: 1
+                  medium: 5
+                  low: 3
+                series:
+                  - bucket_start: '2026-06-28'
+                    new_findings: 3
+                    open_findings: 3
+                    by_severity:
+                      medium: 2
+                      low: 1
+
   /r/{reportId}:
     get:
       operationId: getPublicReport
@@ -833,5 +1062,7 @@ tags:
     description: Health and configuration endpoints.
   - name: Runs
     description: Audit run lifecycle — upload, list, retrieve, and report.
+  - name: Dashboard
+    description: Time-series endpoints for audit history, risk trends, and open finding counts over time.
   - name: Reports
     description: Public report shortlinks for QR code distribution.
