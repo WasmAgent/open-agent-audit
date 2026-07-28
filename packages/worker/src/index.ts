@@ -12,6 +12,8 @@ import {
   inventory,
   parseAlertRules,
   parseAlertTargets,
+  parseRetentionPolicy,
+  planRetention,
   policyAudit,
   renderReport,
   runAlerts,
@@ -23,6 +25,8 @@ import type {
   AlertTargets,
   PolicyAuditContext,
   ReportMeta,
+  ResolvedRetentionPolicy,
+  RetentionCandidate,
 } from '@openagentaudit/core';
 import { issue, revoke, status } from '@openagentaudit/passport';
 import type { TrustPassport } from '@openagentaudit/passport';
@@ -108,6 +112,14 @@ export interface WorkerEnv {
    * {@link ALERT_RULES} (Milestone 6 #195).
    */
   ALERT_TARGETS?: string;
+  /**
+   * JSON object of RetentionPolicy - automatic evidence pruning + archival
+   * (Milestone 6 #205). When unset the default applies: 180-day retention
+   * (the EU AI Act Art. 26(6) floor) with archival after 90 days. The sweep
+   * runs on the Worker's scheduled cadence. Example:
+   * `{"retention_days":365,"archive_after_days":180,"prune_expired":true}`.
+   */
+  RETENTION_POLICY?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -1608,6 +1620,126 @@ async function handleQueue(
 }
 
 // ---------------------------------------------------------------------------
+// Evidence retention - automatic pruning + archival (Milestone 6 #205)
+// ---------------------------------------------------------------------------
+
+/** Result of a single retention sweep over all stored audit runs. */
+interface RetentionSweepResult {
+  evaluated: number;
+  archived: number;
+  pruned: number;
+  errors: number;
+}
+
+/**
+ * Delete every object under an R2 prefix. R2 has no server-side bulk delete, so
+ * the prefix is listed (paginated) and each key removed individually.
+ */
+async function deleteR2Prefix(bucket: R2Bucket, prefix: string): Promise<number> {
+  let deleted = 0;
+  let cursor: string | undefined;
+  for (;;) {
+    const listed =
+      cursor === undefined
+        ? await bucket.list({ prefix, limit: 1000 })
+        : await bucket.list({ prefix, cursor, limit: 1000 });
+    if (listed.objects.length > 0) {
+      await Promise.all(listed.objects.map((o) => bucket.delete(o.key)));
+      deleted += listed.objects.length;
+    }
+    if (!listed.truncated) break;
+    cursor = listed.cursor ?? undefined;
+  }
+  return deleted;
+}
+
+/**
+ * Permanently remove a run and all of its evidence: every object under the
+ * `runs/{runId}/` prefix across the three R2 buckets, plus the `audit_runs`,
+ * `findings`, and `reports` rows in D1.
+ */
+async function pruneRun(env: WorkerEnv, runId: string): Promise<void> {
+  const prefix = `runs/${runId}/`;
+  await Promise.all([
+    deleteR2Prefix(env.RAW_TRACES, prefix),
+    deleteR2Prefix(env.REPORTS, prefix),
+    deleteR2Prefix(env.ARTIFACTS, prefix),
+  ]);
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM findings WHERE run_id = ?').bind(runId),
+    env.DB.prepare('DELETE FROM reports WHERE run_id = ?').bind(runId),
+    env.DB.prepare('DELETE FROM audit_runs WHERE run_id = ?').bind(runId),
+  ]);
+}
+
+/**
+ * Sweep historical audit runs against the configured {@link RetentionPolicy}
+ * (Milestone 6 #205): archive runs past {@link RetentionPolicy.archive_after_days}
+ * out of the hot set, and prune runs past {@link RetentionPolicy.retention_days}.
+ *
+ * Runs automatically on every scheduled tick (see {@link handleScheduled}).
+ * Best-effort and idempotent - a per-run failure is logged and counted and never
+ * aborts the sweep. A malformed `RETENTION_POLICY` disables the sweep (with a
+ * logged error) rather than operating on an unintended policy.
+ */
+async function applyRetention(env: WorkerEnv): Promise<RetentionSweepResult> {
+  let policy: ResolvedRetentionPolicy;
+  try {
+    policy = parseRetentionPolicy(env.RETENTION_POLICY);
+  } catch (err) {
+    console.error(
+      '[retention] policy parse failed, skipping sweep:',
+      err instanceof Error ? err.message : String(err),
+    );
+    return { evaluated: 0, archived: 0, pruned: 0, errors: 0 };
+  }
+
+  const result = await env.DB.prepare('SELECT run_id, created_at FROM audit_runs').all<{
+    run_id: string;
+    created_at: string;
+  }>();
+  const candidates: RetentionCandidate[] = (result.results ?? []).map((r) => ({
+    run_id: r.run_id,
+    created_at: r.created_at,
+  }));
+
+  const plan = planRetention(candidates, policy);
+  let archived = 0;
+  let pruned = 0;
+  let errors = 0;
+
+  for (const decision of plan.decisions) {
+    try {
+      if (decision.action === 'archive') {
+        const now = new Date().toISOString();
+        await env.DB.prepare(
+          "UPDATE audit_runs SET status = 'archived', updated_at = ? WHERE run_id = ? AND status != 'archived'",
+        )
+          .bind(now, decision.run_id)
+          .run();
+        archived += 1;
+      } else if (decision.action === 'prune') {
+        await pruneRun(env, decision.run_id);
+        pruned += 1;
+      }
+    } catch (err) {
+      errors += 1;
+      console.error(
+        `[retention] failed to ${decision.action} run ${decision.run_id}:`,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+
+  if (archived > 0 || pruned > 0 || errors > 0) {
+    console.info(
+      `[retention] evaluated=${candidates.length} archived=${archived} pruned=${pruned} errors=${errors}`,
+    );
+  }
+  return { evaluated: candidates.length, archived, pruned, errors };
+}
+
+// ---------------------------------------------------------------------------
 // Scheduler — polls GitHub repos for labeled issues
 // ---------------------------------------------------------------------------
 
@@ -1699,6 +1831,10 @@ async function handleScheduled(
   env: WorkerEnv,
   _ctx: ExecutionContext,
 ): Promise<void> {
+  // Milestone 6 #205: run the evidence retention sweep on every scheduled tick.
+  // Independent of GITHUB_TOKEN - retention must run even when issue polling is off.
+  await applyRetention(env);
+
   const token = env.GITHUB_TOKEN;
   if (!token) {
     console.warn('[scheduler] GITHUB_TOKEN not configured, skipping poll.');
