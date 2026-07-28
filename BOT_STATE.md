@@ -1,13 +1,13 @@
 # Bot State
 
-_Last updated: 2026-07-28 12:34 UTC by patrol_
+_Last updated: 2026-07-28 13:10 UTC by patrol_
 
 ## Queue
 
 | State | Count |
 |---|---|
-| Pending | 11 |
-| Active (running/reviewing) | 1 |
+| Pending | 8 |
+| Active (running/reviewing) | 4 |
 | Blocked | 0 |
 | Completed/Merged (all time) | 147 |
 
@@ -24,6 +24,7 @@ _Last updated: 2026-07-28 12:34 UTC by patrol_
 ## Waiting for Human
 
 - #202: [milestone Milestone 2] Implement `computeRiskScore(events, runId)` with configurable risk weights.
+- #197: [milestone Milestone 6 ] Add dashboard API for querying audit history, risk trends, and open finding coun...
 
 ---
 _Maintained automatically by claude-bot-go patrol. Do not edit._
