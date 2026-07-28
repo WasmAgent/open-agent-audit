@@ -429,6 +429,187 @@ export async function runAlerts(
 }
 
 // ---------------------------------------------------------------------------
+// Suppression gate — rate limiting + de-duplication (Milestone 6 #209)
+// ---------------------------------------------------------------------------
+
+/**
+ * Configuration for the alert suppression gate. Prevents notification fatigue
+ * from batch findings and repeated breaches via two independent mechanisms:
+ *
+ *  - **De-duplication.** When `dedupe_window_ms` is set, an alert for a rule is
+ *    suppressed if that same rule already produced a notification within the
+ *    window. A batch of findings that all trip the same floor therefore
+ *    collapses to a single notification.
+ *  - **Rate limiting.** When `max_per_window` is set, at most that many
+ *    notifications are delivered within each `rate_window_ms` window; further
+ *    alerts are suppressed until the window rolls over.
+ *
+ * Both mechanisms are optional. A config of `{}` (the default) passes every
+ * event through unchanged.
+ */
+export interface AlertGateConfig {
+  /**
+   * Length (ms) of the de-duplication window. A rule that fired within the last
+   * `dedupe_window_ms` is suppressed. `0` / omitted disables de-duplication.
+   */
+  dedupe_window_ms?: number;
+  /**
+   * Hard cap on notifications delivered per {@link AlertGateConfig.rate_window_ms}.
+   * `0` / omitted disables the rate cap.
+   */
+  max_per_window?: number;
+  /**
+   * Length (ms) of the rate-limit window. Defaults to 60_000 (one minute) when
+   * `max_per_window` is set and this is omitted.
+   */
+  rate_window_ms?: number;
+}
+
+/**
+ * Mutable suppression state persisted across runs (e.g. by an
+ * `AlertGatekeeper` Durable Object) so de-duplication and rate limiting survive
+ * across consecutive audits. A fresh state (see {@link emptyAlertGateState})
+ * suppresses nothing on the first run.
+ */
+export interface AlertGateState {
+  /** rule_id → epoch-ms that rule was last allowed through. */
+  last_fired: Record<string, number>;
+  /** Epoch-ms the current rate-limit window started. */
+  window_start: number;
+  /** Notifications delivered in the current window. */
+  window_count: number;
+}
+
+/** Why a single {@link AlertEvent} was suppressed by {@link gateAlerts}. */
+export type SuppressReason = 'dedupe' | 'rate-limit';
+
+/** An {@link AlertEvent} that the gate held back, and why. */
+export interface SuppressedAlert {
+  alert: AlertEvent;
+  reason: SuppressReason;
+}
+
+/** Outcome of {@link gateAlerts}: which events may notify, and updated state. */
+export interface AlertGateResult {
+  /** Events that passed both the de-duplication and rate-limit checks. */
+  allowed: AlertEvent[];
+  /** Events held back, with the reason. */
+  suppressed: SuppressedAlert[];
+  /** Updated state — persist this so the next call sees the new window/keys. */
+  state: AlertGateState;
+}
+
+/**
+ * The de-duplication key for an alert. The rule id is the stable identity, so
+ * repeated breaches of the same rule (including a batch of findings that all
+ * trip it) share one key and collapse to a single notification per window.
+ */
+export function alertDedupeKey(alert: AlertEvent): string {
+  return alert.rule_id;
+}
+
+/**
+ * Build a fresh, empty {@link AlertGateState} seeded at `now` (epoch-ms, default
+ * `Date.now()`). Used when no prior state exists yet.
+ */
+export function emptyAlertGateState(now: number = Date.now()): AlertGateState {
+  return { last_fired: {}, window_start: now, window_count: 0 };
+}
+
+function resolveGateConfig(config: AlertGateConfig): {
+  dedupeMs: number;
+  maxPerWindow: number;
+  rateMs: number;
+} {
+  return {
+    dedupeMs: config.dedupe_window_ms ?? 0,
+    maxPerWindow: config.max_per_window ?? 0,
+    rateMs: config.rate_window_ms ?? 60_000,
+  };
+}
+
+/**
+ * Apply rate-limiting and de-duplication to a batch of fired alerts. Pure:
+ * given the prior persisted {@link AlertGateState} and the current epoch time
+ * `now`, returns the events that may be notified plus an updated state to
+ * persist — so an `AlertGatekeeper` Durable Object can hold the gate state
+ * across consecutive audit runs.
+ *
+ * Events are processed in input order: the first breach of each rule within the
+ * de-duplication window passes, and the overall rate cap bounds the total. A
+ * config of `{}` passes everything through (legacy behaviour).
+ *
+ * @example
+ * ```ts
+ * const result = gateAlerts(events, state, { dedupe_window_ms: 300_000, max_per_window: 5 }, Date.now());
+ * for (const alert of result.allowed) await dispatchAlert(alert, targets);
+ * persist(result.state);
+ * ```
+ */
+export function gateAlerts(
+  events: AlertEvent[],
+  state: AlertGateState | undefined,
+  config: AlertGateConfig,
+  now: number,
+): AlertGateResult {
+  const { dedupeMs, maxPerWindow, rateMs } = resolveGateConfig(config);
+  const next: AlertGateState =
+    state === undefined
+      ? emptyAlertGateState(now)
+      : {
+          last_fired: { ...state.last_fired },
+          window_start: state.window_start,
+          window_count: state.window_count,
+        };
+
+  // Roll over the rate-limit window when it has elapsed.
+  if (maxPerWindow > 0 && now - next.window_start >= rateMs) {
+    next.window_start = now;
+    next.window_count = 0;
+  }
+
+  const allowed: AlertEvent[] = [];
+  const suppressed: SuppressedAlert[] = [];
+
+  for (const event of events) {
+    const key = alertDedupeKey(event);
+    const last = next.last_fired[key];
+    if (dedupeMs > 0 && last !== undefined && now - last < dedupeMs) {
+      suppressed.push({ alert: event, reason: 'dedupe' });
+      continue;
+    }
+    if (maxPerWindow > 0 && next.window_count >= maxPerWindow) {
+      suppressed.push({ alert: event, reason: 'rate-limit' });
+      continue;
+    }
+    // Only track last-firings when de-duplication is active, so disabled gates
+    // never accumulate unbounded keys.
+    if (dedupeMs > 0) {
+      next.last_fired[key] = now;
+    }
+    next.window_count += 1;
+    allowed.push(event);
+  }
+
+  return { allowed, suppressed, state: next };
+}
+
+/**
+ * Parse a JSON-encoded {@link AlertGateConfig} (e.g. the Worker `ALERT_GATE`
+ * env var). Returns `{}` (gate disabled) when the value is absent or blank.
+ * Throws on malformed JSON or a non-object value so misconfiguration is
+ * surfaced rather than silently disabling suppression.
+ */
+export function parseAlertGate(raw: string | undefined): AlertGateConfig {
+  if (raw === undefined || raw.trim() === '') return {};
+  const parsed = JSON.parse(raw) as unknown;
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('ALERT_GATE must be a JSON object of AlertGateConfig');
+  }
+  return parsed as AlertGateConfig;
+}
+
+// ---------------------------------------------------------------------------
 // Env-config parsing (Worker-friendly)
 // ---------------------------------------------------------------------------
 

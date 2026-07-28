@@ -1742,4 +1742,5 @@ export default {
 };
 
 export { AuditRunCoordinator } from './durable-objects/AuditRunCoordinator.js';
+export { AlertGatekeeper } from './durable-objects/AlertGatekeeper.js';
 export { TenantLimiter } from './durable-objects/TenantLimiter.js';
