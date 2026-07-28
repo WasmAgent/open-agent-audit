@@ -1,7 +1,7 @@
 {
   "name": "@openagentaudit/core",
   "version": "0.5.2",
-  "description": "OpenAgentAudit audit engines: validate, inventory, policy-audit, benchmark-audit, contamination, drift-guard, scoring, report",
+  "description": "OpenAgentAudit audit engines: validate, inventory, policy-audit, benchmark-audit, contamination, drift-guard, scoring, report, alerting",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -12,6 +12,7 @@
       "types": "./dist/index.d.ts"
     },
     "./benchmark-audit": "./dist/benchmark-audit/index.js",
+    "./alerting": "./dist/alerting/index.js",
     "./contamination": "./dist/contamination/index.js",
     "./drift-guard": "./dist/drift-guard/index.js",
     "./inventory": "./dist/inventory/index.js",

@@ -42,3 +42,31 @@ export { computeRiskScore } from './scoring/index.js';
 export type { AepProvenanceForScoring, DriftResultForScoring } from './scoring/index.js';
 export { renderReport } from './report/index.js';
 export type { ReportBundle, ReportMeta, ComplianceMapping } from './report/index.js';
+export {
+  alertContextFromScore,
+  alertMessage,
+  defaultSeverity,
+  dispatchAlert,
+  evaluateAlerts,
+  formatEmailMessage,
+  formatSlackPayload,
+  formatWebhookPayload,
+  parseAlertRules,
+  parseAlertTargets,
+  runAlerts,
+} from './alerting/index.js';
+export type {
+  AlertChannel,
+  AlertContext,
+  AlertEvent,
+  AlertMetric,
+  AlertRule,
+  AlertRunResult,
+  AlertTargets,
+  DispatchOptions,
+  DispatchResult,
+  EmailMessage,
+  EmailTarget,
+  SlackTarget,
+  WebhookTarget,
+} from './alerting/index.js';
