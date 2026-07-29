@@ -9,6 +9,13 @@
 import type { AuditRun, CanonicalEvent } from '@openagentaudit/schema';
 import { SPEC_VERSION } from '@openagentaudit/schema';
 import type { SourceFormatAdapter } from './index.js';
+import {
+  buildEventBase,
+  makeErrorEvent,
+  makeModelOutputEvent,
+  makeObservationEvent,
+  makeToolCallEvent,
+} from './mapping-utils.js';
 
 // ---------------------------------------------------------------------------
 // Public Langfuse input types
@@ -63,27 +70,17 @@ function resolveAgentId(record: LangfuseTrace): string {
 
 /** Map a single LangfuseObservation to a CanonicalEvent. */
 function obsToEvent(obs: LangfuseObservation, record: LangfuseTrace): CanonicalEvent {
-  const base = {
-    schema_version: SPEC_VERSION,
+  const base = buildEventBase({
     run_id: record.id,
     agent_id: resolveAgentId(record),
     model_id: obs.model ?? 'unknown',
     event_id: obs.id,
     timestamp: obs.startTime,
-  } as const;
+  });
 
   // ERROR level takes priority over type classification
   if (obs.level === 'ERROR') {
-    const ev: CanonicalEvent = {
-      ...base,
-      type: 'error',
-      actor: 'system',
-      error: {
-        kind: obs.name,
-        message: obs.statusMessage ?? obs.name,
-      },
-    };
-    return ev;
+    return makeErrorEvent(base, { kind: obs.name, message: obs.statusMessage ?? obs.name });
   }
 
   // GENERATION → model_output
@@ -95,67 +92,29 @@ function obsToEvent(obs: LangfuseObservation, record: LangfuseTrace): CanonicalE
         ? obs.usage.total
         : inputTokens + outputTokens || undefined;
 
-    const ev: CanonicalEvent = {
-      ...base,
-      type: 'model_output',
-      actor: 'agent',
-      model_output: {
-        ...(tokenCount !== undefined ? { token_count: tokenCount } : {}),
-        ...(obs.statusMessage ? { finish_reason: obs.statusMessage } : {}),
-      },
-    };
-    return ev;
+    return makeModelOutputEvent(base, {
+      token_count: tokenCount,
+      finish_reason: obs.statusMessage,
+    });
   }
 
   // SPAN with tool/function/action/call in the name → tool_call
   if (obs.type === 'SPAN' && TOOL_NAME_RE.test(obs.name)) {
-    const ev: CanonicalEvent = {
-      ...base,
-      type: 'tool_call',
-      actor: 'agent',
-      tool: {
-        name: obs.name,
-      },
-    };
-    return ev;
+    return makeToolCallEvent(base, { name: obs.name });
   }
 
   // SPAN with verif/check/assert in the name → observation (verifier source)
   if (obs.type === 'SPAN' && VERIF_NAME_RE.test(obs.name)) {
-    const ev: CanonicalEvent = {
-      ...base,
-      type: 'observation',
-      actor: 'system',
-      observation: {
-        source: 'verifier:' + obs.name,
-      },
-    };
-    return ev;
+    return makeObservationEvent(base, { actor: 'system', source: 'verifier:' + obs.name });
   }
 
   // EVENT type → observation
   if (obs.type === 'EVENT') {
-    const ev: CanonicalEvent = {
-      ...base,
-      type: 'observation',
-      actor: 'system',
-      observation: {
-        source: 'langfuse:' + obs.name,
-      },
-    };
-    return ev;
+    return makeObservationEvent(base, { actor: 'system', source: 'langfuse:' + obs.name });
   }
 
   // Default (SPAN with no special name match) → observation
-  const ev: CanonicalEvent = {
-    ...base,
-    type: 'observation',
-    actor: 'system',
-    observation: {
-      source: 'langfuse:' + obs.name,
-    },
-  };
-  return ev;
+  return makeObservationEvent(base, { actor: 'system', source: 'langfuse:' + obs.name });
 }
 
 // ---------------------------------------------------------------------------

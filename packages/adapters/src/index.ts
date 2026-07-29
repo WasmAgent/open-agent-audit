@@ -43,3 +43,7 @@ export * as bscode from './bscode.js';
 export * as otel from './otel.js';
 export * as langfuse from './langfuse.js';
 export * as langsmith from './langsmith.js';
+
+// Shared mapping utilities reused across adapters (event base + variant
+// factories + timestamp converters). See mapping-utils.ts.
+export * as mappingUtils from './mapping-utils.js';

@@ -8,6 +8,7 @@
 
 import type { AuditRun, CanonicalEvent } from '@openagentaudit/schema';
 import type { SourceFormatAdapter } from './index.js';
+import { msToIso } from './mapping-utils.js';
 
 // ---------------------------------------------------------------------------
 // Local AEPRecord type — mirrors @wasmagent/aep without importing it.
@@ -192,11 +193,6 @@ const SPEC_VERSION = 'open-agent-audit/v0.1' as const;
 function makeEventId(raw: string): string {
   // btoa is available in both browsers and Cloudflare Workers.
   return btoa(raw);
-}
-
-/** Convert a millisecond timestamp to an ISO-8601 string. */
-function msToIso(ms: number): string {
-  return new Date(ms).toISOString();
 }
 
 // ---------------------------------------------------------------------------
