@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useMemo } from 'react'
 import { Router, Route, Switch, useLocation, useParams } from 'wouter'
 import { AuditProvider, useAudit } from './AuditContext'
 import { Breadcrumb, type Crumb } from './Breadcrumb'
-import { parseJsonl, isAepJson, buildAepMeta } from './utils'
+import { type RawEvent, parseJsonl, isAepJson, buildAepMeta } from './utils'
 import { useSortable } from './hooks/useSortable'
 import { RunsPage } from './pages/RunsPage'
 import { ApprovalsPage } from './pages/ApprovalsPage'
@@ -19,25 +19,6 @@ const DEFAULT_CONFIG: SiteConfig = {
   site_name: 'Trustavo',
   site_tagline: 'Evidence-grade audit for enterprise AI agents',
   powered_by: 'OpenAgentAudit',
-}
-
-// ---------- Types ----------
-
-interface RawEvent {
-  schema_version?: string
-  run_id?: string
-  event_id?: string
-  agent_id?: string
-  model_id?: string
-  timestamp?: string
-  type?: string
-  actor?: string
-  tool?: { name?: string; capability?: string; risk_tags?: string[] }
-  policy?: { decision?: string; reason?: string; rule_id?: string }
-  error?: { kind?: string; message?: string }
-  human?: { reviewer_id?: string; decision?: string; justification?: string }
-  observation?: { source?: string; byte_size?: number; content_hash?: string }
-  model_output?: { token_count?: number; finish_reason?: string; content_hash?: string }
 }
 
 const PAGE_SIZE = 50

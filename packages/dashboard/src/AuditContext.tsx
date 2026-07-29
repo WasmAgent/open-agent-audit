@@ -1,29 +1,5 @@
 import { createContext, useContext, useState, useCallback } from 'react'
-
-export interface RawEvent {
-  schema_version?: string
-  run_id?: string
-  event_id?: string
-  agent_id?: string
-  model_id?: string
-  timestamp?: string
-  type?: string
-  actor?: string
-  tool?: { name?: string; capability?: string; risk_tags?: string[] }
-  policy?: { decision?: string; reason?: string; rule_id?: string }
-  error?: { kind?: string; message?: string }
-  human?: { reviewer_id?: string; decision?: string; justification?: string }
-  observation?: { source?: string; byte_size?: number; content_hash?: string }
-  model_output?: { token_count?: number; finish_reason?: string; content_hash?: string }
-}
-
-export interface AepMeta {
-  run_id?: string
-  model_id?: string
-  model_provider?: string
-  actions?: number
-  schema_version?: string
-}
+import { type RawEvent, type AepMeta } from './utils'
 
 export interface ReportSummary {
   eas_score?: number
