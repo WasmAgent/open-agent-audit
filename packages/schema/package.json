@@ -1,6 +1,6 @@
 {
   "name": "@openagentaudit/schema",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "OpenAgentAudit canonical evidence schema and TypeScript types",
   "license": "Apache-2.0",
   "type": "module",
@@ -19,7 +19,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "echo 'no tests yet \u2014 package skeleton' && exit 0",
+    "test": "echo 'no tests yet — package skeleton' && exit 0",
     "clean": "rm -rf dist .turbo",
     "prepublishOnly": "npm run build"
   },
