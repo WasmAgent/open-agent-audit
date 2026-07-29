@@ -508,6 +508,164 @@ async function handleGetReport(runId: string, format: string, env: WorkerEnv): P
 }
 
 // ---------------------------------------------------------------------------
+// Dashboard route handlers — risk & open-finding trends over time
+// ---------------------------------------------------------------------------
+
+/** Lookback window (`?days=`) is clamped to [1, 365], defaulting to 30. */
+function clampDays(raw: string | null): number {
+  const n = Number.parseInt(raw ?? '', 10);
+  if (!Number.isFinite(n) || n <= 0) return 30;
+  return Math.min(n, 365);
+}
+
+/** SQL expression that maps an ISO `created_at` to a bucket-start label. */
+function bucketExpression(bucket: 'day' | 'month'): string {
+  return bucket === 'month' ? "strftime('%Y-%m', created_at)" : "strftime('%Y-%m-%d', created_at)";
+}
+
+function bucketLabel(raw: string | null): 'day' | 'month' {
+  return raw === 'month' ? 'month' : 'day';
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+interface RiskTrendPoint {
+  bucket_start: string;
+  avg_risk_score: number | null;
+  min_risk_score: number | null;
+  max_risk_score: number | null;
+  run_count: number;
+}
+
+/**
+ * GET /api/v1/dashboard/risk-trends
+ *
+ * Returns a time-bucketed series of agent risk scores across completed audit
+ * runs. Each bucket reports the average/min/max risk score and the run count,
+ * for building risk-trend charts. Runs with a NULL risk_score are excluded.
+ */
+async function handleGetRiskTrends(url: URL, env: WorkerEnv): Promise<Response> {
+  const days = clampDays(url.searchParams.get('days'));
+  const bucket = bucketLabel(url.searchParams.get('bucket'));
+  const bucketExpr = bucketExpression(bucket);
+  const since = new Date(Date.now() - days * 86_400_000).toISOString();
+
+  const result = await env.DB.prepare(
+    `SELECT ${bucketExpr} AS bucket_start,
+            AVG(risk_score) AS avg_risk_score,
+            MIN(risk_score) AS min_risk_score,
+            MAX(risk_score) AS max_risk_score,
+            COUNT(*) AS run_count
+     FROM audit_runs
+     WHERE created_at >= ? AND risk_score IS NOT NULL
+     GROUP BY bucket_start
+     ORDER BY bucket_start ASC`,
+  )
+    .bind(since)
+    .all<RiskTrendPoint>();
+
+  const series = result.results.map((row) => ({
+    bucket_start: row.bucket_start,
+    avg_risk_score: row.avg_risk_score === null ? null : round2(row.avg_risk_score),
+    min_risk_score: row.min_risk_score,
+    max_risk_score: row.max_risk_score,
+    run_count: row.run_count,
+  }));
+
+  return corsJson({ bucket, days, since, series }, env);
+}
+
+interface FindingTrendRow {
+  bucket_start: string;
+  severity: string;
+  count: number;
+}
+
+interface FindingTrendPoint {
+  bucket_start: string;
+  new_findings: number;
+  open_findings: number;
+  by_severity: Record<string, number>;
+}
+
+/**
+ * GET /api/v1/dashboard/finding-trends
+ *
+ * Returns a time-bucketed series of audit findings. Because findings carry no
+ * resolution state, all raised findings are treated as open. Each bucket
+ * reports the new findings raised in that period, the cumulative open count,
+ * and a per-severity breakdown.
+ */
+async function handleGetFindingTrends(url: URL, env: WorkerEnv): Promise<Response> {
+  const days = clampDays(url.searchParams.get('days'));
+  const bucket = bucketLabel(url.searchParams.get('bucket'));
+  const bucketExpr = bucketExpression(bucket);
+  const since = new Date(Date.now() - days * 86_400_000).toISOString();
+
+  const result = await env.DB.prepare(
+    `SELECT ${bucketExpr} AS bucket_start,
+            severity,
+            COUNT(*) AS count
+     FROM findings
+     WHERE created_at >= ?
+     GROUP BY bucket_start, severity
+     ORDER BY bucket_start ASC`,
+  )
+    .bind(since)
+    .all<FindingTrendRow>();
+
+  const orderedBuckets: string[] = [];
+  const points = new Map<string, FindingTrendPoint>();
+  for (const row of result.results) {
+    let point = points.get(row.bucket_start);
+    if (point === undefined) {
+      point = {
+        bucket_start: row.bucket_start,
+        new_findings: 0,
+        open_findings: 0,
+        by_severity: {},
+      };
+      points.set(row.bucket_start, point);
+      orderedBuckets.push(row.bucket_start);
+    }
+    point.new_findings += row.count;
+    point.by_severity[row.severity] = (point.by_severity[row.severity] ?? 0) + row.count;
+  }
+
+  let cumulative = 0;
+  const currentOpenBySeverity: Record<string, number> = {};
+  const series: FindingTrendPoint[] = orderedBuckets.map((b) => {
+    const point = points.get(b);
+    const newFindings = point?.new_findings ?? 0;
+    cumulative += newFindings;
+    const bySeverity = point?.by_severity ?? {};
+    for (const [sev, cnt] of Object.entries(bySeverity)) {
+      currentOpenBySeverity[sev] = (currentOpenBySeverity[sev] ?? 0) + cnt;
+    }
+    return {
+      bucket_start: b,
+      new_findings: newFindings,
+      open_findings: cumulative,
+      by_severity: bySeverity,
+    };
+  });
+
+  return corsJson(
+    {
+      bucket,
+      days,
+      since,
+      open_findings_total: cumulative,
+      current_open_by_severity: currentOpenBySeverity,
+      series,
+    },
+    env,
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Retention helpers
 // ---------------------------------------------------------------------------
 
@@ -1185,6 +1343,18 @@ async function handleFetch(request: Request, env: WorkerEnv): Promise<Response> 
     if (runId === undefined) return corsError('Bad route', 400, env);
     const format = url.searchParams.get('format') ?? 'md';
     return handleGetReport(runId, format, env);
+  }
+
+  // --- Dashboard API (risk & open-finding trends over time) ---
+
+  // GET /api/v1/dashboard/risk-trends
+  if (method === 'GET' && pathname === '/api/v1/dashboard/risk-trends') {
+    return handleGetRiskTrends(url, env);
+  }
+
+  // GET /api/v1/dashboard/finding-trends
+  if (method === 'GET' && pathname === '/api/v1/dashboard/finding-trends') {
+    return handleGetFindingTrends(url, env);
   }
 
   // --- Approvals API ---
