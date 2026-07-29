@@ -61,7 +61,7 @@ function erfc(x: number): number {
 function mcnemarP(b: number, c: number): number {
   if (b + c === 0) return 1;
   // Yates continuity-corrected chi-square statistic (df=1)
-  const chi2 = Math.pow(Math.abs(b - c) - 1, 2) / (b + c);
+  const chi2 = (Math.abs(b - c) - 1) ** 2 / (b + c);
   // Two-tailed p-value via chi-square(df=1) survival: p = erfc(sqrt(chi2/2))
   return erfc(Math.sqrt(chi2 / 2));
 }
@@ -183,7 +183,7 @@ export async function benchmarkAudit(pair: BenchmarkPair): Promise<BenchmarkAudi
     }
 
     return { findings, statistics };
-  } else {
+  }
     // aggregate mode
     const { candidate, baseline } = pair;
 
@@ -264,5 +264,4 @@ export async function benchmarkAudit(pair: BenchmarkPair): Promise<BenchmarkAudi
     };
 
     return { findings, statistics };
-  }
 }

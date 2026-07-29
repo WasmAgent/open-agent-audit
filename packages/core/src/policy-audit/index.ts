@@ -212,7 +212,7 @@ export async function policyAudit(
           `Event "${ev.event_id}": tool "${ev.tool.name ?? '(unknown)'}" invoked high-risk ` +
           `capability "${ev.tool.capability}" but run "${ev.run_id}" has no human_approval event.` +
           (hasPolicyDecision
-            ? ` A policy_decision event exists for this tool, indicating automated oversight is present.`
+            ? ' A policy_decision event exists for this tool, indicating automated oversight is present.'
             : ''),
         evidence_ids: [ev.event_id],
         event_id: ev.event_id,

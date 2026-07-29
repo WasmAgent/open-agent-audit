@@ -87,7 +87,7 @@ async function verifyEd25519Signature(
       const buf = new ArrayBuffer(64);
       sigBytes = new Uint8Array(buf);
       const pairs = sig.match(/.{2}/g)!;
-      for (let i = 0; i < pairs.length; i++) sigBytes[i] = parseInt(pairs[i]!, 16);
+      for (let i = 0; i < pairs.length; i++) sigBytes[i] = Number.parseInt(pairs[i]!, 16);
     } else {
       // assume base64
       const binary = atob(sig);

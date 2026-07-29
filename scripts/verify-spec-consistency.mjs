@@ -17,7 +17,7 @@ const SELF = fileURLToPath(import.meta.url);
 const ROOT = dirname(dirname(SELF));
 
 const ALLOWED_SEVERITIES = new Set(['info', 'low', 'medium', 'high', 'critical']);
-let problems = [];
+const problems = [];
 
 // (1) schemas/index.json points at existing schema files.
 {

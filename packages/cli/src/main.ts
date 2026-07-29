@@ -574,13 +574,13 @@ async function cmdPassportIssue(flags: Map<string, string | true>): Promise<void
   const validityDays =
     validityDaysRaw && validityDaysRaw !== true ? Number.parseInt(validityDaysRaw, 10) : 90;
 
-  let agentbom: unknown = undefined;
+  let agentbom: unknown ;
   const bomPath = flags.get('agentbom');
   if (bomPath && bomPath !== true) {
     agentbom = JSON.parse(await readText(bomPath));
   }
 
-  let posture: unknown = undefined;
+  let posture: unknown ;
   const posturePath = flags.get('posture');
   if (posturePath && posturePath !== true) {
     posture = JSON.parse(await readText(posturePath));

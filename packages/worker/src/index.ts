@@ -1397,8 +1397,10 @@ async function writeRunToD1(
       env.DB.prepare(
         `INSERT OR IGNORE INTO findings
            (finding_id, run_id, tenant_id, severity, category, title,
-            evidence_ids, standard_mappings, recommendation, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            evidence_ids, standard_mappings, recommendation, created_at,
+            description, event_id, confidence, false_positive_likelihood,
+            first_seen, last_seen, occurrence_count, suppressed, suppression_reason)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).bind(
         `${run_id}:${f.finding_id}`,
         run_id,
@@ -1410,6 +1412,15 @@ async function writeRunToD1(
         f.standard_mappings !== undefined ? JSON.stringify(f.standard_mappings) : null,
         f.recommendation,
         completedAt,
+        f.description ?? null,
+        f.event_id ?? null,
+        f.confidence ?? null,
+        f.false_positive_likelihood ?? null,
+        f.first_seen ?? null,
+        f.last_seen ?? null,
+        f.occurrence_count ?? null,
+        f.suppressed != null ? (f.suppressed ? 1 : 0) : null,
+        f.suppression_reason ?? null,
       ),
     );
     await env.DB.batch(stmts);

@@ -39,6 +39,9 @@ interface RunEntry {
   eas_score?: number
   eas_grade?: string
   event_count?: number
+  finding_count?: number
+  risk_score?: number
+  status?: string
 }
 
 export function RunsPage() {
@@ -100,6 +103,8 @@ export function RunsPage() {
                 <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-widest">Run ID</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-widest">Source</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-widest">EAS</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-widest">ARS</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-widest">Findings</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-widest">Events</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-widest">Created</th>
               </tr>
@@ -126,6 +131,26 @@ export function RunsPage() {
                       </span>
                     ) : (
                       <span className="text-xs text-slate-300">—</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    {run.risk_score != null ? (
+                      <span className={`text-xs font-bold ${
+                        run.risk_score > 80 ? 'text-emerald-600' : run.risk_score >= 60 ? 'text-yellow-600' : 'text-red-600'
+                      }`}>
+                        {run.risk_score}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-slate-300">—</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-xs">
+                    {run.finding_count != null ? (
+                      <span className={run.finding_count > 0 ? 'text-amber-600 font-semibold' : 'text-emerald-600'}>
+                        {run.finding_count}
+                      </span>
+                    ) : (
+                      <span className="text-slate-300">—</span>
                     )}
                   </td>
                   <td className="px-4 py-3 text-xs text-slate-600">
