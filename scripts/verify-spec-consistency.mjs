@@ -69,7 +69,7 @@ function checkSev(obj, where) {
       problems.push(`${where}: invalid severity '${obj.severity}'`);
     }
   }
-  if (Array.isArray(obj)) obj.forEach((v, i) => checkSev(v, `${where}[${i}]`));
+  if (Array.isArray(obj)) { for (let i = 0; i < obj.length; i++) checkSev(obj[i], `${where}[${i}]`); }
   else for (const k of Object.keys(obj)) checkSev(obj[k], `${where}.${k}`);
 }
 for (const file of walk(ROOT)) {

@@ -16,12 +16,8 @@ import {
 import type { PassportSigner, TrustPassport } from './index.js';
 
 // Use sha512 for ed25519 in Node/Bun environment
-import { sha512 } from '@noble/hashes/sha512';
-ed.etc.sha512Sync = (...m: Uint8Array[]) => {
-  const h = sha512.create();
-  for (const msg of m) h.update(msg);
-  return h.digest();
-};
+import { sha512 } from '@noble/hashes/sha2.js';
+ed.hashes.sha512 = sha512;
 
 const MOCK_REPORT = {
   run_id: 'run-001',
@@ -34,7 +30,7 @@ const MOCK_REPORT = {
 };
 
 async function createTestSigner(): Promise<{ signer: PassportSigner; publicKey: Uint8Array }> {
-  const privateKey = ed.utils.randomPrivateKey();
+  const privateKey = ed.utils.randomSecretKey();
   const publicKey = await ed.getPublicKeyAsync(privateKey);
 
   const signer: PassportSigner = {
