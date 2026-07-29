@@ -6,6 +6,7 @@ import { type RawEvent, parseJsonl, isAepJson, buildAepMeta } from './utils'
 import { useSortable } from './hooks/useSortable'
 import { RunsPage } from './pages/RunsPage'
 import { ApprovalsPage } from './pages/ApprovalsPage'
+import { FindingsPanel } from './pages/FindingsPanel'
 
 // ---------- Site config ----------
 
@@ -85,7 +86,8 @@ function eventDetails(ev: RawEvent): string {
     return `tool: ${ev.tool.name}${cap}${tags}`
   }
   if (ev.policy?.decision) {
-    return `${ev.policy.decision}${ev.policy.reason ? ` — ${ev.policy.reason}` : ''}`
+    const ruleTag = ev.policy.rule_id ? ` [${ev.policy.rule_id}]` : ''
+    return `${ev.policy.decision}${ev.policy.reason ? ` — ${ev.policy.reason}` : ''}${ruleTag}`
   }
   if (ev.human?.decision) {
     return `${ev.human.decision} — ${ev.human.reviewer_id ?? 'unknown reviewer'}${
@@ -107,6 +109,28 @@ function eventDetails(ev: RawEvent): string {
     if (ev.model_output.token_count != null)
       parts.push(`${ev.model_output.token_count} tokens`)
     if (parts.length > 0) return parts.join(' · ')
+  }
+  // tool_name top-level alias (no nested tool object)
+  if (ev.tool_name && !ev.tool?.name) {
+    return `tool: ${ev.tool_name}`
+  }
+  if (ev.evidence) {
+    const parts: string[] = []
+    if (ev.evidence.signature) {
+      const algo = ev.evidence.signature_algorithm ?? 'signed'
+      const keyHint = ev.evidence.signer_key_id ? ` key:${ev.evidence.signer_key_id.slice(0, 8)}` : ''
+      parts.push(`${algo}${keyHint}`)
+    } else {
+      parts.push('unsigned')
+    }
+    if (ev.evidence.attestation_format === 'dsse') {
+      parts.push(ev.evidence.dsse_pre_verified ? 'DSSE ✓' : 'DSSE')
+    }
+    if (ev.evidence.prev_hash) parts.push('chained')
+    if (parts.length > 0) return `evidence: ${parts.join(' · ')}`
+  }
+  if (ev.recording_mode) {
+    return `recording: ${ev.recording_mode}`
   }
   return '—'
 }
@@ -849,6 +873,9 @@ function AuditPage() {
             <SummaryCard label="Run ID" value={firstEvent?.run_id ?? '—'} accent="border-l-violet-400" />
             <SummaryCard label="Agent ID" value={firstEvent?.agent_id ?? '—'} accent="border-l-emerald-400" />
             <SummaryCard label="Model ID" value={firstEvent?.model_id ?? '—'} accent="border-l-amber-400" />
+            {firstEvent?.recording_mode && (
+              <SummaryCard label="Recording" value={firstEvent.recording_mode} accent="border-l-sky-400" />
+            )}
           </div>
         )}
 
@@ -1084,6 +1111,13 @@ function ReportPage() {
           </div>
         </div>
 
+
+      <section>
+        <div className="flex items-center gap-2 mb-4">
+          <h2 className="text-base font-semibold text-slate-800">Findings</h2>
+        </div>
+        <FindingsPanel runId={runId} />
+      </section>
         <div className="mt-4 text-center">
           <button
             onClick={() => { reset(); navigate('/') }}

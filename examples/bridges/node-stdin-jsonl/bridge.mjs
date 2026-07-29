@@ -48,7 +48,7 @@ function parseManifestArg() {
 
 async function readStdin() {
   const lines = [];
-  const rl = createInterface({ input: stdin, crlfDelay: Infinity });
+  const rl = createInterface({ input: stdin, crlfDelay: Number.POSITIVE_INFINITY });
   for await (const line of rl) {
     lines.push(line);
   }

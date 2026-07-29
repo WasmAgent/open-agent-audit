@@ -2014,20 +2014,19 @@ function buildComplianceMappings(
             limitation:
               '100% hash-chained and signed events evidence continuous operational monitoring within this run. Cross-run drift detection requires the drift-guard engine.',
           };
-        } else if (a75EvIds.length > 0) {
+        }if (a75EvIds.length > 0) {
           return {
             status: 'partial' as const,
             evidence_event_ids: a75EvIds,
             limitation:
               'Hash-chained events with error/deny records evidence operational monitoring within a single run; cross-run drift monitoring requires the drift-guard engine.',
           };
-        } else {
+        }
           return {
             status: 'not_evaluated' as const,
             evidence_event_ids: [],
             limitation: 'No operational monitoring signals detected in this trace.',
           };
-        }
       })(),
     },
     {
@@ -2105,20 +2104,19 @@ function buildComplianceMappings(
             limitation:
               'Every event carries a signer key ID identifying the AI component at run time. Vendor qualification and contractual documentation remain organizational obligations.',
           };
-        } else if (a91EvIds.length > 0) {
+        }if (a91EvIds.length > 0) {
           return {
             status: 'partial' as const,
             evidence_event_ids: a91EvIds.slice(0, 5),
             limitation:
               'Signer key IDs in evidence blocks identify the AI component at run time but do not substitute for vendor qualification documentation.',
           };
-        } else {
+        }
           return {
             status: 'not_evaluated' as const,
             evidence_event_ids: [],
             limitation: 'No signed evidence blocks with signer identity detected.',
           };
-        }
       })(),
     },
     {
@@ -2140,20 +2138,19 @@ function buildComplianceMappings(
             limitation:
               'This signed, hash-chained audit report is itself an operational monitoring artifact satisfying A.10.2 reporting obligations. Ongoing multi-run drift monitoring requires drift-guard engine integration.',
           };
-        } else if (events.length > 0) {
+        }if (events.length > 0) {
           return {
             status: 'partial' as const,
             evidence_event_ids: events.slice(0, 5).map((e) => e.event_id),
             limitation:
               'This audit report itself is an operational monitoring artifact per A.10.2; ongoing multi-run monitoring requires drift-guard engine integration.',
           };
-        } else {
+        }
           return {
             status: 'not_evaluated' as const,
             evidence_event_ids: [],
             limitation: 'No events present in this trace.',
           };
-        }
       })(),
     },
     {
@@ -2577,7 +2574,7 @@ function buildMarkdown(
   lines.push(`| Report generated | ${generatedAt} |`);
   lines.push(`| Minimum retention until | ${retentionUntil} |`);
   lines.push(`| Issuing platform | ${resolved.issuer} |`);
-  lines.push(`| Applicable regulation | EU AI Act (Regulation (EU) 2024/1689), Art. 26(6) |`);
+  lines.push('| Applicable regulation | EU AI Act (Regulation (EU) 2024/1689), Art. 26(6) |');
   lines.push('');
 
   // Narrative intro (optional LLM-authored auditor voice)
@@ -2852,12 +2849,12 @@ function buildComplianceMappingHtml(mappings: ComplianceMapping[]): string[] {
             : '<em>none</em>';
         const style = statusHtmlStyle(req.status);
         parts.push(
-          `<tr>` +
+          '<tr>' +
             `<td>${escapeHtml(req.id)}</td>` +
             `<td>${escapeHtml(req.label)}</td>` +
             `<td><span style="${style}">${escapeHtml(statusSymbol(req.status))}</span></td>` +
             `<td>${evIds}</td>` +
-            `</tr>`,
+            '</tr>',
         );
       }
       parts.push('</tbody>');
@@ -2873,12 +2870,12 @@ function buildComplianceMappingHtml(mappings: ComplianceMapping[]): string[] {
           req.limitation !== undefined ? escapeHtml(req.limitation) : '<em>none</em>';
         const style = statusHtmlStyle(req.status);
         parts.push(
-          `<tr>` +
+          '<tr>' +
             `<td>${escapeHtml(req.id)}</td>` +
             `<td>${escapeHtml(req.label)}</td>` +
             `<td><span style="${style}">${escapeHtml(statusSymbol(req.status))}</span></td>` +
             `<td><em>${limitation}</em></td>` +
-            `</tr>`,
+            '</tr>',
         );
       }
       parts.push('</tbody>');
@@ -3121,7 +3118,7 @@ function buildHtml(
   parts.push(`<tr><td>Minimum retention until</td><td>${escapeHtml(retentionUntil)}</td></tr>`);
   parts.push(`<tr><td>Issuing platform</td><td>${escapeHtml(resolved.issuer)}</td></tr>`);
   parts.push(
-    `<tr><td>Applicable regulation</td><td>EU AI Act (Regulation (EU) 2024/1689), Art. 26(6)</td></tr>`,
+    '<tr><td>Applicable regulation</td><td>EU AI Act (Regulation (EU) 2024/1689), Art. 26(6)</td></tr>',
   );
   parts.push('</tbody>');
   parts.push('</table>');
@@ -3212,7 +3209,7 @@ function buildHtml(
       ? ` | DSSE/in-toto attestation: ${dsseEventCountH} event(s)`
       : '';
     parts.push(
-      `<tr><td>Cryptographic Verification</td>` +
+      '<tr><td>Cryptographic Verification</td>' +
         `<td>${cryptoSummary.hashes_content_verified}/${cryptoSummary.events_with_hash} events hash-verified${mismatchNote}</td>` +
         `<td>${cryptoSummary.events_with_signature} signature(s) present — ${sigNoteH}${dsseNoteH}</td></tr>`,
     );
@@ -3432,7 +3429,7 @@ function buildHtml(
         `<td style="font-family:monospace;font-size:10px">${escapeHtml(ev.timestamp)}</td>` +
         `<td>${details}</td>` +
         `<td><code>${escapeHtml(evidenceId)}</code></td>` +
-        `</tr>`,
+        '</tr>',
     );
   }
   parts.push('</tbody></table>');

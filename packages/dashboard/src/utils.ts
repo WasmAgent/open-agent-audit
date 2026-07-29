@@ -9,12 +9,25 @@ export interface RawEvent {
   timestamp?: string
   type?: string
   actor?: string
+  tool_name?: string
   tool?: { name?: string; capability?: string; risk_tags?: string[] }
   policy?: { decision?: string; reason?: string; rule_id?: string }
   error?: { kind?: string; message?: string }
   human?: { reviewer_id?: string; decision?: string; justification?: string }
   observation?: { source?: string; byte_size?: number; content_hash?: string }
   model_output?: { token_count?: number; finish_reason?: string; content_hash?: string }
+  evidence?: {
+    evidence_id?: string
+    hash?: string
+    prev_hash?: string
+    signature?: string
+    signature_algorithm?: 'ed25519' | 'ecdsa-p256'
+    signer_key_id?: string
+    attestation_format?: 'legacy' | 'dsse'
+    dsse_pre_verified?: boolean
+  }
+  recording_mode?: 'validation' | 'delta' | 'full'
+  human_approval?: boolean
 }
 
 export interface AepMeta {

@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useCallback } from 'react'
-import { type RawEvent, type AepMeta } from './utils'
+import type { RawEvent, AepMeta } from './utils'
 
 export interface ReportSummary {
   eas_score?: number
