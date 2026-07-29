@@ -1,7 +1,7 @@
 {
   "name": "@openagentaudit/dashboard",
   "version": "0.1.0",
-  "description": "OpenAgentAudit dashboard \u2014 React + Tailwind SPA served via Cloudflare Workers Static Assets",
+  "description": "OpenAgentAudit dashboard — React + Tailwind SPA served via Cloudflare Workers Static Assets",
   "license": "Apache-2.0",
   "private": true,
   "type": "module",
@@ -13,7 +13,7 @@
     "clean": "rm -rf dist .turbo"
   },
   "dependencies": {
-    "@openagentaudit/schema": "0.5.1",
+    "@openagentaudit/schema": "0.6.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "wouter": "^3.10.0"
