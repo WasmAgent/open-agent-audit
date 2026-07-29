@@ -19,12 +19,12 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "echo 'no tests yet — package skeleton' && exit 0",
+    "test": "echo 'no tests yet \u2014 package skeleton' && exit 0",
     "clean": "rm -rf dist .turbo",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "zod": "^3.23.0"
+    "zod": "^4.4.3"
   },
   "wasmagent": {
     "stability": "alpha"
