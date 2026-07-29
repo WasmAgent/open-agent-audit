@@ -40,6 +40,22 @@ export type {
 } from './drift-guard/index.js';
 export { computeRiskScore } from './scoring/index.js';
 export type { AepProvenanceForScoring, DriftResultForScoring } from './scoring/index.js';
+export {
+  MIN_RETENTION_DAYS,
+  addDays,
+  ageDays,
+  parseRetentionPolicy,
+  planRetention,
+  resolvePolicy,
+} from './retention/index.js';
+export type {
+  RetentionAction,
+  RetentionCandidate,
+  RetentionDecision,
+  RetentionPlan,
+  RetentionPolicy,
+  ResolvedRetentionPolicy,
+} from './retention/index.js';
 export { renderReport } from './report/index.js';
 export type { ReportBundle, ReportMeta, ComplianceMapping } from './report/index.js';
 export {
