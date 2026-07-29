@@ -63,12 +63,14 @@
   "durable_objects": {
     "bindings": [
       { "name": "AUDIT_RUN_COORDINATOR", "class_name": "AuditRunCoordinator" },
+      { "name": "ALERT_GATEKEEPER",      "class_name": "AlertGatekeeper"      },
       { "name": "TENANT_LIMITER",        "class_name": "TenantLimiter"        }
     ]
   },
 
   "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["AuditRunCoordinator", "TenantLimiter"] }
+    { "tag": "v1", "new_sqlite_classes": ["AuditRunCoordinator", "TenantLimiter"] },
+    { "tag": "v2", "new_sqlite_classes": ["AlertGatekeeper"] }
   ],
 
   "vars": {

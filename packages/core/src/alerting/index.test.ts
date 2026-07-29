@@ -2,13 +2,17 @@ import { describe, expect, it } from 'bun:test';
 import type { RiskScore } from '@openagentaudit/schema';
 import {
   alertContextFromScore,
+  alertDedupeKey,
   alertMessage,
   defaultSeverity,
   dispatchAlert,
+  emptyAlertGateState,
   evaluateAlerts,
   formatEmailMessage,
   formatSlackPayload,
   formatWebhookPayload,
+  gateAlerts,
+  parseAlertGate,
   parseAlertRules,
   parseAlertTargets,
   runAlerts,
@@ -17,6 +21,7 @@ import type {
   AlertChannel,
   AlertContext,
   AlertEvent,
+  AlertGateConfig,
   AlertRule,
   AlertTargets,
 } from './index.js';
@@ -499,5 +504,155 @@ describe('parseAlertTargets', () => {
   });
   it('throws on non-object JSON', () => {
     expect(() => parseAlertTargets('["a"]')).toThrow(/object/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Suppression gate — rate limiting + de-duplication (Milestone 6 #209)
+// ---------------------------------------------------------------------------
+
+// Build fired AlertEvents for the given rule ids via the real evaluateAlerts
+// engine, so the gate operates on the same shape production feeds it. Reuses
+// this file's existing score()/context() builders; eas 40 < threshold 60 trips
+// each rule exactly once.
+function firedEvents(ruleIds: string[], runId = 'run-x'): AlertEvent[] {
+  const rules: AlertRule[] = ruleIds.map((id) => ({
+    id,
+    metric: 'eas',
+    threshold: 60,
+    channels: ['slack'],
+  }));
+  return evaluateAlerts(rules, score(40, 90, runId), context(runId));
+}
+
+describe('alertDedupeKey', () => {
+  it('keys on the rule id', () => {
+    const [event] = firedEvents(['rule-1']);
+    if (event === undefined) throw new Error('expected alert to fire');
+    expect(alertDedupeKey(event)).toBe('rule-1');
+  });
+});
+
+describe('emptyAlertGateState', () => {
+  it('seeds an empty state at the given time', () => {
+    const state = emptyAlertGateState(1000);
+    expect(state.last_fired).toEqual({});
+    expect(state.window_start).toBe(1000);
+    expect(state.window_count).toBe(0);
+  });
+  it('defaults the timestamp to Date.now()', () => {
+    const before = Date.now();
+    const state = emptyAlertGateState();
+    const after = Date.now();
+    expect(state.window_start).toBeGreaterThanOrEqual(before);
+    expect(state.window_start).toBeLessThanOrEqual(after);
+  });
+});
+
+describe('gateAlerts', () => {
+  it('passes everything through when no suppression is configured', () => {
+    const events = firedEvents(['a', 'b']);
+    const result = gateAlerts(events, emptyAlertGateState(0), {}, 100);
+    expect(result.allowed).toHaveLength(2);
+    expect(result.suppressed).toHaveLength(0);
+    // Disabled gate must not track last-firings.
+    expect(result.state.last_fired).toEqual({});
+  });
+
+  it('uses a fresh state when none is supplied', () => {
+    const events = firedEvents(['a']);
+    const result = gateAlerts(events, undefined, {}, 100);
+    expect(result.allowed).toHaveLength(1);
+    expect(result.state.window_start).toBe(100);
+    expect(result.state.window_count).toBe(1);
+  });
+
+  it('de-duplicates a repeated rule within the window but lets a distinct rule through', () => {
+    const events = firedEvents(['rule-1', 'rule-1', 'rule-2']);
+    const result = gateAlerts(events, emptyAlertGateState(0), { dedupe_window_ms: 1000 }, 100);
+    const allowedIds = result.allowed.map((a) => a.rule_id);
+    expect(allowedIds).toEqual(['rule-1', 'rule-2']);
+    expect(result.suppressed.map((s) => s.reason)).toEqual(['dedupe']);
+  });
+
+  it('de-duplicates across batches when state is threaded through', () => {
+    const config: AlertGateConfig = { dedupe_window_ms: 1000 };
+    const r1 = gateAlerts(firedEvents(['rule-1']), emptyAlertGateState(0), config, 100);
+    // Same rule within the window → suppressed, even from a fresh batch.
+    const r2 = gateAlerts(firedEvents(['rule-1']), r1.state, config, 200);
+    expect(r2.allowed).toHaveLength(0);
+    expect(r2.suppressed.map((s) => s.reason)).toEqual(['dedupe']);
+  });
+
+  it('allows a rule again once the de-duplication window has elapsed', () => {
+    const config: AlertGateConfig = { dedupe_window_ms: 1000 };
+    const r1 = gateAlerts(firedEvents(['rule-1']), emptyAlertGateState(0), config, 100);
+    // 1001ms later the window has elapsed → allowed again.
+    const r2 = gateAlerts(firedEvents(['rule-1']), r1.state, config, 1101);
+    expect(r2.allowed).toHaveLength(1);
+    expect(r2.suppressed).toHaveLength(0);
+  });
+
+  it('caps notifications per rate window', () => {
+    const events = firedEvents(['a', 'b', 'c']);
+    const result = gateAlerts(events, emptyAlertGateState(0), { max_per_window: 2, rate_window_ms: 1000 }, 100);
+    expect(result.allowed.map((a) => a.rule_id)).toEqual(['a', 'b']);
+    expect(result.suppressed.map((s) => s.reason)).toEqual(['rate-limit']);
+  });
+
+  it('rolls the rate window over after it elapses', () => {
+    const config: AlertGateConfig = { max_per_window: 2, rate_window_ms: 1000 };
+    const r1 = gateAlerts(firedEvents(['a', 'b', 'c']), emptyAlertGateState(0), config, 100);
+    expect(r1.allowed).toHaveLength(2); // a, b pass; c rate-limited
+    // Still inside the same window (900ms < 1000ms) → rate-limited, no roll-over.
+    const r2 = gateAlerts(firedEvents(['d']), r1.state, config, 900);
+    expect(r2.allowed).toHaveLength(0);
+    expect(r2.state.window_start).toBe(0); // unchanged
+    // Window elapsed (1000ms ≥ 1000ms) → resets and allows again.
+    const r3 = gateAlerts(firedEvents(['d']), r2.state, config, 1000);
+    expect(r3.allowed.map((a) => a.rule_id)).toEqual(['d']);
+    expect(r3.state.window_start).toBe(1000);
+    expect(r3.state.window_count).toBe(1);
+  });
+
+  it('applies both de-duplication and the rate cap', () => {
+    const events = firedEvents(['a', 'a', 'b', 'c', 'd']);
+    const result = gateAlerts(
+      events,
+      emptyAlertGateState(0),
+      { dedupe_window_ms: 1000, max_per_window: 2, rate_window_ms: 1000 },
+      100,
+    );
+    // 'a' passes, second 'a' de-duped, then 'b' fills the 2-rate cap, 'c'/'d' rate-limited.
+    expect(result.allowed.map((a) => a.rule_id)).toEqual(['a', 'b']);
+    const reasons = result.suppressed.map((s) => s.reason);
+    expect(reasons).toEqual(['dedupe', 'rate-limit', 'rate-limit']);
+  });
+
+  it('does not mutate the supplied prior state', () => {
+    const prior = emptyAlertGateState(0);
+    const frozen = JSON.parse(JSON.stringify(prior)) as typeof prior;
+    gateAlerts(firedEvents(['a', 'b']), prior, { dedupe_window_ms: 1000 }, 100);
+    expect(prior).toEqual(frozen);
+  });
+});
+
+describe('parseAlertGate', () => {
+  it('returns an empty config for a blank value', () => {
+    expect(parseAlertGate('')).toEqual({});
+    expect(parseAlertGate('   ')).toEqual({});
+  });
+  it('returns an empty config when undefined', () => {
+    expect(parseAlertGate(undefined)).toEqual({});
+  });
+  it('parses a JSON object config', () => {
+    expect(parseAlertGate('{"dedupe_window_ms":300,"max_per_window":5}')).toEqual({
+      dedupe_window_ms: 300,
+      max_per_window: 5,
+    });
+  });
+  it('throws on a non-object JSON value', () => {
+    expect(() => parseAlertGate('["a"]')).toThrow(/object/);
+    expect(() => parseAlertGate('42')).toThrow(/object/);
   });
 });
