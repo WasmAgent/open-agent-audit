@@ -41,6 +41,14 @@ export interface AlertRule {
   label?: string;
   /** When false, the rule is skipped during evaluation. Defaults to true. */
   enabled?: boolean;
+  /**
+   * Per-rule suppression window (ms). When set, this rule is suppressed if it
+   * already fired within the last `suppression_window_ms`. This allows "benign
+   * drift" rules to stay quiet after the first notification without affecting
+   * the global de-duplication window. Takes precedence over the global
+   * {@link AlertGateConfig.dedupe_window_ms} for this specific rule.
+   */
+  suppression_window_ms?: number;
 }
 
 /** Run metadata threaded into every alert notification. */
@@ -70,6 +78,11 @@ export interface AlertEvent {
   /** Single-line human-readable summary. */
   message: string;
   fired_at: string;
+  /**
+   * Per-rule suppression window (ms) propagated from {@link AlertRule.suppression_window_ms}.
+   * Honoured by {@link gateAlerts} to override the global de-duplication window for this rule.
+   */
+  suppression_window_ms?: number;
 }
 
 /** Slack incoming-webhook target. */
@@ -182,7 +195,7 @@ export function evaluateAlerts(
     const observed = observedForMetric(score, rule.metric);
     if (observed >= rule.threshold) continue;
     const severity = rule.severity ?? defaultSeverity(observed, rule.threshold);
-    events.push({
+    const alertEvent: AlertEvent = {
       rule_id: rule.id,
       label: rule.label ?? rule.id,
       metric: rule.metric,
@@ -193,7 +206,11 @@ export function evaluateAlerts(
       context,
       message: alertMessage(rule, observed, context),
       fired_at: context.generated_at ?? new Date().toISOString(),
-    });
+    };
+    if (rule.suppression_window_ms !== undefined) {
+      alertEvent.suppression_window_ms = rule.suppression_window_ms;
+    }
+    events.push(alertEvent);
   }
   return events;
 }
@@ -574,7 +591,12 @@ export function gateAlerts(
   for (const event of events) {
     const key = alertDedupeKey(event);
     const last = next.last_fired[key];
-    if (dedupeMs > 0 && last !== undefined && now - last < dedupeMs) {
+    // Per-rule suppression window overrides the global dedupe window for this rule.
+    const effectiveDedupeMs =
+      typeof (event as unknown as { suppression_window_ms?: number }).suppression_window_ms === 'number'
+        ? ((event as unknown as { suppression_window_ms?: number }).suppression_window_ms ?? 0)
+        : dedupeMs;
+    if (effectiveDedupeMs > 0 && last !== undefined && now - last < effectiveDedupeMs) {
       suppressed.push({ alert: event, reason: 'dedupe' });
       continue;
     }

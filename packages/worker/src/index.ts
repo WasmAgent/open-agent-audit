@@ -9,7 +9,10 @@ import { aepV0_2 } from '@openagentaudit/adapters';
 import {
   alertContextFromScore,
   computeRiskScore,
+  dispatchAlert,
+  evaluateAlerts,
   inventory,
+  parseAlertGate,
   parseAlertRules,
   parseAlertTargets,
   parseRetentionPolicy,
@@ -21,6 +24,8 @@ import {
 } from '@openagentaudit/core';
 import type {
   AepProvenanceForScoring,
+  AlertEvent,
+  AlertGateConfig,
   AlertRule,
   AlertTargets,
   PolicyAuditContext,
@@ -120,6 +125,25 @@ export interface WorkerEnv {
    * `{"retention_days":365,"archive_after_days":180,"prune_expired":true}`.
    */
   RETENTION_POLICY?: string;
+  /**
+   * JSON-encoded {@link AuditScheduleConfig} — configures the scheduled audit
+   * runner cadence per monitoring profile (Milestone 6 #194).
+   * Example: {"cadence":"daily","profiles":["default"],"enabled":true}
+   */
+  AUDIT_SCHEDULE?: string;
+  /**
+   * Alert rate-limiting + de-duplication Durable Object namespace (Milestone 6 #209).
+   * When set, fired alerts are passed through the AlertGatekeeper before dispatch
+   * to suppress notification fatigue from repeated breaches and batch findings.
+   * Requires the AlertGatekeeper DO class to be configured in wrangler.jsonc.
+   */
+  ALERT_GATEKEEPER?: DurableObjectNamespace;
+  /**
+   * JSON object of AlertGateConfig — de-duplication window and rate cap for
+   * {@link ALERT_GATEKEEPER} (Milestone 6 #209). Example:
+   * `{"dedupe_window_ms":300000,"max_per_window":5}`. Defaults to no suppression.
+   */
+  ALERT_GATE?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -672,6 +696,170 @@ async function handleGetFindingTrends(url: URL, env: WorkerEnv): Promise<Respons
       open_findings_total: cumulative,
       current_open_by_severity: currentOpenBySeverity,
       series,
+    },
+    env,
+  );
+}
+
+
+// ---------------------------------------------------------------------------
+// Scheduled audit runner — configurable cadence (Milestone 6 #194)
+// ---------------------------------------------------------------------------
+
+/**
+ * Supported audit cadence values for the scheduled audit runner.
+ * - `hourly`: run every hour (Cloudflare cron: `0 * * * *`)
+ * - `daily`: run once per day (Cloudflare cron: `0 0 * * *`)
+ * - `weekly`: run once per week (Cloudflare cron: `0 0 * * 0`)
+ */
+export type AuditCadence = 'hourly' | 'daily' | 'weekly';
+
+/**
+ * Configuration for the scheduled audit runner (Milestone 6 #194).
+ * Parsed from {@link WorkerEnv.AUDIT_SCHEDULE}.
+ */
+export interface AuditScheduleConfig {
+  /** How often the runner fires for this monitoring profile set. Defaults to `daily`. */
+  cadence?: AuditCadence;
+  /**
+   * Profile IDs passed to newly enqueued audit jobs. An empty array means
+   * the worker's `DEFAULT_PROFILES` env var is used as the fallback.
+   */
+  profiles?: string[];
+  /** Set to `false` to disable scheduled audits without removing the env var. Defaults to `true`. */
+  enabled?: boolean;
+}
+
+/**
+ * Parse the `AUDIT_SCHEDULE` env var into an {@link AuditScheduleConfig}.
+ * Returns sensible defaults when the value is absent or blank. Throws on
+ * malformed JSON so misconfiguration is surfaced rather than silently
+ * disabling scheduled audits.
+ */
+export function parseAuditSchedule(raw: string | undefined): AuditScheduleConfig {
+  if (raw === undefined || raw.trim() === '') {
+    return { cadence: 'daily', profiles: [], enabled: true };
+  }
+  const parsed = JSON.parse(raw) as unknown;
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('AUDIT_SCHEDULE must be a JSON object of AuditScheduleConfig');
+  }
+  return parsed as AuditScheduleConfig;
+}
+
+/**
+ * Determine whether a scheduled event should trigger an audit run for the
+ * given cadence. Uses the `scheduledTime` (epoch-ms) to check if we are in
+ * the appropriate time window.
+ *
+ * - `hourly` — always fires (every cron tick counts as hourly)
+ * - `daily` — fires only when the scheduled hour is 0 (UTC midnight)
+ * - `weekly` — fires only when day-of-week is Sunday AND hour is 0
+ *
+ * This allows a single `* * * * *` (every-minute) cron to back all three
+ * cadences without separate triggers — the handler gates itself.
+ */
+export function shouldRunForCadence(cadence: AuditCadence, scheduledTime: number): boolean {
+  const d = new Date(scheduledTime);
+  const hourUtc = d.getUTCHours();
+  const minuteUtc = d.getUTCMinutes();
+  const dayUtc = d.getUTCDay(); // 0 = Sunday
+
+  if (cadence === 'hourly') {
+    // Fire at the start of every hour
+    return minuteUtc === 0;
+  }
+  if (cadence === 'daily') {
+    // Fire once at UTC midnight
+    return hourUtc === 0 && minuteUtc === 0;
+  }
+  if (cadence === 'weekly') {
+    // Fire at Sunday UTC midnight
+    return dayUtc === 0 && hourUtc === 0 && minuteUtc === 0;
+  }
+  return false;
+}
+
+
+// ---------------------------------------------------------------------------
+// Multi-project monitoring — org-wide risk rollup (Milestone 6 #206/#214)
+// ---------------------------------------------------------------------------
+
+interface OrgRiskRow {
+  project_id: string;
+  run_count: number;
+  avg_risk_score: number | null;
+  min_risk_score: number | null;
+  max_risk_score: number | null;
+  avg_eas_score: number | null;
+  latest_run_at: string | null;
+  open_finding_count: number;
+}
+
+/**
+ * GET /api/v1/dashboard/org-risk-rollup
+ *
+ * Returns a per-project risk summary across all projects in the deployment,
+ * enabling unified org-wide monitoring dashboards. Each row reports the
+ * average/min/max ARS and EAS scores, run count, open finding count, and the
+ * timestamp of the latest run — enough to rank projects by risk and spot
+ * projects that have not been audited recently.
+ *
+ * Query params:
+ *   - `days` (default 30, max 365): lookback window
+ *   - `min_runs` (default 1): exclude projects with fewer than this many runs
+ */
+async function handleGetOrgRiskRollup(url: URL, env: WorkerEnv): Promise<Response> {
+  const days = clampDays(url.searchParams.get('days'));
+  const minRuns = Math.max(1, Number.parseInt(url.searchParams.get('min_runs') ?? '1', 10) || 1);
+  const since = new Date(Date.now() - days * 86_400_000).toISOString();
+
+  // Aggregate per-project stats from audit_runs and join with finding counts.
+  const result = await env.DB.prepare(
+    `SELECT
+       ar.project_id,
+       COUNT(ar.run_id) AS run_count,
+       AVG(ar.risk_score) AS avg_risk_score,
+       MIN(ar.risk_score) AS min_risk_score,
+       MAX(ar.risk_score) AS max_risk_score,
+       AVG(ar.evidence_admission_score) AS avg_eas_score,
+       MAX(ar.completed_at) AS latest_run_at,
+       COALESCE(SUM(ar.finding_count), 0) AS open_finding_count
+     FROM audit_runs ar
+     WHERE ar.created_at >= ?
+     GROUP BY ar.project_id
+     HAVING COUNT(ar.run_id) >= ?
+     ORDER BY avg_risk_score ASC NULLS LAST`,
+  )
+    .bind(since, minRuns)
+    .all<OrgRiskRow>();
+
+  const projects = (result.results ?? []).map((row) => ({
+    project_id: row.project_id,
+    run_count: row.run_count,
+    avg_risk_score: row.avg_risk_score === null ? null : round2(row.avg_risk_score),
+    min_risk_score: row.min_risk_score,
+    max_risk_score: row.max_risk_score,
+    avg_eas_score: row.avg_eas_score === null ? null : round2(row.avg_eas_score),
+    latest_run_at: row.latest_run_at,
+    open_finding_count: row.open_finding_count,
+  }));
+
+  // Compute org-level aggregates across all projects in the window.
+  const totalRuns = projects.reduce((n, p) => n + p.run_count, 0);
+  const totalFindings = projects.reduce((n, p) => n + p.open_finding_count, 0);
+  const validScores = projects.map((p) => p.avg_risk_score).filter((s): s is number => s !== null);
+  const orgAvgRisk = validScores.length > 0 ? round2(validScores.reduce((a, b) => a + b, 0) / validScores.length) : null;
+
+  return corsJson(
+    {
+      days,
+      since,
+      project_count: projects.length,
+      total_runs: totalRuns,
+      total_open_findings: totalFindings,
+      org_avg_risk_score: orgAvgRisk,
+      projects,
     },
     env,
   );
@@ -1369,6 +1557,11 @@ async function handleFetch(request: Request, env: WorkerEnv): Promise<Response> 
     return handleGetFindingTrends(url, env);
   }
 
+  // GET /api/v1/dashboard/org-risk-rollup (Milestone 6 #206/#214)
+  if (method === 'GET' && pathname === '/api/v1/dashboard/org-risk-rollup') {
+    return handleGetOrgRiskRollup(url, env);
+  }
+
   // --- Approvals API ---
 
   // GET /api/v1/approvals
@@ -1639,8 +1832,42 @@ async function maybeDispatchAlerts(env: WorkerEnv, runId: string, score: RiskSco
     report_url: `${env.PUBLIC_URL}/r/${runId}`,
     issuer: env.ISSUER_NAME,
   });
+
   try {
-    await runAlerts(rules, score, context, targets);
+    // Milestone 6 #209: when the AlertGatekeeper DO is configured, pass fired
+    // alerts through it for de-duplication + rate limiting before dispatching.
+    // Falls back to direct dispatch when the DO binding is absent.
+    if (env.ALERT_GATEKEEPER !== undefined) {
+      const firedAlerts = evaluateAlerts(rules, score, context);
+      if (firedAlerts.length === 0) return;
+
+      let gateConfig: AlertGateConfig;
+      try {
+        gateConfig = parseAlertGate(env.ALERT_GATE);
+      } catch (err) {
+        console.error('ALERT_GATE parse failed, using no suppression:', err instanceof Error ? err.message : String(err));
+        gateConfig = {};
+      }
+
+      // Route through the AlertGatekeeper Durable Object
+      const doId = env.ALERT_GATEKEEPER.idFromName('default');
+      const stub = env.ALERT_GATEKEEPER.get(doId);
+      const gateResp = await stub.fetch('https://do/gate', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ events: firedAlerts, config: gateConfig }),
+      });
+      const { allowed } = await gateResp.json<{ allowed: AlertEvent[] }>();
+
+      if (allowed.length === 0) {
+        console.info(`[alerts] all ${firedAlerts.length} alert(s) suppressed by gate`);
+        return;
+      }
+      console.info(`[alerts] ${allowed.length}/${firedAlerts.length} alert(s) passed gate`);
+      await Promise.all(allowed.map((alert) => dispatchAlert(alert, targets)));
+    } else {
+      await runAlerts(rules, score, context, targets);
+    }
   } catch (err) {
     console.error('alert dispatch failed', err instanceof Error ? err.message : String(err));
   }
@@ -2008,13 +2235,38 @@ async function fetchIssuesWithRetry(
  * Polls configured GitHub repos for labeled issues and enqueues audit jobs.
  */
 async function handleScheduled(
-  _event: ScheduledEvent,
+  event: ScheduledEvent,
   env: WorkerEnv,
   _ctx: ExecutionContext,
 ): Promise<void> {
   // Milestone 6 #205: run the evidence retention sweep on every scheduled tick.
   // Independent of GITHUB_TOKEN - retention must run even when issue polling is off.
   await applyRetention(env);
+
+  // Milestone 6 #194: scheduled audit runner — cadence gate.
+  // Evaluate the configured cadence and skip the audit trigger when we are
+  // not in the appropriate time window for this profile set.
+  let schedule: AuditScheduleConfig;
+  try {
+    schedule = parseAuditSchedule(env.AUDIT_SCHEDULE);
+  } catch (err) {
+    console.error('[scheduler] AUDIT_SCHEDULE parse failed, defaulting to daily:', err instanceof Error ? err.message : String(err));
+    schedule = { cadence: 'daily', profiles: [], enabled: true };
+  }
+
+  if (schedule.enabled === false) {
+    console.info('[scheduler] scheduled audits disabled via AUDIT_SCHEDULE.enabled=false');
+    return;
+  }
+
+  const cadence: AuditCadence = schedule.cadence ?? 'daily';
+  const scheduledTime = event.scheduledTime ?? Date.now();
+  if (!shouldRunForCadence(cadence, scheduledTime)) {
+    console.info(`[scheduler] cadence '${cadence}' gate: not the right time window, skipping`);
+    return;
+  }
+
+  console.info(`[scheduler] cadence '${cadence}' gate passed at ${new Date(scheduledTime).toISOString()}`);
 
   const token = env.GITHUB_TOKEN;
   if (!token) {

@@ -13,7 +13,7 @@
 
 export const ENGINE_VERSION = '0.1.0-alpha.0' as const;
 
-export { validate } from './validate/index.js';
+export { validate, validateEvents } from './validate/index.js';
 export type { ValidationResult, Ed25519KeyRegistry } from './validate/index.js';
 export { inventory } from './inventory/index.js';
 export type {

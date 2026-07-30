@@ -656,3 +656,55 @@ describe('parseAlertGate', () => {
     expect(() => parseAlertGate('42')).toThrow(/object/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Per-rule suppression window (Milestone 6 #204)
+// ---------------------------------------------------------------------------
+
+describe('AlertRule.suppression_window_ms', () => {
+  it('propagates suppression_window_ms from rule to AlertEvent', () => {
+    const rules: AlertRule[] = [
+      { id: 'r', metric: 'eas', threshold: 60, channels: ['slack'], suppression_window_ms: 5000 },
+    ];
+    const events = evaluateAlerts(rules, score(40, 90), context());
+    expect(events[0]?.suppression_window_ms).toBe(5000);
+  });
+
+  it('does not set suppression_window_ms on AlertEvent when rule omits it', () => {
+    const rules: AlertRule[] = [
+      { id: 'r', metric: 'eas', threshold: 60, channels: ['slack'] },
+    ];
+    const events = evaluateAlerts(rules, score(40, 90), context());
+    expect(events[0]?.suppression_window_ms).toBeUndefined();
+  });
+
+  it('per-rule window overrides global dedupe window', () => {
+    // Rule has suppression_window_ms=500; global dedupe window is 1000ms.
+    // After 600ms the per-rule window has expired, so the rule fires again.
+    const rules: AlertRule[] = [
+      { id: 'r', metric: 'eas', threshold: 60, channels: ['slack'], suppression_window_ms: 500 },
+    ];
+    const events = evaluateAlerts(rules, score(40, 90), context());
+    const config = { dedupe_window_ms: 1000 }; // global = 1000ms
+
+    const r1 = gateAlerts(events, emptyAlertGateState(0), config, 100);
+    expect(r1.allowed).toHaveLength(1);
+
+    // 600ms later: per-rule 500ms elapsed → allowed again (even though global 1000ms not elapsed)
+    const r2 = gateAlerts(events, r1.state, config, 700);
+    expect(r2.allowed).toHaveLength(1);
+    expect(r2.suppressed).toHaveLength(0);
+  });
+
+  it('suppression window of 0 disables per-rule suppression', () => {
+    const rules: AlertRule[] = [
+      { id: 'r', metric: 'eas', threshold: 60, channels: ['slack'], suppression_window_ms: 0 },
+    ];
+    const events = evaluateAlerts(rules, score(40, 90), context());
+    // With both global and per-rule dedupe disabled: always allowed
+    const r1 = gateAlerts(events, emptyAlertGateState(0), {}, 100);
+    const r2 = gateAlerts(events, r1.state, {}, 101);
+    expect(r1.allowed).toHaveLength(1);
+    expect(r2.allowed).toHaveLength(1);
+  });
+});
