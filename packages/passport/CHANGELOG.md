@@ -1,5 +1,12 @@
 # @openagentaudit/passport
 
+## 0.6.1
+
+### Patch Changes
+
+- Updated dependencies [35b54bb]
+  - @openagentaudit/core@0.7.0
+
 ## 0.6.0
 
 ### Patch Changes
