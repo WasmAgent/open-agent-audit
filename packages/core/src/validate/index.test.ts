@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { validate } from './index.js';
+import { validate, validateEvents } from './index.js';
 import type { CanonicalEvent } from '@openagentaudit/schema';
 
 function makeEvent(overrides: Partial<CanonicalEvent> = {}): CanonicalEvent {
@@ -469,5 +469,69 @@ describe('adversarial fixtures', () => {
     const result = await validate([event]);
     const typeErrors = result.errors.filter((e) => e.path === 'type');
     expect(typeErrors.length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// validateEvents: raw-input parser (Milestone 1 #200)
+// ---------------------------------------------------------------------------
+
+describe('validateEvents', () => {
+  test('parses valid raw events and returns typed events with no errors', () => {
+    const raw: unknown[] = [
+      {
+        schema_version: 'open-agent-audit/v0.1',
+        run_id: 'r1',
+        agent_id: 'a1',
+        model_id: 'm1',
+        event_id: 'e1',
+        timestamp: '2024-01-01T00:00:00Z',
+        type: 'observation',
+        actor: 'system',
+      },
+    ];
+    const { events, errors } = validateEvents(raw);
+    expect(events).toHaveLength(1);
+    expect(errors).toHaveLength(0);
+    expect(events[0]?.event_id).toBe('e1');
+  });
+
+  test('returns an error for each invalid raw element, valid elements still returned', () => {
+    const valid: unknown = {
+      schema_version: 'open-agent-audit/v0.1',
+      run_id: 'r1',
+      agent_id: 'a1',
+      model_id: 'm1',
+      event_id: 'e2',
+      timestamp: '2024-01-01T00:00:00Z',
+      type: 'observation',
+      actor: 'system',
+    };
+    const invalid: unknown = { not_a_canonical_event: true };
+    const { events, errors } = validateEvents([valid, invalid]);
+    expect(events).toHaveLength(1);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.index).toBe(1);
+    expect(typeof errors[0]?.message).toBe('string');
+  });
+
+  test('returns empty events and no errors for empty input', () => {
+    const { events, errors } = validateEvents([]);
+    expect(events).toHaveLength(0);
+    expect(errors).toHaveLength(0);
+  });
+
+  test('returns errors for all invalid elements when all are invalid', () => {
+    const raw: unknown[] = [{ bad: 1 }, { also_bad: 2 }, null];
+    const { events, errors } = validateEvents(raw);
+    expect(events).toHaveLength(0);
+    expect(errors).toHaveLength(3);
+  });
+
+  test('non-array primitives as elements produce errors', () => {
+    const raw: unknown[] = [42, 'string', true];
+    const { events, errors } = validateEvents(raw);
+    expect(events).toHaveLength(0);
+    expect(errors).toHaveLength(3);
   });
 });

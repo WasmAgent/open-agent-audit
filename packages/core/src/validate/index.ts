@@ -1,6 +1,6 @@
 /** @openagentaudit/core/validate — implementation. */
 import type { CanonicalEvent } from '@openagentaudit/schema';
-import { validateEvents } from '@openagentaudit/schema';
+import { validateEvents as validateEventsSchema } from '@openagentaudit/schema';
 
 export interface ValidationResult {
   total: number;
@@ -114,6 +114,40 @@ async function verifyEd25519Signature(
   } catch {
     return 'failed';
   }
+}
+
+
+// ---------------------------------------------------------------------------
+// validateEvents: parse unknown input → typed events + validation errors
+// (Milestone 1 #200)
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse an array of unknown values into validated {@link CanonicalEvent} objects.
+ *
+ * Unlike {@link validate} — which takes already-typed events and performs
+ * deep semantic checks — this function is the *ingestion boundary*: it accepts
+ * arbitrary unknown input (e.g. raw JSONL lines), runs Zod schema parsing to
+ * produce a typed array, and returns both the valid events and any per-element
+ * parse errors so the caller can act on each failure independently.
+ *
+ * @example
+ * ```ts
+ * const { events, errors } = validateEvents(rawLines.map(l => JSON.parse(l)));
+ * if (errors.length > 0) {
+ *   console.warn(`${errors.length} invalid event(s)`);
+ * }
+ * const result = await validate(events);
+ * ```
+ */
+export function validateEvents(raw: unknown[]): {
+  /** Successfully parsed and schema-valid events. */
+  events: CanonicalEvent[];
+  /** Per-element parse errors for values that did not conform to the schema. */
+  errors: Array<{ index: number; message: string }>;
+} {
+  const { valid, errors } = validateEventsSchema(raw);
+  return { events: valid, errors };
 }
 
 export async function validate(
