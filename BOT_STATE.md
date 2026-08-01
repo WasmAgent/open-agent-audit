@@ -1,12 +1,12 @@
 # Bot State
 
-_Last updated: 2026-08-01 04:04 UTC by patrol_
+_Last updated: 2026-08-01 10:13 UTC by patrol_
 
 ## Queue
 
 | State | Count |
 |---|---|
-| Pending | 1 |
+| Pending | 6 |
 | Active (running/reviewing) | 0 |
 | Blocked | 0 |
 | Completed/Merged (all time) | 156 |
@@ -23,6 +23,9 @@ _Last updated: 2026-08-01 04:04 UTC by patrol_
 
 ## Waiting for Human
 
+- #228: docs: Update ARS implementation reference and engine version
+- #226: [milestone Milestone 2] Implement `validate(events)` to run integrity checks and produce a cryptographic...
+- #225: [milestone Milestone 1] Implement `validateEvents(raw)` to parse unknown input and return valid events p...
 - #204: [milestone Milestone 6 ] Add configurable alert rules with severity tiers and suppression windows for ben...
 - #202: [milestone Milestone 2] Implement `computeRiskScore(events, runId)` with configurable risk weights.
 
