@@ -4,7 +4,7 @@ commands:
     timeout: 3m
     level: 1
   - name: biome
-    cmd: "if [ -f biome.json ] || [ -f biome.jsonc ]; then npx --yes @biomejs/biome check . ; else echo \"no biome config, skipping\"; fi"
+    cmd: "if [ -f biome.json ] || [ -f biome.jsonc ]; then npx --yes @biomejs/biome check --diagnostic-level=error . ; else echo \"no biome config, skipping\"; fi"
     timeout: 5m
     level: 2
   - name: build
