@@ -1,6 +1,6 @@
 # Bot State
 
-_Last updated: 2026-08-02 19:35 UTC by patrol_
+_Last updated: 2026-08-02 21:12 UTC by patrol_
 
 ## Queue
 
@@ -8,7 +8,7 @@ _Last updated: 2026-08-02 19:35 UTC by patrol_
 |---|---|
 | Pending | 2 |
 | Active (running/reviewing) | 0 |
-| Blocked | 24 |
+| Blocked | 26 |
 | Completed/Merged (all time) | 166 |
 
 ## Recent Activity (last 5)
@@ -23,6 +23,8 @@ _Last updated: 2026-08-02 19:35 UTC by patrol_
 
 ## Waiting for Human
 
+- #263: [cross-repo] Dependency needed in WasmAgent/wasmagent-protocol (job #22541)
+- #262: [cross-repo] Dependency needed in WasmAgent/wasmagent-protocol (job #23727)
 - #261: [cross-repo] Dependency needed in WasmAgent/wasmagent-protocol (job #22541)
 - #260: [cross-repo] Dependency needed in WasmAgent/wasmagent-protocol (job #22541)
 - #259: Implement canonical-event to aep-record adapter and sample-AEP conformance test
@@ -31,8 +33,6 @@ _Last updated: 2026-08-02 19:35 UTC by patrol_
 - #256: [cross-repo] Dependency needed in WasmAgent/wasmagent-protocol (job #22541)
 - #255: [cross-repo] Dependency needed in WasmAgent/wasmagent-protocol (job #22541)
 - #254: Implement canonical-event to AEP record adapter in packages/adapters/src/aep-record.ts
-- #253: [cross-repo] Dependency needed in WasmAgent/wasmagent-protocol (job #22541)
-- #252: [cross-repo] Dependency needed in WasmAgent/wasmagent-protocol (job #22541)
 
 ---
 _Maintained automatically by claude-bot-go patrol. Do not edit._
