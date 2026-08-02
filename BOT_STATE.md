@@ -1,6 +1,6 @@
 # Bot State
 
-_Last updated: 2026-08-02 06:06 UTC by patrol_
+_Last updated: 2026-08-02 06:11 UTC by patrol_
 
 ## Queue
 
@@ -27,6 +27,7 @@ _Last updated: 2026-08-02 06:06 UTC by patrol_
 - #247: [cross-repo] Dependency needed in WasmAgent/wasmagent-protocol (job #22541)
 - #246: [cross-repo] Dependency needed in WasmAgent/wasmagent-protocol (job #23727)
 - #241: [cross-repo] Dependency needed in WasmAgent/wasmagent-protocol (job #23727)
+- #238: [cross-repo] Dependency needed in WasmAgent/wasmagent-protocol (job #22541)
 - #228: docs: Update ARS implementation reference and engine version
 - #204: [milestone Milestone 6 ] Add configurable alert rules with severity tiers and suppression windows for ben...
 - #202: [milestone Milestone 2] Implement `computeRiskScore(events, runId)` with configurable risk weights.
