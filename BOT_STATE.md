@@ -1,13 +1,13 @@
 # Bot State
 
-_Last updated: 2026-08-12 09:10 UTC by patrol_
+_Last updated: 2026-08-12 10:35 UTC by patrol_
 
 ## Queue
 
 | State | Count |
 |---|---|
-| Pending | 4 |
-| Active (running/reviewing) | 2 |
+| Pending | 6 |
+| Active (running/reviewing) | 0 |
 | Blocked | 0 |
 | Completed/Merged (all time) | 167 |
 
@@ -23,6 +23,7 @@ _Last updated: 2026-08-12 09:10 UTC by patrol_
 
 ## Waiting for Human
 
+- #278: [milestone Milestone 2] Implement `computeRiskScore(events, runId)` with configurable risk weights.
 - #277: [cross-repo] Dependency needed in WasmAgent/wasmagent-protocol (job #23727)
 - #272: [cross-repo] Dependency needed in WasmAgent/wasmagent-protocol (job #22541)
 - #271: [cross-repo] Dependency needed in WasmAgent/wasmagent-protocol (job #22541)
@@ -32,7 +33,6 @@ _Last updated: 2026-08-12 09:10 UTC by patrol_
 - #264: [cross-repo] Bug observed in WasmAgent/wasmagent-protocol (job #22541)
 - #263: [cross-repo] Dependency needed in WasmAgent/wasmagent-protocol (job #22541)
 - #261: [cross-repo] Dependency needed in WasmAgent/wasmagent-protocol (job #22541)
-- #260: [cross-repo] Dependency needed in WasmAgent/wasmagent-protocol (job #22541)
 
 ---
 _Maintained automatically by claude-bot-go patrol. Do not edit._
