@@ -1,6 +1,6 @@
 # Bot State
 
-_Last updated: 2026-08-09 03:19 UTC by patrol_
+_Last updated: 2026-08-12 07:45 UTC by patrol_
 
 ## Queue
 
@@ -23,6 +23,7 @@ _Last updated: 2026-08-09 03:19 UTC by patrol_
 
 ## Waiting for Human
 
+- #277: [cross-repo] Dependency needed in WasmAgent/wasmagent-protocol (job #23727)
 - #272: [cross-repo] Dependency needed in WasmAgent/wasmagent-protocol (job #22541)
 - #271: [cross-repo] Dependency needed in WasmAgent/wasmagent-protocol (job #22541)
 - #269: [cross-repo] Dependency needed in WasmAgent/wasmagent-protocol (job #22541)
@@ -32,7 +33,6 @@ _Last updated: 2026-08-09 03:19 UTC by patrol_
 - #263: [cross-repo] Dependency needed in WasmAgent/wasmagent-protocol (job #22541)
 - #262: [cross-repo] Dependency needed in WasmAgent/wasmagent-protocol (job #23727)
 - #261: [cross-repo] Dependency needed in WasmAgent/wasmagent-protocol (job #22541)
-- #260: [cross-repo] Dependency needed in WasmAgent/wasmagent-protocol (job #22541)
 
 ---
 _Maintained automatically by claude-bot-go patrol. Do not edit._
