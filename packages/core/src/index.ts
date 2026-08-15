@@ -95,3 +95,5 @@ export type {
   SuppressReason,
   WebhookTarget,
 } from './alerting/index.js';
+export { computeRiskScore, getEventWeight } from './risk.js';
+export type { RiskWeights } from './risk.js';
