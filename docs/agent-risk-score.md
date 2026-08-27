@@ -1,6 +1,6 @@
 # Agent Risk Score (ARS)
 
-> Document version: 2026-07-07 | Engine: `@openagentaudit/core` v0.1.0
+> Document version: 2026-07-07 | Engine: `@openagentaudit/core` v0.7.0
 
 ## Overview
 
@@ -84,7 +84,7 @@ a high ARS means "the agent seems safe but we cannot verify that claim."
 
 ## Implementation Reference
 
-The ARS is computed by `computeAgentRiskScore()` in
+The ARS is computed by `computeRiskScore()` in
 `packages/core/src/scoring/index.ts`. It is included in every `RiskScore`
 output as `agent_risk_score.score`.
 
