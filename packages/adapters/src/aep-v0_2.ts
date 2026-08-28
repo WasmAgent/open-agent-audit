@@ -8,7 +8,7 @@
 
 import type { AuditRun, CanonicalEvent } from '@openagentaudit/schema';
 import type { SourceFormatAdapter } from './index.js';
-import { msToIso } from './mapping-utils.js';
+import { base64Utf8, msToIso } from './mapping-utils.js';
 
 // ---------------------------------------------------------------------------
 // Local AEPRecord type — mirrors @wasmagent/aep without importing it.
@@ -189,10 +189,10 @@ export function getProvenance(record: AEPRecordInput): AepProvenance {
 
 const SPEC_VERSION = 'open-agent-audit/v0.1' as const;
 
-/** Base-64 encode a string using the Web Crypto / btoa API. */
+/** Base-64 encode a string using the Web Crypto / btoa API. UTF-8 safe for
+ * non-ASCII run ids. */
 function makeEventId(raw: string): string {
-  // btoa is available in both browsers and Cloudflare Workers.
-  return btoa(raw);
+  return base64Utf8(raw);
 }
 
 // ---------------------------------------------------------------------------
@@ -289,6 +289,9 @@ function toEvents(record: AEPRecordInput, opts?: { prevHash?: string }): Canonic
 
   // -- Actions -> tool_call events -----------------------------------------
   const actions = record.actions ?? [];
+  // Capability → action timestamps, so capability_decisions below can anchor
+  // to a matching action without an O(actions) scan per decision.
+  const actionTimestampsByCapability = new Map<string, number[]>();
   for (const action of actions) {
     const riskTags: string[] = [
       ...(action.input_taint_labels ?? []),
@@ -299,12 +302,27 @@ function toEvents(record: AEPRecordInput, opts?: { prevHash?: string }): Canonic
     // in risk_tags so downstream rules can inspect them.
     if (action.side_effect_class) {
       riskTags.push(`side_effect_class:${action.side_effect_class}`);
+    } else if (!action.state_changing) {
+      // Read-only actions carry no state-change marker otherwise; encode one
+      // so the inverse adapter (aep-record.ts) can reconstruct
+      // state_changing=false instead of defaulting to write.
+      riskTags.push('side_effect_class:read');
     }
     if (action.argument_drift) {
       riskTags.push(`argument_drift:${action.argument_drift}`);
     }
     if (action.approval_mode) {
       riskTags.push(`approval_mode:${action.approval_mode}`);
+    }
+
+    if (action.capability_decision?.capability !== undefined) {
+      const cap = action.capability_decision.capability;
+      const timestamps = actionTimestampsByCapability.get(cap);
+      if (timestamps !== undefined) {
+        timestamps.push(action.timestamp_ms);
+      } else {
+        actionTimestampsByCapability.set(cap, [action.timestamp_ms]);
+      }
     }
 
     const toolObj: CanonicalEvent['tool'] = {
@@ -342,6 +360,10 @@ function toEvents(record: AEPRecordInput, opts?: { prevHash?: string }): Canonic
 
   // -- Capability decisions -> policy_decision events ----------------------
   const capabilityDecisions = record.capability_decisions ?? [];
+  // Occurrence counter per capability: multiple decisions sharing one
+  // capability anchor to successive matching actions and get distinct
+  // +1/+2/… offsets so timestamp sorts stay deterministic.
+  const decisionOccurrence = new Map<string, number>();
   for (const cd of capabilityDecisions) {
     // Map AEP decision to canonical PolicyDecision
     // "dry_run" is not a canonical PolicyDecision — map it to "allow" (closest semantic).
@@ -359,10 +381,14 @@ function toEvents(record: AEPRecordInput, opts?: { prevHash?: string }): Canonic
 
     // Use the matching action's timestamp so policy_decision sorts correctly
     // relative to its tool_call event (avoids hash chain breakage after sort).
-    const matchingAction = actions.find(
-      (a) => a.capability_decision?.capability === cd.capability,
-    );
-    const ts = matchingAction ? matchingAction.timestamp_ms + 1 : record.created_at_ms;
+    const matching = actionTimestampsByCapability.get(cd.capability);
+    let ts = record.created_at_ms;
+    if (matching !== undefined && matching.length > 0) {
+      const occurrence = decisionOccurrence.get(cd.capability) ?? 0;
+      const anchor = matching[Math.min(occurrence, matching.length - 1)]!;
+      decisionOccurrence.set(cd.capability, occurrence + 1);
+      ts = anchor + occurrence + 1;
+    }
 
     events.push(
       nextEvent({

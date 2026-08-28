@@ -35,11 +35,11 @@ function Sparkline({ values, width = 80, height = 24 }: { values: number[]; widt
 interface RunEntry {
   run_id: string
   created_at: string
-  source_file?: string
+  input_format?: string
   eas_score?: number
-  eas_grade?: string
   event_count?: number
   finding_count?: number
+  /** Agent Risk Score stored in D1 (risk_score column). */
   risk_score?: number
   status?: string
 }
@@ -120,14 +120,14 @@ export function RunsPage() {
                     {run.run_id.slice(0, 8)}...
                   </td>
                   <td className="px-4 py-3 text-xs text-slate-600 truncate max-w-[12rem]">
-                    {run.source_file ?? '—'}
+                    {run.input_format ?? '—'}
                   </td>
                   <td className="px-4 py-3">
                     {run.eas_score != null ? (
                       <span className={`text-xs font-bold ${
                         run.eas_score > 80 ? 'text-emerald-600' : run.eas_score >= 60 ? 'text-yellow-600' : 'text-red-600'
                       }`}>
-                        {run.eas_score} <span className="font-normal text-slate-400">({run.eas_grade ?? '—'})</span>
+                        {run.eas_score}
                       </span>
                     ) : (
                       <span className="text-xs text-slate-300">—</span>

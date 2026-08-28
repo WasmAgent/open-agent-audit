@@ -73,6 +73,12 @@
     { "tag": "v2", "new_sqlite_classes": ["AlertGatekeeper"] }
   ],
 
+  // Drives scheduled() — the evidence retention sweep runs on every tick;
+  // without a cron trigger the retention/compliance sweep never executes.
+  "triggers": {
+    "crons": ["0 * * * *"]
+  },
+
   "vars": {
     "OAA_ENV": "production",
     "MAX_UPLOAD_MB": "100",

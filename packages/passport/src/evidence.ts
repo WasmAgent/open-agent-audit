@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { TrustPassport } from './types.js';
+import { canonicalize } from './sign.js';
 
 export interface EvidenceFact {
   content_hash: string; // "sha256:<hex>"
@@ -8,10 +9,11 @@ export interface EvidenceFact {
 
 /**
  * Produce a deterministic "sha256:<hex>" reference for any content.
- * If content is not a string, JSON.stringify it first.
+ * Non-string content is canonicalized (recursively key-sorted JSON) first, so
+ * two structurally equal objects hash identically regardless of key order.
  */
 export function hashEvidence(content: unknown): string {
-  const str = typeof content === 'string' ? content : JSON.stringify(content);
+  const str = typeof content === 'string' ? content : canonicalize(content);
   const hex = createHash('sha256').update(str).digest('hex');
   return `sha256:${hex}`;
 }

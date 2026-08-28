@@ -10,7 +10,8 @@ export function status(passport: TrustPassport): PassportStatus {
     return 'revoked';
   }
   const expiresAt = new Date(passport.validity.expires_at);
-  if (expiresAt <= new Date()) {
+  // A missing/unparseable expiry must not read as "valid forever".
+  if (Number.isNaN(expiresAt.getTime()) || expiresAt <= new Date()) {
     return 'expired';
   }
   return 'valid';
@@ -19,7 +20,25 @@ export function status(passport: TrustPassport): PassportStatus {
 export function renew(options: RenewOptions): TrustPassport {
   const { passport, report, agentbom, posture, validityDays = 90 } = options;
 
+  // Revocation is a terminal issuer decision: renewing must never resurrect a
+  // revoked passport (which would silently mint a valid identity from a
+  // revoked file).
+  if (passport.revocation?.revoked) {
+    throw new Error(
+      `passport renew: passport ${passport.identity.passport_id} is revoked` +
+        (passport.revocation.revocation_reason
+          ? ` (reason: ${passport.revocation.revocation_reason})`
+          : '') +
+        ' — revoked passports cannot be renewed; issue a new passport instead.',
+    );
+  }
+
   const now = new Date();
+  if (!Number.isFinite(validityDays) || validityDays <= 0) {
+    throw new Error(
+      `passport renew: validityDays must be a positive finite number (got ${validityDays}).`,
+    );
+  }
   const expiresAt = new Date(now.getTime() + validityDays * 24 * 60 * 60 * 1000);
   const reportJson = JSON.stringify(report);
   const reportHash = sha256(reportJson);

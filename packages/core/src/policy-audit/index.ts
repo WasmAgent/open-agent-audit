@@ -90,7 +90,8 @@ export async function policyAudit(
 
   // Set of tool names that have a policy_decision="deny" at some point,
   // keyed by the index of that denial so we can detect subsequent calls.
-  // We record (toolName -> Set<index>) for all deny decisions.
+  // Keyed by "run_id:toolName" so a denial in one run cannot flag legitimate
+  // calls of the same tool inside a different run of the same batch.
   const denyDecisionIndexByTool = new Map<string, number[]>();
   for (let i = 0; i < events.length; i++) {
     const ev = events[i];
@@ -100,7 +101,7 @@ export async function policyAudit(
       ev.policy?.decision === 'deny' &&
       ev.tool?.name !== undefined
     ) {
-      const name = ev.tool.name;
+      const name = `${ev.run_id}:${ev.tool.name}`;
       const existing = denyDecisionIndexByTool.get(name);
       if (existing !== undefined) {
         existing.push(i);
@@ -115,6 +116,21 @@ export async function policyAudit(
   for (const ev of events) {
     if (ev.type === 'policy_decision' && ev.tool?.name !== undefined) {
       toolsWithAnyPolicyDecision.add(ev.tool.name);
+    }
+  }
+
+  // Map each chained event (carries evidence) to the chained event directly
+  // before it, so R6 compares against the previous *chained* event rather than
+  // events[i-1], which may be an un-evidenced event that is not part of the
+  // chain (matching validate()'s chain-gap semantics).
+  const prevChainedEvent = new Map<CanonicalEvent, CanonicalEvent>();
+  {
+    let last: CanonicalEvent | undefined;
+    for (const e of events) {
+      if (e.evidence?.hash !== undefined || e.evidence?.prev_hash !== undefined) {
+        if (last !== undefined) prevChainedEvent.set(e, last);
+        last = e;
+      }
     }
   }
 
@@ -228,7 +244,7 @@ export async function policyAudit(
     // some earlier index j < i.
     // ------------------------------------------------------------------
     if (ev.type === 'tool_call' && ev.tool?.name !== undefined) {
-      const denyIndices = denyDecisionIndexByTool.get(ev.tool.name);
+      const denyIndices = denyDecisionIndexByTool.get(`${ev.run_id}:${ev.tool.name}`);
       if (denyIndices !== undefined) {
         const hasPriorDeny = denyIndices.some((j) => j < i);
         if (hasPriorDeny) {
@@ -283,10 +299,12 @@ export async function policyAudit(
     // ------------------------------------------------------------------
     // R6 — CHAIN_BREAK_DETECTED
     // Check whether this event's evidence.prev_hash matches the previous
-    // event's evidence.hash. Only fires when both fields are present.
+    // chained event's evidence.hash. Like validate(), the chain is defined
+    // over events carrying evidence; un-evidenced events interleaved in the
+    // bundle do not break it.
     // ------------------------------------------------------------------
-    if (i > 0 && ev.evidence?.prev_hash !== undefined) {
-      const prevEv = events[i - 1];
+    if (ev.evidence?.prev_hash !== undefined) {
+      const prevEv = prevChainedEvent.get(ev);
       if (prevEv !== undefined && prevEv.evidence?.hash !== undefined) {
         if (ev.evidence.prev_hash !== prevEv.evidence.hash) {
           const ruleId = 'OAA-R-INTEGRITY-001';

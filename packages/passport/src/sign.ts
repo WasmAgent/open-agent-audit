@@ -26,7 +26,7 @@ export interface VerifyResult {
  * Produce a deterministic canonical JSON string.
  * Recursively sorts all object keys at every level.
  */
-function canonicalize(obj: unknown): string {
+export function canonicalize(obj: unknown): string {
   if (obj === null || obj === undefined) return JSON.stringify(obj);
   if (typeof obj !== 'object') return JSON.stringify(obj);
   if (Array.isArray(obj)) {
@@ -96,10 +96,11 @@ export async function verifySignature(
   const canonical = canonicalize(rest);
   const bytes = new TextEncoder().encode(canonical);
 
-  // Decode base64 signature
-  const sigBytes = Uint8Array.from(atob(att.signature), (c) => c.charCodeAt(0));
-
   try {
+    // Decode base64 signature inside the try: a malformed/foreign-alphabet
+    // signature makes atob throw, and callers rely on VerifyResult rather
+    // than catching.
+    const sigBytes = Uint8Array.from(atob(att.signature), (c) => c.charCodeAt(0));
     const valid = await ed.verifyAsync(sigBytes, bytes, publicKey);
     if (!valid) {
       return { valid: false, error: 'Signature verification failed' };

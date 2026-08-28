@@ -141,6 +141,9 @@ export async function inventory(events: CanonicalEvent[]): Promise<InventoryRepo
         const toolName = ev.tool?.name;
         if (toolName !== undefined && ev.policy !== undefined) {
           const entry = ensureTool(toolName);
+          if (ev.tool?.capability !== undefined && entry.capability === undefined) {
+            entry.capability = ev.tool.capability;
+          }
           if (ev.policy.decision === 'deny') {
             entry.denied++;
           } else if (ev.policy.decision === 'allow') {

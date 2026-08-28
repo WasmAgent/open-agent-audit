@@ -228,11 +228,13 @@ describe('aep-v0_2 adapter — aep/v0.3 support', () => {
     expect(httpAction?.tool?.risk_tags).toContain('approval_mode:auto');
   });
 
-  it('toEvents does not add v0.3 risk_tags when fields are absent', () => {
+  it('toEvents marks read-only actions with side_effect_class:read and omits other v0.3 tags', () => {
     const events = AepV0_2Adapter.toEvents(record);
     const readAction = events.find((e) => e.tool?.name === 'read_file');
-    // read_file has no taint labels and no v0.3 fields, so risk_tags should be absent
-    expect(readAction?.tool?.risk_tags).toBeUndefined();
+    // read_file has no taint labels and no v0.3 fields, so the only risk tag
+    // is the read-only marker (consumed by the inverse aep-record adapter to
+    // reconstruct state_changing=false).
+    expect(readAction?.tool?.risk_tags).toEqual(['side_effect_class:read']);
   });
 
   it('toEvents preserves existing taint labels alongside v0.3 fields', () => {

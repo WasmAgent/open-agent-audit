@@ -30,6 +30,23 @@ export function nanoToIso(nanos: number): string {
 }
 
 // ---------------------------------------------------------------------------
+// Encoding
+// ---------------------------------------------------------------------------
+
+/** Base64-encode an arbitrary UTF-8 string.
+ * `btoa` throws InvalidCharacterError for any code point above U+00FF, and
+ * adapter inputs (run ids, rollout ids) are arbitrary external strings — so
+ * the input is UTF-8 encoded first. */
+export function base64Utf8(raw: string): string {
+  const bytes = new TextEncoder().encode(raw);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(binary);
+}
+
+// ---------------------------------------------------------------------------
 // Event base
 // ---------------------------------------------------------------------------
 

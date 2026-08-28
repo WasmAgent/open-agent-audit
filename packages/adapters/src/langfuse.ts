@@ -92,9 +92,19 @@ function obsToEvent(obs: LangfuseObservation, record: LangfuseTrace): CanonicalE
         ? obs.usage.total
         : inputTokens + outputTokens || undefined;
 
+    // finish_reason lives in metadata when instrumentations record it.
+    // statusMessage is the observation's error/status message (e.g. "Request
+    // timed out after 30s") and must not be fabricated into a model finish
+    // reason.
+    const metadataFinishReason = obs.metadata?.['finish_reason'];
+    const finishReason =
+      typeof metadataFinishReason === 'string' && metadataFinishReason !== ''
+        ? metadataFinishReason
+        : undefined;
+
     return makeModelOutputEvent(base, {
       token_count: tokenCount,
-      finish_reason: obs.statusMessage,
+      finish_reason: finishReason,
     });
   }
 

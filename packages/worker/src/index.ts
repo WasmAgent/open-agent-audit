@@ -173,11 +173,23 @@ function corsError(message: string, status: number, env: WorkerEnv): Response {
 // Auth helper
 // ---------------------------------------------------------------------------
 
-function checkAuth(request: Request, env: WorkerEnv): boolean {
+async function checkAuth(request: Request, env: WorkerEnv): Promise<boolean> {
   if (!env.API_KEY) return true; // auth disabled in demo mode
   const header = request.headers.get('Authorization') ?? '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : '';
-  return token === env.API_KEY;
+  // Compare SHA-256 digests byte-by-byte so response timing does not leak how
+  // much of the key matched.
+  const [tokenHash, keyHash] = await Promise.all([
+    crypto.subtle.digest('SHA-256', new TextEncoder().encode(token)),
+    crypto.subtle.digest('SHA-256', new TextEncoder().encode(env.API_KEY)),
+  ]);
+  const tokenBytes = new Uint8Array(tokenHash);
+  const keyBytes = new Uint8Array(keyHash);
+  let diff = 0;
+  for (let i = 0; i < keyBytes.length; i++) {
+    diff |= (tokenBytes[i] ?? 0) ^ (keyBytes[i] ?? 0);
+  }
+  return diff === 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -336,17 +348,23 @@ async function handleFederationRegister(request: Request, env: WorkerEnv): Promi
   const registryId = crypto.randomUUID();
   const now = new Date().toISOString();
 
-  const statusList = await env.DB.prepare('SELECT credential_count FROM status_lists WHERE id = ?')
-    .bind('default')
+  // Atomically claim the next status-list index. Two concurrent registrations
+  // that SELECT-then-UPDATE would both compute the same index, and revoking
+  // one passport would then flip the other's status bit; a single atomic
+  // UPDATE ... RETURNING gives each registration a distinct count.
+  const incremented = await env.DB.prepare(
+    `UPDATE status_lists
+     SET credential_count = credential_count + 1, last_updated = ?
+     WHERE id = ?
+     RETURNING credential_count`,
+  )
+    .bind(now, 'default')
     .first<{ credential_count: number }>();
 
-  const nextIndex = statusList?.credential_count ?? 0;
-
-  await env.DB.prepare(
-    'UPDATE status_lists SET credential_count = ?, last_updated = ? WHERE id = ?',
-  )
-    .bind(nextIndex + 1, now, 'default')
-    .run();
+  if (incremented === null) {
+    return corsError('Default status list not provisioned', 500, env);
+  }
+  const nextIndex = incremented.credential_count - 1;
 
   await env.DB.prepare(
     `INSERT INTO registered_passports
@@ -466,9 +484,11 @@ async function handleStatusList(listId: string, env: WorkerEnv): Promise<Respons
     return corsError('Status list not found', 404, env);
   }
 
-  const hexBytes = new TextEncoder().encode(row.bitstring);
-  const binStr = Array.from(hexBytes)
-    .map((b) => String.fromCharCode(b))
+  // row.bitstring stores hex characters; encodedList must be base64url of the
+  // raw bitstring BYTES (W3C Bitstring Status List). Encoding the ASCII hex
+  // text instead would make every verifier read the wrong status bits.
+  const binStr = (row.bitstring.match(/.{2}/g) ?? [])
+    .map((pair) => String.fromCharCode(Number.parseInt(pair, 16)))
     .join('');
   const base64 = btoa(binStr);
   const encodedList = base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -499,7 +519,9 @@ async function handleStatusList(listId: string, env: WorkerEnv): Promise<Respons
 async function handleGetRuns(env: WorkerEnv): Promise<Response> {
   const result = await env.DB.prepare(
     `SELECT run_id, tenant_id, status, input_format, event_count, finding_count,
-            risk_score, evidence_admission_score, created_at, completed_at
+            risk_score, evidence_admission_score,
+            risk_score AS ars_score, evidence_admission_score AS eas_score,
+            created_at, completed_at
      FROM audit_runs
      ORDER BY created_at DESC
      LIMIT 50`,
@@ -516,8 +538,19 @@ async function handleGetRun(runId: string, env: WorkerEnv): Promise<Response> {
 }
 
 async function handleGetFindings(runId: string, env: WorkerEnv): Promise<Response> {
+  // Order by logical severity (critical first), not lexicographic TEXT order
+  // — otherwise LIMIT can drop critical/high findings while returning
+  // medium/low ones.
   const result = await env.DB.prepare(
-    'SELECT * FROM findings WHERE run_id = ? ORDER BY severity DESC LIMIT 100',
+    `SELECT * FROM findings WHERE run_id = ?
+     ORDER BY CASE severity
+       WHEN 'critical' THEN 0
+       WHEN 'high' THEN 1
+       WHEN 'medium' THEN 2
+       WHEN 'low' THEN 3
+       ELSE 4
+     END ASC
+     LIMIT 100`,
   )
     .bind(runId)
     .all();
@@ -525,7 +558,7 @@ async function handleGetFindings(runId: string, env: WorkerEnv): Promise<Respons
 }
 
 async function handleGetReport(runId: string, format: string, env: WorkerEnv): Promise<Response> {
-  const validFormats = new Set(['md', 'html', 'json']);
+  const validFormats = new Set(['md', 'html', 'json', 'csv']);
   const fmt = validFormats.has(format) ? format : 'md';
 
   const key = `runs/${runId}/report.${fmt}`;
@@ -537,6 +570,7 @@ async function handleGetReport(runId: string, format: string, env: WorkerEnv): P
   let contentType = 'text/markdown; charset=utf-8';
   if (fmt === 'html') contentType = 'text/html; charset=utf-8';
   else if (fmt === 'json') contentType = 'application/json; charset=utf-8';
+  else if (fmt === 'csv') contentType = 'text/csv; charset=utf-8';
 
   return new Response(object.body, {
     headers: { 'content-type': contentType, ...corsHeaders(env) },
@@ -910,7 +944,9 @@ async function handlePostRun(request: Request, env: WorkerEnv): Promise<Response
     if (typeof traceField !== 'string') {
       return corsError('Missing "trace" field in multipart form', 400, env);
     }
-    if (traceField.length > maxBytes) {
+    // .length counts UTF-16 code units, not bytes — multibyte content would
+    // slip past the limit by up to 3x.
+    if (new TextEncoder().encode(traceField).byteLength > maxBytes) {
       return corsError(`Payload exceeds ${maxMb}MB limit`, 413, env);
     }
     jsonlContent = traceField;
@@ -964,8 +1000,21 @@ async function handlePostRun(request: Request, env: WorkerEnv): Promise<Response
         aepProvenance = prov;
       }
     } catch {
-      // Invalid AEP record — fall through to canonical event path
-      events = [];
+      // Invalid AEP record — fall through to the JSONL path as promised, so a
+      // malformed AEP body is parsed line-by-line (and rejected there if it
+      // yields no events) instead of silently becoming an empty audit.
+      const lines = jsonlContent.split('\n').filter((l) => l.trim().length > 0);
+      const rawEvents: unknown[] = [];
+      parseFailures = [];
+      for (const [idx, line] of lines.entries()) {
+        try {
+          rawEvents.push(JSON.parse(line) as unknown);
+        } catch {
+          parseFailures.push(idx + 1);
+        }
+      }
+      const { valid } = validateEvents(rawEvents);
+      events = valid;
     }
   } else {
     // JSONL path: parse line-by-line, recording failures
@@ -1110,7 +1159,7 @@ async function handlePublicReportLink(
   request: Request,
 ): Promise<Response> {
   const isPrivate = (env.REPORT_VISIBILITY ?? 'public') === 'private';
-  if (isPrivate && !checkAuth(request, env)) {
+  if (isPrivate && !(await checkAuth(request, env))) {
     return new Response('Unauthorized', { status: 401 });
   }
   const issuerEmail = env.ISSUER_EMAIL;
@@ -1305,21 +1354,33 @@ async function handleListApprovals(url: URL, env: WorkerEnv): Promise<Response> 
   const statusFilter = url.searchParams.get('status') as ApprovalRequest['status'] | null;
   const agentIdFilter = url.searchParams.get('agentId');
 
-  const listResult = await env.APPROVALS.list({ prefix: 'approval:' });
-  const keys = listResult.keys;
-
-  if (keys.length === 0) {
-    return corsJson({ approvals: [] }, env);
-  }
-
   const approvals: ApprovalRequest[] = [];
-  for (const key of keys) {
-    const raw = await env.APPROVALS.get(key.name);
-    if (raw === null) continue;
-    const approval = JSON.parse(raw) as ApprovalRequest;
-    if (statusFilter && approval.status !== statusFilter) continue;
-    if (agentIdFilter && approval.agentId !== agentIdFilter) continue;
-    approvals.push(approval);
+  // Walk the full key list with the cursor (KV pages at ~1000 keys — a single
+  // un-paginated list silently drops everything past the first page), then
+  // fetch each page of values concurrently instead of one sequential get per
+  // key.
+  let cursor: string | undefined;
+  for (;;) {
+    const listResult =
+      cursor === undefined
+        ? await env.APPROVALS.list({ prefix: 'approval:' })
+        : await env.APPROVALS.list({ prefix: 'approval:', cursor });
+    const keys = listResult.keys;
+    if (keys.length > 0) {
+      const page = await Promise.all(keys.map((key) => env.APPROVALS.get(key.name)));
+      for (const raw of page) {
+        if (raw === null) continue;
+        const approval = JSON.parse(raw) as ApprovalRequest;
+        if (statusFilter && approval.status !== statusFilter) continue;
+        if (agentIdFilter && approval.agentId !== agentIdFilter) continue;
+        approvals.push(approval);
+      }
+    }
+    if (!listResult.list_complete) {
+      cursor = listResult.cursor;
+    } else {
+      break;
+    }
   }
 
   return corsJson({ approvals }, env);
@@ -1516,7 +1577,7 @@ async function handleFetch(request: Request, env: WorkerEnv): Promise<Response> 
 
   // POST /api/v1/runs
   if (method === 'POST' && pathname === '/api/v1/runs') {
-    if (!checkAuth(request, env)) return corsError('Unauthorized', 401, env);
+    if (!(await checkAuth(request, env))) return corsError('Unauthorized', 401, env);
     return handlePostRun(request, env);
   }
 
@@ -1566,24 +1627,28 @@ async function handleFetch(request: Request, env: WorkerEnv): Promise<Response> 
 
   // GET /api/v1/approvals
   if (method === 'GET' && pathname === '/api/v1/approvals') {
+    // Approval requests embed the tool `input` payloads — same trust level as
+    // the decision endpoints, so the read is protected when auth is enabled.
+    if (!(await checkAuth(request, env))) return corsError('Unauthorized', 401, env);
     return handleListApprovals(url, env);
   }
 
   // POST /api/v1/approvals
   if (method === 'POST' && pathname === '/api/v1/approvals') {
-    if (!checkAuth(request, env)) return corsError('Unauthorized', 401, env);
+    if (!(await checkAuth(request, env))) return corsError('Unauthorized', 401, env);
     return handleCreateApproval(request, env);
   }
 
   // POST /api/v1/approvals/batch
   if (method === 'POST' && pathname === '/api/v1/approvals/batch') {
-    if (!checkAuth(request, env)) return corsError('Unauthorized', 401, env);
+    if (!(await checkAuth(request, env))) return corsError('Unauthorized', 401, env);
     return handleBatchDecision(request, env);
   }
 
   // GET /api/v1/approvals/:id
   const approvalGetMatch = matchRoute(pathname, /^\/api\/v1\/approvals\/([^/]+)$/);
   if (approvalGetMatch !== null && method === 'GET') {
+    if (!(await checkAuth(request, env))) return corsError('Unauthorized', 401, env);
     const approvalId = approvalGetMatch[1];
     if (approvalId === undefined) return corsError('Bad route', 400, env);
     return handleGetApproval(approvalId, env);
@@ -1592,7 +1657,7 @@ async function handleFetch(request: Request, env: WorkerEnv): Promise<Response> 
   // POST /api/v1/approvals/:id/decision
   const approvalDecisionMatch = matchRoute(pathname, /^\/api\/v1\/approvals\/([^/]+)\/decision$/);
   if (approvalDecisionMatch !== null && method === 'POST') {
-    if (!checkAuth(request, env)) return corsError('Unauthorized', 401, env);
+    if (!(await checkAuth(request, env))) return corsError('Unauthorized', 401, env);
     const approvalId = approvalDecisionMatch[1];
     if (approvalId === undefined) return corsError('Bad route', 400, env);
     return handleApprovalDecision(approvalId, request, env);
@@ -1621,7 +1686,7 @@ async function handleFetch(request: Request, env: WorkerEnv): Promise<Response> 
   }
 
   if (method === 'POST' && pathname === '/v1/passports/register') {
-    if (!checkAuth(request, env)) return corsError('Unauthorized', 401, env);
+    if (!(await checkAuth(request, env))) return corsError('Unauthorized', 401, env);
     return handleFederationRegister(request, env);
   }
 
@@ -1634,7 +1699,7 @@ async function handleFetch(request: Request, env: WorkerEnv): Promise<Response> 
 
   const fedRevokeMatch = matchRoute(pathname, /^\/v1\/passports\/([^/]+)\/revoke$/);
   if (fedRevokeMatch !== null && method === 'PUT') {
-    if (!checkAuth(request, env)) return corsError('Unauthorized', 401, env);
+    if (!(await checkAuth(request, env))) return corsError('Unauthorized', 401, env);
     const registryId = fedRevokeMatch[1];
     if (registryId === undefined) return corsError('Bad route', 400, env);
     return handleFederationRevoke(registryId, request, env);
@@ -1655,7 +1720,10 @@ async function handleFetch(request: Request, env: WorkerEnv): Promise<Response> 
   }
 
   // POST /passport/issue
+  // Issuance mints a signed, publicly readable trust artifact — it must not
+  // be callable unauthenticated while renew/revoke are protected.
   if (method === 'POST' && pathname === '/passport/issue') {
+    if (!(await checkAuth(request, env))) return corsError('Unauthorized', 401, env);
     return handlePassportIssue(request, env);
   }
 
@@ -1670,6 +1738,7 @@ async function handleFetch(request: Request, env: WorkerEnv): Promise<Response> 
   // POST /passport/:id/revoke
   const passportRevokeMatch = matchRoute(pathname, /^\/passport\/([^/]+)\/revoke$/);
   if (passportRevokeMatch !== null && method === 'POST') {
+    if (!(await checkAuth(request, env))) return corsError('Unauthorized', 401, env);
     const passportId = passportRevokeMatch[1];
     if (passportId === undefined) return corsError('Bad route', 400, env);
     return handlePassportRevoke(passportId, request, env);
@@ -1686,7 +1755,7 @@ async function handleFetch(request: Request, env: WorkerEnv): Promise<Response> 
   // POST /passport/:id/renew
   const passportRenewMatch = matchRoute(pathname, /^\/passport\/([^/]+)\/renew$/);
   if (passportRenewMatch !== null && method === 'POST') {
-    if (!checkAuth(request, env)) return corsError('Unauthorized', 401, env);
+    if (!(await checkAuth(request, env))) return corsError('Unauthorized', 401, env);
     const passportId = passportRenewMatch[1];
     if (passportId === undefined) return corsError('Bad route', 400, env);
     return handlePassportRenew(passportId, request, env);
@@ -1722,7 +1791,10 @@ async function writeRunToD1(
   completedAt: string,
 ): Promise<void> {
   const easScore = score.evidence_admission_score.score;
-  const easGrade = score.evidence_admission_score.grade;
+  // risk_score column stores the Agent Risk Score (ARS); the EAS number goes
+  // in evidence_admission_score. The letter grade is not persisted (no
+  // column); consumers derive it from the EAS if needed.
+  const arsScore = score.agent_risk_score.score;
 
   // Ensure the tenant and default project exist (single-tenant deployments use 'default').
   await env.DB.batch([
@@ -1759,8 +1831,8 @@ async function writeRunToD1(
       r2_key,
       eventCount,
       findings.length,
+      arsScore,
       easScore,
-      easGrade,
       completedAt,
       completedAt,
       completedAt,
@@ -2017,6 +2089,15 @@ async function handleQueue(
         await processAuditJob(message.body as AuditJobMessage, env);
       } else if (batch.queue === 'oaa-report-jobs') {
         await processReportJob(message.body as ReportJobMessage, env);
+      } else if (batch.queue === 'oaa-chunk-jobs') {
+        // The chunked-upload pipeline is not wired up yet — no producer
+        // exists. Failing loudly keeps a future producer from silently
+        // losing work to the ack below.
+        throw new Error(
+          'oaa-chunk-jobs consumer is not implemented (chunked upload pipeline pending)',
+        );
+      } else {
+        throw new Error(`Unknown queue: ${batch.queue}`);
       }
       message.ack();
     } catch (err) {
@@ -2102,10 +2183,20 @@ async function applyRetention(env: WorkerEnv): Promise<RetentionSweepResult> {
     return { evaluated: 0, archived: 0, pruned: 0, errors: 0 };
   }
 
-  const result = await env.DB.prepare('SELECT run_id, created_at FROM audit_runs').all<{
-    run_id: string;
-    created_at: string;
-  }>();
+  // Only runs older than the archive cutoff can produce archive/prune
+  // decisions — push that filter into SQL instead of shipping the whole table
+  // into the Worker on every cron tick. Younger runs would evaluate to
+  // "keep" (no action) anyway.
+  const archiveCutoff = new Date(Date.now() - policy.archive_after_days * 24 * 60 * 60 * 1000)
+    .toISOString();
+  const result = await env.DB.prepare(
+    'SELECT run_id, created_at FROM audit_runs WHERE created_at < ?',
+  )
+    .bind(archiveCutoff)
+    .all<{
+      run_id: string;
+      created_at: string;
+    }>();
   const candidates: RetentionCandidate[] = (result.results ?? []).map((r) => ({
     run_id: r.run_id,
     created_at: r.created_at,

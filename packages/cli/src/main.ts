@@ -17,6 +17,7 @@ import type { ReportMeta } from '@openagentaudit/core';
 import { aepV0_2, bscode } from '@openagentaudit/adapters';
 import { validateEvents } from '@openagentaudit/schema';
 import type { CanonicalEvent, Finding } from '@openagentaudit/schema';
+import type { TrustPassport } from '@openagentaudit/passport';
 
 /** Local mirror of CapabilityManifest — keeps the CLI free of deep sub-path imports. */
 interface CapabilityManifest {
@@ -94,6 +95,12 @@ async function readEvents(filePath?: string): Promise<CanonicalEvent[]> {
       `Warning: ${errors.length} event(s) failed schema validation and will be skipped.\n`,
     );
   }
+  if (valid.length === 0 && (raw.length > 0 || errors.length > 0)) {
+    process.stderr.write(
+      'Error: no valid events remain after schema validation — refusing to produce an empty audit.\n',
+    );
+    process.exit(1);
+  }
   return valid;
 }
 
@@ -101,14 +108,18 @@ async function readEvents(filePath?: string): Promise<CanonicalEvent[]> {
 // CSV helpers
 // ---------------------------------------------------------------------------
 
-/** Escape a single CSV cell value. */
+/** Escape a single CSV cell value. Leading characters that spreadsheets
+ * interpret as formulas (=, +, -, @, tab, CR) are neutralized with a single
+ * quote so hostile trace content cannot execute when exported CSV is opened
+ * in Excel or LibreOffice. */
 function csvCell(value: string | number | undefined | null): string {
   const s = value === undefined || value === null ? '' : String(value);
+  const safe = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
   // Quote if the value contains a comma, double-quote, or newline
-  if (s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r')) {
-    return '"' + s.replace(/"/g, '""') + '"';
+  if (safe.includes(',') || safe.includes('"') || safe.includes('\n') || safe.includes('\r')) {
+    return '"' + safe.replace(/"/g, '""') + '"';
   }
-  return s;
+  return safe;
 }
 
 /**
@@ -176,6 +187,10 @@ interface ParsedArgs {
   positional: string[];
 }
 
+/** Long flags that never take a value — without this set, `--batch file.json`
+ * would swallow the file path as the flag's value. */
+const BOOLEAN_FLAGS = new Set(['batch', 'help', 'version', 'pretty', 'force', 'dry-run']);
+
 function parseArgs(): ParsedArgs {
   const argv = process.argv.slice(2);
   const flags = new Map<string, string | true>();
@@ -191,9 +206,16 @@ function parseArgs(): ParsedArgs {
     }
 
     if (arg.startsWith('--')) {
+      const eq = arg.indexOf('=');
+      if (eq !== -1) {
+        // --flag=value form
+        flags.set(arg.slice(2, eq), arg.slice(eq + 1));
+        i++;
+        continue;
+      }
       const key = arg.slice(2);
       const next = argv[i + 1];
-      if (next !== undefined && !next.startsWith('-')) {
+      if (!BOOLEAN_FLAGS.has(key) && next !== undefined && !next.startsWith('-')) {
         flags.set(key, next);
         i += 2;
       } else {
@@ -551,6 +573,28 @@ async function cmdFromAep(filePath?: string, batch = false): Promise<void> {
 // Passport commands
 // ---------------------------------------------------------------------------
 
+/** Parse a JSON file with the same error handling as the other commands. */
+function parseJsonFile(text: string, label: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    process.stderr.write(`Error: ${label} is not valid JSON\n`);
+    process.exit(1);
+  }
+}
+
+/** Parse and validate a positive-integer --validity-days value. */
+function parseValidityDays(flags: Map<string, string | true>): number {
+  const raw = flags.get('validity-days');
+  if (raw === undefined || raw === true) return 90;
+  const value = Number.parseInt(raw, 10);
+  if (!Number.isInteger(value) || value <= 0) {
+    process.stderr.write(`Error: --validity-days must be a positive integer (got "${raw}")\n`);
+    process.exit(1);
+  }
+  return value;
+}
+
 async function cmdPassportIssue(flags: Map<string, string | true>): Promise<void> {
   const { issue } = await import('@openagentaudit/passport');
 
@@ -566,24 +610,21 @@ async function cmdPassportIssue(flags: Map<string, string | true>): Promise<void
     process.exit(1);
   }
 
-  const reportText = await readText(reportPath as string);
-  const report = JSON.parse(reportText);
+  const report = parseJsonFile(await readText(reportPath as string), 'report');
 
   const agentName = flags.get('agent-name');
-  const validityDaysRaw = flags.get('validity-days');
-  const validityDays =
-    validityDaysRaw && validityDaysRaw !== true ? Number.parseInt(validityDaysRaw, 10) : 90;
+  const validityDays = parseValidityDays(flags);
 
   let agentbom: unknown ;
   const bomPath = flags.get('agentbom');
   if (bomPath && bomPath !== true) {
-    agentbom = JSON.parse(await readText(bomPath));
+    agentbom = parseJsonFile(await readText(bomPath as string), 'agentbom');
   }
 
   let posture: unknown ;
   const posturePath = flags.get('posture');
   if (posturePath && posturePath !== true) {
-    posture = JSON.parse(await readText(posturePath));
+    posture = parseJsonFile(await readText(posturePath as string), 'posture');
   }
 
   const agentNameValue = agentName && agentName !== true ? agentName : undefined;
@@ -617,7 +658,7 @@ async function cmdPassportStatus(flags: Map<string, string | true>): Promise<voi
   }
 
   const passportText = await readText(passportPath as string);
-  const passport = JSON.parse(passportText);
+  const passport = parseJsonFile(passportText, 'passport') as TrustPassport;
   const result = status(passport);
 
   console.log(
@@ -645,14 +686,19 @@ async function cmdPassportRenew(flags: Map<string, string | true>): Promise<void
     process.exit(1);
   }
 
-  const passport = JSON.parse(await readText(passportPath as string));
-  const report = JSON.parse(await readText(reportPath as string));
+  const passport = parseJsonFile(await readText(passportPath as string), 'passport') as TrustPassport;
+  const report = parseJsonFile(await readText(reportPath as string), 'report');
 
-  const validityDaysRaw = flags.get('validity-days');
-  const validityDays =
-    validityDaysRaw && validityDaysRaw !== true ? Number.parseInt(validityDaysRaw, 10) : 90;
+  const validityDays = parseValidityDays(flags);
 
-  const renewed = renew({ passport, report, validityDays });
+  let renewed;
+  try {
+    renewed = renew({ passport, report, validityDays });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`Error: ${msg}\n`);
+    process.exit(1);
+  }
 
   const outputPath = flags.get('output');
   if (outputPath && outputPath !== true) {
@@ -673,7 +719,7 @@ async function cmdPassportRevoke(flags: Map<string, string | true>): Promise<voi
     process.exit(1);
   }
 
-  const passport = JSON.parse(await readText(passportPath as string));
+  const passport = parseJsonFile(await readText(passportPath as string), 'passport') as TrustPassport;
   const revoked = revoke({ passport, reason: reason as string });
 
   const outputPath = flags.get('output');

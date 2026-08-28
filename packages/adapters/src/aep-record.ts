@@ -54,6 +54,12 @@ function validateEvents(events: CanonicalEvent[]): void {
           `got "${ev.run_id}". All events must belong to the same run.`,
       );
     }
+    if (Number.isNaN(new Date(ev.timestamp).getTime())) {
+      throw new Error(
+        `aep-record adapter: event "${ev.event_id}" has an unparseable ` +
+          `timestamp "${ev.timestamp}" (expected ISO 8601).`,
+      );
+    }
   }
 }
 
@@ -80,8 +86,13 @@ export function fromCanonicalEvents(events: CanonicalEvent[]): AEPRecordInput {
     sig: firstEvidence?.signature ?? '',
   };
 
-  // -- created_at_ms: earliest event timestamp ----------------------------
-  const createdAtMs = Math.min(...events.map((e) => isoToMs(e.timestamp)));
+  // -- created_at_ms: earliest event timestamp (loop: no spread — large
+  // event arrays would hit the engine's argument limit) -------------------
+  let createdAtMs = Number.POSITIVE_INFINITY;
+  for (const e of events) {
+    const ms = isoToMs(e.timestamp);
+    if (ms < createdAtMs) createdAtMs = ms;
+  }
 
   // -- Map tool_call events → actions[] -----------------------------------
   const actions: ActionEvidenceInput[] = events
@@ -96,8 +107,13 @@ export function fromCanonicalEvents(events: CanonicalEvent[]): AEPRecordInput {
         (t) => !v3Prefixes.some((p) => t.startsWith(p)),
       );
 
-      // state_changing heuristic: absence of 'read_only' tag implies a write.
-      const stateChanging = !riskTags.includes('read_only');
+      // state_changing heuristic: an explicit read-only marker implies a read.
+      // The forward adapter stamps 'side_effect_class:read' onto read-only
+      // actions (and never emits 'read_only' itself), so an original
+      // state_changing=false survives the round trip instead of flipping to
+      // a write.
+      const stateChanging =
+        !riskTags.includes('read_only') && !riskTags.includes('side_effect_class:read');
 
       const action: ActionEvidenceInput = {
         action_id: e.event_id,

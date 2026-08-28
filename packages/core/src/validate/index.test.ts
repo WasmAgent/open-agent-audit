@@ -158,10 +158,9 @@ describe('validate', () => {
 
   // 11. Valid hash chain — no chain-linkage warnings; content hash verification
   // NOTE: The hash values here ('abc123', 'def456', 'ghi789') are intentional dummy values
-  // and will NOT match the SHA-256 recomputed from event content. The chain-linkage check
-  // passes (prev_hash == previous hash), but the content-hash verification emits warnings
-  // for each event. This is the correct behavior — content hash verification is intentionally
-  // not tested with real SHA-256 values in this test (see hash-content-verification test below).
+  // in a foreign (non-canonical) format. Chain-linkage checking (prev_hash == previous hash)
+  // still applies, but content-hash verification only covers canonical 64-char hex SHA-256
+  // hashes, so these are excluded from crypto_summary rather than flagged as tampered.
   test('valid hash chain with correct prev_hash produces no chain-linkage warnings', async () => {
     const e1 = makeEvent({
       event_id: 'evt-1',
@@ -191,14 +190,14 @@ describe('validate', () => {
       (w) => w.path === 'evidence.prev_hash',
     );
     expect(chainLinkageWarnings).toHaveLength(0);
-    // Content hash warnings fire because dummy hashes don't match SHA-256
+    // Content hash verification skips foreign-format hashes — no tamper warnings
     const contentWarnings = result.warnings.filter(
       (w) => w.path === 'evidence.hash' && w.message.includes('content mismatch'),
     );
-    expect(contentWarnings).toHaveLength(3);
-    // crypto_summary reflects the mismatches
-    expect(result.crypto_summary.events_with_hash).toBe(3);
-    expect(result.crypto_summary.hashes_content_mismatch).toBe(3);
+    expect(contentWarnings).toHaveLength(0);
+    // crypto_summary only counts canonical-scheme hashes
+    expect(result.crypto_summary.events_with_hash).toBe(0);
+    expect(result.crypto_summary.hashes_content_mismatch).toBe(0);
     expect(result.crypto_summary.hashes_content_verified).toBe(0);
   });
 
@@ -305,22 +304,23 @@ describe('validate', () => {
 
   test('crypto_summary counts events_with_signature correctly', async () => {
     const e1 = makeEvent({
-      evidence: { hash: 'abc', signature: 'sig1' },
+      evidence: { hash: 'ab'.repeat(32), signature: 'sig1' },
     });
     const e2 = makeEvent({
-      evidence: { hash: 'def' },
+      evidence: { hash: 'cd'.repeat(32) },
     });
     const result = await validate([e1, e2]);
     expect(result.crypto_summary.events_with_signature).toBe(1);
     expect(result.crypto_summary.events_with_hash).toBe(2);
   });
 
-  // 16. Hash content mismatch warning — dummy hash triggers warning
-  test('event with a non-SHA-256 dummy hash triggers content mismatch warning', async () => {
+  // 16. Hash content mismatch warning — a canonical-format hash that does not
+  // match the recomputed SHA-256 triggers a warning; foreign-format hashes are skipped
+  test('event with a non-matching canonical hash triggers content mismatch warning', async () => {
     const event = makeEvent({
       event_id: 'evt-dummy-hash',
       evidence: {
-        hash: 'not-a-real-sha256-hash',
+        hash: 'ab'.repeat(32), // valid SHA-256 hex shape, wrong content
         prev_hash: '0'.repeat(64),
       },
     });
@@ -332,6 +332,21 @@ describe('validate', () => {
     expect(contentWarnings[0]!.event_id).toBe('evt-dummy-hash');
     expect(result.crypto_summary.hashes_content_mismatch).toBe(1);
     expect(result.crypto_summary.hashes_content_verified).toBe(0);
+  });
+
+  test('foreign-format hash (non-hex) is excluded from content verification, not flagged as tampered', async () => {
+    const event = makeEvent({
+      event_id: 'evt-foreign-hash',
+      evidence: {
+        hash: 'not-a-real-sha256-hash',
+        prev_hash: '0'.repeat(64),
+      },
+    });
+    const result = await validate([event]);
+    const contentWarnings = result.warnings.filter((w) => w.path === 'evidence.hash');
+    expect(contentWarnings).toHaveLength(0);
+    expect(result.crypto_summary.events_with_hash).toBe(0);
+    expect(result.crypto_summary.hashes_content_mismatch).toBe(0);
   });
 });
 

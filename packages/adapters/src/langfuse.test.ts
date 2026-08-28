@@ -100,7 +100,7 @@ describe('LangfuseAdapter.toEvents', () => {
           model: 'gpt-4o',
           level: 'DEFAULT',
           usage: { input: 150, output: 80, total: 230 },
-          statusMessage: 'stop',
+          metadata: { finish_reason: 'stop' },
         },
       ],
     };
@@ -111,6 +111,28 @@ describe('LangfuseAdapter.toEvents', () => {
     expect(ev.model_output?.token_count).toBe(230);
     expect(ev.model_output?.finish_reason).toBe('stop');
     expect(ev.timestamp).toBe('2024-01-15T10:01:00.000Z');
+  });
+
+  it('does not fabricate finish_reason from statusMessage', () => {
+    const trace: LangfuseTrace = {
+      ...BASE_TRACE,
+      observations: [
+        {
+          id: 'obs-gen-timeout',
+          traceId: 'trace-001',
+          name: 'llm-call',
+          type: 'GENERATION',
+          startTime: '2024-01-15T10:01:00.000Z',
+          model: 'gpt-4o',
+          level: 'DEFAULT',
+          usage: { input: 10, output: 5 },
+          statusMessage: 'Request timed out after 30s',
+        },
+      ],
+    };
+    const [ev] = LangfuseAdapter.toEvents(trace);
+    expect(ev.type).toBe('model_output');
+    expect(ev.model_output?.finish_reason).toBeUndefined();
   });
 
   it('sums input+output tokens when total is absent', () => {

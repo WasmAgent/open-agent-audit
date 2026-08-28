@@ -604,9 +604,11 @@ export function gateAlerts(
       suppressed.push({ alert: event, reason: 'rate-limit' });
       continue;
     }
-    // Only track last-firings when de-duplication is active, so disabled gates
-    // never accumulate unbounded keys.
-    if (dedupeMs > 0) {
+    // Track last-firings whenever this alert's effective suppression window is
+    // active (global dedupe or a per-rule suppression_window_ms), so per-rule
+    // windows work without a global dedupe setting. Gates that are fully
+    // disabled never accumulate unbounded keys.
+    if (effectiveDedupeMs > 0) {
       next.last_fired[key] = now;
     }
     next.window_count += 1;
