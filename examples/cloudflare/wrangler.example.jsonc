@@ -73,11 +73,14 @@
     { "tag": "v2", "new_sqlite_classes": ["AlertGatekeeper"] }
   ],
 
-  // Drives scheduled() — the evidence retention sweep runs on every tick;
-  // without a cron trigger the retention/compliance sweep never executes.
-  "triggers": {
-    "crons": ["0 * * * *"]
-  },
+  // OPTIONAL: scheduled() drives the evidence retention sweep (packages/worker
+  // handleScheduled). Without a cron trigger the sweep never runs. Uncomment
+  // and deploy ONLY if your Cloudflare account has cron-trigger quota — the
+  // Workers Free plan caps accounts at 5 cron triggers total, and hitting the
+  // cap fails the whole `wrangler deploy` (API error 10072).
+  // "triggers": {
+  //   "crons": ["0 * * * *"]
+  // },
 
   "vars": {
     "OAA_ENV": "production",
