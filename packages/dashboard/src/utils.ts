@@ -77,3 +77,13 @@ export function buildAepMeta(aep: Record<string, unknown>): AepMeta {
   if (typeof aep['schema_version'] === 'string') m.schema_version = aep['schema_version']
   return m
 }
+
+/** Format a trace timestamp for display. Trace files are untrusted input —
+ * an unparseable timestamp must render as a placeholder, never throw out of
+ * toISOString() and unmount the whole tree. */
+export function formatTimestamp(ts: string | undefined): string {
+  if (ts === undefined || ts === '') return '—'
+  const d = new Date(ts)
+  if (Number.isNaN(d.getTime())) return ts
+  return d.toISOString().replace('T', ' ').replace('Z', ' UTC')
+}

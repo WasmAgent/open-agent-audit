@@ -144,16 +144,31 @@ function spanToEvent(
 
   // Model-output operations
   if (MODEL_OUTPUT_OPS.has(lowerOp)) {
-    const inputTokens = attrs['gen_ai.input.tokens'] as number | undefined;
-    const outputTokens = attrs['gen_ai.output.tokens'] as number | undefined;
+    // GenAI semantic-convention usage attributes (the older un-namespaced
+    // `gen_ai.input.tokens` / `gen_ai.output.tokens` variants are accepted as
+    // a fallback for pre-convention emitters).
+    const inputTokens =
+      (attrs['gen_ai.usage.input_tokens'] as number | undefined) ??
+      (attrs['gen_ai.usage.prompt_tokens'] as number | undefined) ??
+      (attrs['gen_ai.input.tokens'] as number | undefined);
+    const outputTokens =
+      (attrs['gen_ai.usage.output_tokens'] as number | undefined) ??
+      (attrs['gen_ai.usage.completion_tokens'] as number | undefined) ??
+      (attrs['gen_ai.output.tokens'] as number | undefined);
     const tokenCount =
       inputTokens !== undefined && outputTokens !== undefined
         ? inputTokens + outputTokens
         : inputTokens ?? outputTokens;
 
-    const finishReasonsRaw = attrs['gen_ai.response.finish_reasons'] as string | undefined;
-    const finishReasonParts = finishReasonsRaw ? finishReasonsRaw.split(',') : undefined;
-    const finishReason = finishReasonParts?.[0]?.trim() || undefined;
+    // finish_reasons is defined as a string array in the convention; some
+    // emitters ship a comma-joined string instead — accept both.
+    const finishReasonsRaw = attrs['gen_ai.response.finish_reasons'];
+    let finishReason: string | undefined;
+    if (Array.isArray(finishReasonsRaw)) {
+      finishReason = finishReasonsRaw.map((r) => String(r).trim()).find((r) => r !== '');
+    } else if (typeof finishReasonsRaw === 'string' && finishReasonsRaw !== '') {
+      finishReason = finishReasonsRaw.split(',')[0]?.trim() || undefined;
+    }
 
     return makeModelOutputEvent(base, {
       token_count: tokenCount,

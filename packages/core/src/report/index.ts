@@ -217,11 +217,23 @@ function escapeHtml(s: string): string {
     .replace(/'/g, '&#39;');
 }
 
-/** Wrap a field value in double quotes and escape any inner double quotes per RFC 4180. */
+/** Strip HTML-significant characters for interpolation inside a <style> block,
+ * where escapeHtml's entities would render literally. Prevents `</style>`
+ * breakouts via caller-supplied meta (issuer name / contact email). */
+function cssSafe(s: string): string {
+  return s.replace(/[<>&"'`\\]/g, '');
+}
+
+/** Wrap a field value in double quotes and escape any inner double quotes per RFC 4180.
+ * Cells whose first character spreadsheets interpret as a formula (=, +, -, @,
+ * tab, CR) are prefixed with a single quote so trace-controlled content (tool
+ * names, error messages, policy reasons) cannot execute when the CSV is opened
+ * in Excel or LibreOffice (OWASP CSV injection guidance). */
 function csvField(value: string | number | undefined | null): string {
   const s = value === undefined || value === null ? '' : String(value);
+  const safe = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
   // Always quote to keep parsing unambiguous
-  return '"' + s.replace(/"/g, '""') + '"';
+  return '"' + safe.replace(/"/g, '""') + '"';
 }
 
 /**
@@ -309,9 +321,15 @@ function deriveTraceEnd(events: CanonicalEvent[]): string {
   return max;
 }
 
-/** Add six calendar months to an ISO timestamp and return YYYY-MM-DD. */
+/** Add six calendar months to an ISO timestamp and return YYYY-MM-DD.
+ * Falls back to today when the anchor cannot be parsed — meta.trace_end is
+ * caller-supplied and unvalidated, and an invalid date would otherwise throw
+ * out of toISOString() and abort the whole report. */
 function addSixMonths(isoTimestamp: string): string {
   const d = new Date(isoTimestamp);
+  if (Number.isNaN(d.getTime())) {
+    return new Date().toISOString().slice(0, 10);
+  }
   d.setMonth(d.getMonth() + 6);
   return d.toISOString().slice(0, 10);
 }
@@ -2751,8 +2769,13 @@ function buildMarkdown(
       const hasSig = ev.evidence?.signature !== undefined ? '✅' : '—';
       let chainStatus: string;
       if (i === 0) {
-        const isGenesis = ev.evidence?.prev_hash === '0'.repeat(64);
-        chainStatus = isGenesis ? 'genesis' : '⚠️ non-standard genesis';
+        // validate() accepts an omitted prev_hash on the first chained event;
+        // only an explicitly different value is non-standard.
+        const prev = ev.evidence?.prev_hash;
+        chainStatus =
+          prev === undefined || prev === '0'.repeat(64)
+            ? 'genesis'
+            : '⚠️ non-standard genesis';
       } else {
         chainStatus = ev.evidence?.prev_hash === prevHash ? '✅ linked' : '❌ broken';
         if (ev.evidence?.prev_hash !== prevHash) brokenCount++;
@@ -2807,25 +2830,6 @@ function buildMarkdown(
 // ---------------------------------------------------------------------------
 // HTML generation — pure string concatenation, no DOM APIs
 // ---------------------------------------------------------------------------
-
-/** Convert a markdown table row string into <tr><td>...</td></tr> HTML. */
-function mdTableRowToHtml(row: string, isHeader: boolean, extraCellStyle?: string): string {
-  // Split on | and remove first/last empty segments
-  const cells = row.split('|').slice(1, -1);
-  const tag = isHeader ? 'th' : 'td';
-  const cellsHtml = cells
-    .map((cell) => {
-      const trimmed = cell.trim();
-      // Bold marker in markdown (e.g. **Total EAS**)
-      const content = trimmed
-        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-        .replace(/`([^`]+)`/g, '<code>$1</code>');
-      const style = extraCellStyle !== undefined ? ` style="${extraCellStyle}"` : '';
-      return `<${tag}${style}>${content}</${tag}>`;
-    })
-    .join('');
-  return `<tr>${cellsHtml}</tr>\n`;
-}
 
 function buildComplianceMappingHtml(mappings: ComplianceMapping[]): string[] {
   const parts: string[] = [];
@@ -2980,8 +2984,8 @@ function buildHtml(
     }
     @page {
       margin: 2cm;
-      @top-center { content: "OpenAgentAudit Report — ${resolved.issuer}"; font-size: 9pt; color: #666; }
-      @bottom-center { content: "EU AI Act Art. 26(6) Compliant — ${resolved.issuer_email}"; font-size: 8pt; color: #9ca3af; }
+      @top-center { content: "OpenAgentAudit Report — ${cssSafe(resolved.issuer)}"; font-size: 9pt; color: #666; }
+      @bottom-center { content: "EU AI Act Art. 26(6) Compliant — ${cssSafe(resolved.issuer_email)}"; font-size: 8pt; color: #9ca3af; }
       @bottom-right { content: counter(page) " / " counter(pages); font-size: 9pt; }
     }
   `.trim();
@@ -3364,7 +3368,10 @@ function buildHtml(
       let chainStatus: string;
       let chainColor = '#16a34a';
       if (i === 0) {
-        const isGenesis = ev.evidence?.prev_hash === '0'.repeat(64);
+        // validate() accepts an omitted prev_hash on the first chained event;
+        // only an explicitly different value is non-standard.
+        const prev = ev.evidence?.prev_hash;
+        const isGenesis = prev === undefined || prev === '0'.repeat(64);
         chainStatus = isGenesis ? 'genesis' : '⚠️ non-standard genesis';
         chainColor = isGenesis ? '#2563eb' : '#d97706';
       } else {

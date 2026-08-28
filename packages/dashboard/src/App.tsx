@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useMemo } from 'react'
 import { Router, Route, Switch, useLocation, useParams } from 'wouter'
 import { AuditProvider, useAudit } from './AuditContext'
 import { Breadcrumb, type Crumb } from './Breadcrumb'
-import { type RawEvent, parseJsonl, isAepJson, buildAepMeta } from './utils'
+import { type RawEvent, parseJsonl, isAepJson, buildAepMeta, formatTimestamp } from './utils'
 import { useSortable } from './hooks/useSortable'
 import { RunsPage } from './pages/RunsPage'
 import { ApprovalsPage } from './pages/ApprovalsPage'
@@ -571,7 +571,7 @@ function HomePage() {
             },
             {
               step: '3',
-              title: 'Generate &amp; export report',
+              title: 'Generate & export report',
               body: 'Click "Generate Report" to compute an Evidence Admission Score (EAS). Download as HTML, PDF, CSV, JSON, or Markdown.',
               color: 'bg-violet-50 border-violet-100 text-violet-600',
             },
@@ -581,7 +581,7 @@ function HomePage() {
                 {step}
               </span>
               <div>
-                <div className="font-semibold text-slate-800 text-sm mb-1" dangerouslySetInnerHTML={{ __html: title }} />
+                <div className="font-semibold text-slate-800 text-sm mb-1">{title}</div>
                 <p className="text-xs text-slate-500 leading-relaxed">{body}</p>
               </div>
             </li>
@@ -678,7 +678,12 @@ function AuditPage() {
   const typeCounts = countByType(events)
 
   const sortGetters = useMemo(() => ({
-    timestamp: (ev: RawEvent) => ev.timestamp ?? '',
+    // Sort timestamps as instants: ISO strings with mixed offsets or
+    // precision mis-order lexicographically.
+    timestamp: (ev: RawEvent) => {
+      const ms = ev.timestamp !== undefined ? Date.parse(ev.timestamp) : Number.NaN
+      return Number.isNaN(ms) ? Number.NaN : ms
+    },
     type: (ev: RawEvent) => ev.type ?? '',
     tool: (ev: RawEvent) => ev.tool?.name ?? '',
   }), [])
@@ -976,9 +981,7 @@ function AuditPage() {
                       <td className="px-4 py-3"><TypeBadge type={ev.type} /></td>
                       <td className="px-4 py-3 text-sm text-slate-700">{ev.actor ?? '—'}</td>
                       <td className="px-4 py-3 font-mono text-xs text-slate-400 whitespace-nowrap">
-                        {ev.timestamp
-                          ? new Date(ev.timestamp).toISOString().replace('T', ' ').replace('Z', ' UTC')
-                          : '—'}
+                        {formatTimestamp(ev.timestamp)}
                       </td>
                       <td className="px-4 py-3 text-xs text-slate-500 truncate max-w-xs">{eventDetails(ev)}</td>
                     </tr>

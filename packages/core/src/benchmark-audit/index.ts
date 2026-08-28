@@ -43,6 +43,7 @@ export interface BenchmarkAuditResult {
 }
 
 function wilsonCI(p: number, n: number): [number, number] {
+  if (n <= 0) return [0, 1];
   const z = 1.96;
   const z2 = z * z;
   const center = (p + z2 / (2 * n)) / (1 + z2 / n);
@@ -97,8 +98,11 @@ export async function benchmarkAudit(pair: BenchmarkPair): Promise<BenchmarkAudi
     const candidate_pass_count = samples.filter(s => s.candidate_pass).length;
     const baseline_pass_count = samples.filter(s => s.baseline_pass).length;
 
-    const candidate_rate = candidate_pass_count / n;
-    const baseline_rate = baseline_pass_count / n;
+    // Guard against division by zero: an empty sample set would otherwise
+    // poison every rate (and the Wilson CI) with NaN, which leaks into
+    // reports and JSON as null/"NaN%".
+    const candidate_rate = n > 0 ? candidate_pass_count / n : 0;
+    const baseline_rate = n > 0 ? baseline_pass_count / n : 0;
     const absolute_delta = candidate_rate - baseline_rate;
 
     const wilson_ci = wilsonCI(candidate_rate, n);
@@ -187,8 +191,10 @@ export async function benchmarkAudit(pair: BenchmarkPair): Promise<BenchmarkAudi
     // aggregate mode
     const { candidate, baseline } = pair;
 
-    const candidate_rate = candidate.samples_pass / candidate.samples_total;
-    const baseline_rate = baseline.samples_pass / baseline.samples_total;
+    const candidate_rate =
+      candidate.samples_total > 0 ? candidate.samples_pass / candidate.samples_total : 0;
+    const baseline_rate =
+      baseline.samples_total > 0 ? baseline.samples_pass / baseline.samples_total : 0;
     const absolute_delta = candidate_rate - baseline_rate;
 
     const wilson_ci = wilsonCI(candidate_rate, candidate.samples_total);

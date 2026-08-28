@@ -59,12 +59,16 @@ export const version = '0.1.0' as const;
 
 /** Map a single LangSmithRun to a CanonicalEvent. */
 function runToEvent(run: LangSmithRun, traceId: string, agentId: string): CanonicalEvent {
+  // The invocation model name is only meaningful for runs that invoke a
+  // model. For chain/tool/retriever runs the display name would fabricate a
+  // model identity in a compliance field.
+  const invocationModel = (run.extra?.['invocation_params'] as Record<string, unknown> | undefined)?.[
+    'model_name'
+  ] as string | undefined;
   const modelId =
-    (run.extra?.['invocation_params'] as Record<string, unknown> | undefined)?.[
-      'model_name'
-    ] as string | undefined ??
-    run.name ??
-    'unknown';
+    (run.run_type === 'llm' || run.run_type === 'embedding') && invocationModel !== undefined
+      ? invocationModel
+      : 'unknown';
 
   const base = buildEventBase({
     run_id: traceId,
@@ -120,9 +124,26 @@ function runToEvent(run: LangSmithRun, traceId: string, agentId: string): Canoni
 // Adapter implementation
 // ---------------------------------------------------------------------------
 
+/** Flatten a run tree (runs + nested child_runs) in depth-first order so
+ * tree-shaped exports keep their child events instead of silently dropping
+ * them. */
+function flattenRuns(runs: LangSmithRun[]): LangSmithRun[] {
+  const out: LangSmithRun[] = [];
+  const walk = (run: LangSmithRun): void => {
+    out.push(run);
+    for (const child of run.child_runs ?? []) {
+      walk(child);
+    }
+  };
+  for (const run of runs) {
+    walk(run);
+  }
+  return out;
+}
+
 function toEvents(record: LangSmithTrace): CanonicalEvent[] {
   const agentId = record.name ?? 'langsmith-agent';
-  return record.runs.map((run) => runToEvent(run, record.id, agentId));
+  return flattenRuns(record.runs).map((run) => runToEvent(run, record.id, agentId));
 }
 
 function beginRun(record: LangSmithTrace): AuditRun {

@@ -127,30 +127,44 @@ export function validateTrustPassport(data: unknown): ValidationResult {
     );
   }
 
-  // ISO 8601 UTC enforcement on validity timestamps
+  // ISO 8601 UTC enforcement on validity timestamps. Both timestamps are
+  // REQUIRED: a passport without an expiry would otherwise validate clean and
+  // read as valid forever.
   if (isObject(data['validity'])) {
     const validity = data['validity'] as Record<string, unknown>;
-    if (typeof validity['issued_at'] === 'string') {
-      if (!ISO_8601_UTC_RE.test(validity['issued_at'])) {
-        addError(
-          structuredErrors,
-          'validity.issued_at',
-          'invalid_format',
-          'validity.issued_at must be ISO 8601 UTC (ending in Z)',
-          validity['issued_at'],
-        );
-      }
+    if (typeof validity['issued_at'] !== 'string' || validity['issued_at'] === '') {
+      addError(
+        structuredErrors,
+        'validity.issued_at',
+        'required',
+        'validity.issued_at is required and must be an ISO 8601 UTC string',
+        validity['issued_at'],
+      );
+    } else if (!ISO_8601_UTC_RE.test(validity['issued_at'])) {
+      addError(
+        structuredErrors,
+        'validity.issued_at',
+        'invalid_format',
+        'validity.issued_at must be ISO 8601 UTC (ending in Z)',
+        validity['issued_at'],
+      );
     }
-    if (typeof validity['expires_at'] === 'string') {
-      if (!ISO_8601_UTC_RE.test(validity['expires_at'])) {
-        addError(
-          structuredErrors,
-          'validity.expires_at',
-          'invalid_format',
-          'validity.expires_at must be ISO 8601 UTC (ending in Z)',
-          validity['expires_at'],
-        );
-      }
+    if (typeof validity['expires_at'] !== 'string' || validity['expires_at'] === '') {
+      addError(
+        structuredErrors,
+        'validity.expires_at',
+        'required',
+        'validity.expires_at is required and must be an ISO 8601 UTC string',
+        validity['expires_at'],
+      );
+    } else if (!ISO_8601_UTC_RE.test(validity['expires_at'])) {
+      addError(
+        structuredErrors,
+        'validity.expires_at',
+        'invalid_format',
+        'validity.expires_at must be ISO 8601 UTC (ending in Z)',
+        validity['expires_at'],
+      );
     }
   }
 
@@ -279,11 +293,14 @@ export function validateTrustPassport(data: unknown): ValidationResult {
 
 /**
  * Returns true if the passport's validity.expires_at is in the past.
- * Returns false when expires_at is absent/undefined.
+ * A missing or unparseable expires_at counts as expired — an unverifiable
+ * expiry must not read as "valid forever".
  * Does NOT check revocation status.
  */
 export function isExpired(passport: TrustPassport): boolean {
   const expiresAt = passport.validity?.expires_at;
-  if (!expiresAt) return false;
-  return new Date(expiresAt).getTime() < Date.now();
+  if (!expiresAt) return true;
+  const time = new Date(expiresAt).getTime();
+  if (Number.isNaN(time)) return true;
+  return time < Date.now();
 }

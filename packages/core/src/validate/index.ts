@@ -39,24 +39,61 @@ const VALID_ACTORS = new Set([
   'human_reviewer',
 ]);
 
+// RFC 3339 requires a full date-time with T separator and numeric offset or Z.
+// Date.parse alone accepts many non-conforming formats ("2025/03/05",
+// "March 5, 2025"), so the shape is checked explicitly.
+const RFC3339_RE =
+  /^\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(\.\d+)?([Zz]|[+-]\d{2}:\d{2})$/;
+
 function isValidRfc3339(ts: string): boolean {
   if (!ts) return false;
-  const ms = Date.parse(ts);
-  return !isNaN(ms);
+  return RFC3339_RE.test(ts) && !isNaN(Date.parse(ts));
 }
 
-async function computeEventHash(event: CanonicalEvent): Promise<string> {
-  // Canonical JSON: sorted keys, strip evidence field itself (hash/prev_hash/signature)
-  const forHashing: Record<string, unknown> = {};
+// Canonical evidence hashes are 64-char lowercase hex SHA-256 digests. Chains
+// in foreign formats (e.g. base64 record signatures carried over by adapters)
+// cannot be recomputed here — they are integrity-checked via prev_hash
+// linkage, so they must be excluded from content verification instead of
+// being flagged as tampered.
+const CANONICAL_HASH_RE = /^[0-9a-f]{64}$/;
+
+/** Recursively key-sorted JSON serialization. JSON.stringify's replacer array
+ * filters keys but does not reorder nested objects, so a replacer-based sort
+ * only yields a stable form when every nested object was built in the same
+ * key order. Sorting at every level keeps hashes and signatures stable across
+ * producers with differing key insertion order. */
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((v) => canonicalJson(v)).join(',')}]`;
+  }
+  if (value !== null && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .filter((k) => record[k] !== undefined)
+      .map((k) => `${JSON.stringify(k)}:${canonicalJson(record[k])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'null';
+}
+
+/** Project an event onto the canonical field set used for hashing and signing
+ * (evidence itself excluded), serialized with recursive key sorting. */
+function canonicalEventJson(event: CanonicalEvent): string {
   const keys: Array<keyof CanonicalEvent> = [
     'schema_version', 'run_id', 'event_id', 'timestamp', 'type', 'actor',
     'agent_id', 'model_id', 'session_id', 'tool', 'policy', 'human',
     'error', 'model_output', 'observation',
   ];
+  const projected: Record<string, unknown> = {};
   for (const k of keys) {
-    if (event[k] !== undefined) forHashing[k] = event[k];
+    if (event[k] !== undefined) projected[k] = event[k];
   }
-  const canonical = JSON.stringify(forHashing, Object.keys(forHashing).sort());
+  return canonicalJson(projected);
+}
+
+async function computeEventHash(event: CanonicalEvent): Promise<string> {
+  const canonical = canonicalEventJson(event);
   const encoded = new TextEncoder().encode(canonical);
   const hashBuf = await crypto.subtle.digest('SHA-256', encoded);
   const hex = Array.from(new Uint8Array(hashBuf))
@@ -97,17 +134,7 @@ async function verifyEd25519Signature(
     }
 
     // The signed message is the same canonical JSON used for hash computation
-    const forSigning: Record<string, unknown> = {};
-    const signingKeys: Array<keyof CanonicalEvent> = [
-      'schema_version', 'run_id', 'event_id', 'timestamp', 'type', 'actor',
-      'agent_id', 'model_id', 'session_id', 'tool', 'policy', 'human',
-      'error', 'model_output', 'observation',
-    ];
-    for (const k of signingKeys) {
-      if (event[k] !== undefined) forSigning[k] = event[k];
-    }
-    const canonical = JSON.stringify(forSigning, Object.keys(forSigning).sort());
-    const message = new TextEncoder().encode(canonical);
+    const message = new TextEncoder().encode(canonicalEventJson(event));
 
     const valid = await crypto.subtle.verify('Ed25519', key, sigBytes, message);
     return valid ? 'verified' : 'failed';
@@ -372,10 +399,14 @@ export async function validate(
     }
   }
 
-  // Hash content verification: recompute SHA-256 over event content, compare to evidence.hash
+  // Hash content verification: recompute SHA-256 over event content, compare to evidence.hash.
+  // Only hashes in the canonical scheme are verified — foreign chain formats are
+  // excluded from both counts rather than being reported as tampered.
   let contentMismatchCount = 0;
+  let contentVerifiedCount = 0;
   for (const e of chainEvents) {
     if (!e.evidence?.hash) continue;
+    if (!CANONICAL_HASH_RE.test(e.evidence.hash)) continue;
     const recomputed = await computeEventHash(e);
     if (recomputed !== e.evidence.hash) {
       contentMismatchCount++;
@@ -384,12 +415,14 @@ export async function validate(
         path: 'evidence.hash',
         message: `Hash content mismatch: stored hash '${e.evidence.hash.slice(0, 16)}…' does not match recomputed SHA-256 '${recomputed.slice(0, 16)}…'. Event content may have been tampered.`,
       });
+    } else {
+      contentVerifiedCount++;
     }
   }
 
-  const events_with_hash = chainEvents.length;
+  const events_with_hash = contentVerifiedCount + contentMismatchCount;
   const hashes_content_mismatch = contentMismatchCount;
-  const hashes_content_verified = events_with_hash - hashes_content_mismatch;
+  const hashes_content_verified = contentVerifiedCount;
   const events_with_signature = events.filter(e => e.evidence?.signature !== undefined).length;
 
   // Ed25519 signature verification (only when keyRegistry is provided)

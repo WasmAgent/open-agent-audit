@@ -81,8 +81,25 @@ export class AuditRunCoordinator {
       );
     }
 
-    runState.chunks_complete += 1;
-    await this.state.storage.put('run', runState);
+    // Queues are at-least-once: count distinct chunk indexes, not deliveries,
+    // so a redelivered chunk-complete cannot push chunks_complete past the
+    // real number of finished chunks.
+    let firstSighting = false;
+    if (body.chunk_index !== undefined) {
+      const done = await this.state.storage.get<Set<number>>('chunks_done') ?? new Set<number>();
+      if (!done.has(body.chunk_index)) {
+        done.add(body.chunk_index);
+        firstSighting = true;
+        await this.state.storage.put('chunks_done', done);
+      }
+    } else {
+      firstSighting = true;
+    }
+
+    if (firstSighting) {
+      runState.chunks_complete += 1;
+      await this.state.storage.put('run', runState);
+    }
 
     return new Response(
       JSON.stringify({

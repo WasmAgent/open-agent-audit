@@ -160,11 +160,11 @@ describe('passport/renew', () => {
     expect(renewed.revocation.revoked).toBe(false);
   });
 
-  test('resets revocation state', async () => {
+  test('refuses to renew a revoked passport', async () => {
     const original = await issue({ report: MOCK_REPORT, agentId: 'a' });
     const revoked = revoke({ passport: original, reason: 'test' });
-    const renewed = renew({ passport: revoked, report: MOCK_REPORT });
-    expect(renewed.revocation.revoked).toBe(false);
+    // Revocation is terminal — renewing must not resurrect a revoked passport.
+    expect(() => renew({ passport: revoked, report: MOCK_REPORT })).toThrow(/revoked/);
   });
 });
 
@@ -287,11 +287,12 @@ describe('passport/isExpired', () => {
     expect(isExpired(p)).toBe(false);
   });
 
-  test('returns false when expires_at is absent', async () => {
+  test('treats an absent expires_at as expired', async () => {
     const p = await issue({ report: MOCK_REPORT, agentId: 'a' });
-    // Delete the field to simulate absence
+    // Delete the field to simulate absence — an unverifiable expiry must not
+    // read as valid-forever.
     delete (p.validity as Partial<Pick<typeof p.validity, 'expires_at'>>).expires_at;
-    expect(isExpired(p)).toBe(false);
+    expect(isExpired(p)).toBe(true);
   });
 });
 
@@ -633,5 +634,13 @@ describe('passport/validateTrustPassport — logical validations (#78)', () => {
     // The passport produced by issue() should pass validation
     const result = validateTrustPassport(p as unknown as Record<string, unknown>);
     expect(result.valid).toBe(true);
+  });
+
+  test('rejects a passport with missing expires_at', async () => {
+    const p = await issue({ report: MOCK_REPORT, agentId: 'a' });
+    delete (p.validity as Partial<Pick<typeof p.validity, 'expires_at'>>).expires_at;
+    const result = validateTrustPassport(p as unknown as Record<string, unknown>);
+    expect(result.valid).toBe(false);
+    expect(result.structuredErrors.some((e) => e.field === 'validity.expires_at')).toBe(true);
   });
 });

@@ -7,6 +7,7 @@
 
 import type { AuditRun, CanonicalEvent } from '@openagentaudit/schema';
 import type { SourceFormatAdapter } from './index.js';
+import { base64Utf8 } from './mapping-utils.js';
 
 // ---------------------------------------------------------------------------
 // Local RolloutWireRecord type — mirrors bscode without importing it.
@@ -101,7 +102,9 @@ export function getProvenance(record: RolloutWireRecord): BscodeProvenance {
 const SPEC_VERSION = 'open-agent-audit/v0.1' as const;
 
 function makeEventId(raw: string): string {
-  return btoa(raw);
+  // UTF-8 safe: rollout ids are arbitrary external strings and btoa throws
+  // on non-Latin1 code points.
+  return base64Utf8(raw);
 }
 
 function msToIso(ms: number): string {
