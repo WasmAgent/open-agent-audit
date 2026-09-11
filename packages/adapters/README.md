@@ -87,7 +87,7 @@ aggregate reporting across multiple source records.
 
 ### Schema mismatch boundary
 
-The adapter accepts `aep/v0.1`–`aep/v0.4` records. Missing required fields
+The adapter accepts `aep/v0.1`–`aep/v0.5` records. Missing required fields
 (`run_id`, `schema_version`, `created_at_ms`, `signature.*`) cause an actionable error
 rather than a silent partial parse:
 

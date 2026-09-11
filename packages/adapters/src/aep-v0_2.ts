@@ -85,8 +85,8 @@ export interface RunContextInput {
   dependency_lock_digest?: string;
 }
 
-/** Supported AEP schema versions. v0.3 is a strict superset of v0.2, v0.4 adds DSSE and recording_mode. */
-export const SUPPORTED_AEP_VERSIONS = ['aep/v0.1', 'aep/v0.2', 'aep/v0.3', 'aep/v0.4'] as const;
+/** Supported AEP schema versions. v0.3 is a strict superset of v0.2, v0.4 adds DSSE and recording_mode, v0.5 adds attribution grading (additive only). */
+export const SUPPORTED_AEP_VERSIONS = ['aep/v0.1', 'aep/v0.2', 'aep/v0.3', 'aep/v0.4', 'aep/v0.5'] as const;
 export type SupportedAepVersion = (typeof SUPPORTED_AEP_VERSIONS)[number];
 
 /** Local mirror of the AEPRecord type from @wasmagent/aep. */
@@ -124,6 +124,39 @@ export interface AEPRecordInput {
       sig: string;
     }>;
   };
+  /** v0.5: attribution-grading fields (canonical aep/v0.5, additive). Accepted
+   *  and type-mirrored; mapping into AuditRun awaits downstream schema slots
+   *  (same status as user_id today). */
+  authorized_by?: string;
+  authority_origin?:
+    | 'subject_consented'
+    | 'administrator_assigned'
+    | 'organization_wide'
+    | 'unknown';
+  identity_source?:
+    | 'self_asserted'
+    | 'organization_attested'
+    | 'notified_eid'
+    | 'qualified_certificate'
+    | 'unknown';
+  attribution_backing?:
+    | 'operator_asserted'
+    | 'principal_key_signed'
+    | 'qualified_signature'
+    | 'unknown';
+  run_attribution_backing_floor?:
+    | 'operator_asserted'
+    | 'principal_key_signed'
+    | 'qualified_signature'
+    | 'unknown';
+  run_attribution_backing_observed?: Array<
+    'operator_asserted' | 'principal_key_signed' | 'qualified_signature' | 'unknown'
+  >;
+  /** v0.3 mirror completion: run-level identity fields the canonical schema
+   *  has carried since aep/v0.3. Accepted; unmapped downstream (see v0.5
+   *  note above). */
+  user_id?: string;
+  subject_id?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -217,7 +250,7 @@ function validateRecord(record: AEPRecordInput): void {
         'Ensure the AEPRecord was produced by a compliant emitter (aep/v0.2).',
     );
   }
-  if (record.schema_version !== 'aep/v0.2' && record.schema_version !== 'aep/v0.1' && record.schema_version !== 'aep/v0.3' && record.schema_version !== 'aep/v0.4') {
+  if (!(SUPPORTED_AEP_VERSIONS as readonly string[]).includes(record.schema_version)) {
     throw new Error(
       `AEP adapter: unsupported schema_version "${record.schema_version}". ` +
         `Expected one of: ${SUPPORTED_AEP_VERSIONS.join(', ')}.`,

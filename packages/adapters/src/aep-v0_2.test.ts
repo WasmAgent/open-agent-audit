@@ -158,6 +158,51 @@ describe('aep-v0_2 adapter — validation', () => {
 });
 
 // ---------------------------------------------------------------------------
+// aep/v0.5 — attribution grading (canonical wasmagent-protocol 0.1.9)
+// ---------------------------------------------------------------------------
+
+describe('aep-v0_2 adapter — aep/v0.5 attribution records', () => {
+  const v05: AEPRecordInput = {
+    schema_version: 'aep/v0.5',
+    run_id: 'run-v05-attribution',
+    created_at_ms: 1757460000000,
+    user_id: 'user-alice',
+    authorized_by: 'admin-bob',
+    authority_origin: 'administrator_assigned',
+    identity_source: 'organization_attested',
+    attribution_backing: 'operator_asserted',
+    run_attribution_backing_floor: 'operator_asserted',
+    run_attribution_backing_observed: ['operator_asserted', 'qualified_signature'],
+    signature: { alg: 'ed25519', key_id: 'k1', sig: 'sig' },
+  };
+
+  it('SUPPORTED_AEP_VERSIONS includes aep/v0.5', () => {
+    expect(SUPPORTED_AEP_VERSIONS).toContain('aep/v0.5');
+  });
+
+  it('beginRun accepts a v0.5 record carrying attribution fields', () => {
+    const run = AepV0_2Adapter.beginRun(v05);
+    expect(run.run_id).toBe('run-v05-attribution');
+    expect(run.source_adapter).toBe('aep-v0.2');
+  });
+
+  it('toEvents accepts a v0.5 record (no actions → zero events, no throw)', () => {
+    const events = AepV0_2Adapter.toEvents(v05);
+    expect(Array.isArray(events)).toBe(true);
+    // attribution fields are additive: their presence must not perturb the
+    // event mapping (no v0.5-specific event kinds exist yet).
+    expect(events.every((e) => e.schema_version === 'open-agent-audit/v0.1')).toBe(true);
+  });
+
+  it('rejects an out-of-enum attribution_backing value at the type level, tolerates unknown at runtime', () => {
+    // 'unknown' is a legal enum member — the honest state for IdPs that do
+    // not expose grant origin — and must flow through without error.
+    const r = { ...v05, authority_origin: 'unknown' } as AEPRecordInput;
+    expect(() => AepV0_2Adapter.beginRun(r)).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // getProvenance — edge cases
 // ---------------------------------------------------------------------------
 
