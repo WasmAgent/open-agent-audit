@@ -29,6 +29,12 @@ traces into defensible technical evidence reports.
 
 **[trustavo.com](https://trustavo.com)** — production deployment on Cloudflare Workers.
 
+**New to OpenAgentAudit?** Open the dashboard and click **Attribution showcase
+(v0.5)** — a bundled sample AEP record rendered as a complete audit report (no
+upload required). The sample demonstrates the aep/v0.5 attribution-grading
+vocabulary: who authorized the run, how verifiably that authorization is
+backed, and the weakest-grade floor across the run.
+
 ## Install
 
 ```sh
