@@ -180,6 +180,27 @@ export interface AepProvenance {
 }
 
 /**
+ * Extract aep/v0.5 attribution-grading fields from an AEPRecordInput.
+ * Returns undefined when the record carries none of them, so callers can
+ * distinguish "absent" (producer makes no claim) from field values.
+ */
+export function getAttribution(record: AEPRecordInput): AuditRun['attribution'] {
+  const a: NonNullable<AuditRun['attribution']> = {};
+  if (record.user_id !== undefined) a.user_id = record.user_id;
+  if (record.authorized_by !== undefined) a.authorized_by = record.authorized_by;
+  if (record.authority_origin !== undefined) a.authority_origin = record.authority_origin;
+  if (record.identity_source !== undefined) a.identity_source = record.identity_source;
+  if (record.attribution_backing !== undefined) a.attribution_backing = record.attribution_backing;
+  if (record.run_attribution_backing_floor !== undefined) {
+    a.run_attribution_backing_floor = record.run_attribution_backing_floor;
+  }
+  if (record.run_attribution_backing_observed !== undefined) {
+    a.run_attribution_backing_observed = record.run_attribution_backing_observed;
+  }
+  return Object.keys(a).length > 0 ? a : undefined;
+}
+
+/**
  * Extract upstream provenance fields from an AEPRecordInput.
  * Only defined (non-null) fields are included in the returned object.
  */
@@ -457,6 +478,7 @@ function beginRun(record: AEPRecordInput): AuditRun {
   validateRecord(record);
   const agentId = record.run_context?.agent_id ?? record.run_id;
   const modelId = record.model_id ?? 'unknown';
+  const attribution = getAttribution(record);
 
   return {
     schema_version: SPEC_VERSION,
@@ -472,6 +494,7 @@ function beginRun(record: AEPRecordInput): AuditRun {
       description: `AEP run ${record.run_id}`,
       risk_level: 'low',
     },
+    ...(attribution !== undefined && { attribution }),
   };
 }
 

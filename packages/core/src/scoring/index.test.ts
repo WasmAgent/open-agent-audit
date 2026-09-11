@@ -338,3 +338,52 @@ describe('computeRiskScore — driftResult integration (#82)', () => {
     expect(score.agent_risk_score.score).toBeGreaterThanOrEqual(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// aep/v0.5 attribution-integrity bonus
+// ---------------------------------------------------------------------------
+
+describe('computeRiskScore — aep/v0.5 attribution grading', () => {
+  // base=60 (hash chain, no signatures) leaves headroom below the 100 cap.
+  const events = withHashChain([makeToolCall('t1'), makeToolCall('t2')], false);
+
+  it('strong attribution grading raises provenance_integrity above the baseline', async () => {
+    const baseline = await computeRiskScore(events, 'r');
+    const graded = await computeRiskScore(events, 'r', undefined, undefined, undefined, undefined, {
+      authorized_by: 'manager-ade',
+      authority_origin: 'subject_consented',
+      identity_source: 'qualified_certificate',
+      attribution_backing: 'qualified_signature',
+      run_attribution_backing_floor: 'qualified_signature',
+    });
+    const b = baseline.components.provenance_integrity ?? 0;
+    const g = graded.components.provenance_integrity ?? 0;
+    expect(g).toBeGreaterThan(b);
+  });
+
+  it('unknown axes score below the baseline (honest penalty, floored)', async () => {
+    const baseline = await computeRiskScore(events, 'r');
+    const unknown = await computeRiskScore(events, 'r', undefined, undefined, undefined, undefined, {
+      authority_origin: 'unknown',
+      attribution_backing: 'unknown',
+      identity_source: 'unknown',
+    });
+    const base = baseline.components.provenance_integrity ?? 0;
+    const u = unknown.components.provenance_integrity ?? 0;
+    expect(u).toBeLessThan(base);
+  });
+
+  it('bonus is capped at +20 like the provenance bonus', async () => {
+    const baseline = await computeRiskScore(events, 'r');
+    const graded = await computeRiskScore(events, 'r', undefined, undefined, undefined, undefined, {
+      authorized_by: 'manager-ade',
+      authority_origin: 'subject_consented',
+      identity_source: 'qualified_certificate',
+      attribution_backing: 'qualified_signature',
+      run_attribution_backing_floor: 'qualified_signature',
+    });
+    const base = baseline.components.provenance_integrity ?? 0;
+    const g = graded.components.provenance_integrity ?? 0;
+    expect(g - base).toBe(20);
+  });
+});

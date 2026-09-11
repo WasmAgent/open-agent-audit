@@ -68,6 +68,38 @@ export interface ReportMeta {
     delegation_chain?: string[];
     model_provider?: string;
   };
+  /** aep/v0.5 attribution grading extracted from an AEP source record
+   *  (canonical wasmagent-protocol 0.1.9). Present when the record carries
+   *  attribution fields; contributes to the attribution-grading EU
+   *  requirement entry and the provenance_integrity score. */
+  aep_attribution?: {
+    user_id?: string;
+    authorized_by?: string;
+    authority_origin?:
+      | 'subject_consented'
+      | 'administrator_assigned'
+      | 'organization_wide'
+      | 'unknown';
+    identity_source?:
+      | 'self_asserted'
+      | 'organization_attested'
+      | 'notified_eid'
+      | 'qualified_certificate'
+      | 'unknown';
+    attribution_backing?:
+      | 'operator_asserted'
+      | 'principal_key_signed'
+      | 'qualified_signature'
+      | 'unknown';
+    run_attribution_backing_floor?:
+      | 'operator_asserted'
+      | 'principal_key_signed'
+      | 'qualified_signature'
+      | 'unknown';
+    run_attribution_backing_observed?: Array<
+      'operator_asserted' | 'principal_key_signed' | 'qualified_signature' | 'unknown'
+    >;
+  };
   /** Crypto verification summary from validate(). Shown in report as evidence quality badge. */
   crypto_summary?: {
     events_with_hash: number;
@@ -140,6 +172,7 @@ interface ResolvedMeta {
   transparency_statement?: string;
   qms_reference?: string;
   aep_provenance?: ReportMeta['aep_provenance'];
+  aep_attribution?: ReportMeta['aep_attribution'];
 }
 
 // ---------------------------------------------------------------------------
@@ -392,6 +425,7 @@ function resolveMeta(
     ...(transparency_statement !== undefined ? { transparency_statement } : {}),
     ...(qms_reference !== undefined ? { qms_reference } : {}),
     aep_provenance: meta?.aep_provenance,
+    aep_attribution: meta?.aep_attribution,
   };
 }
 
@@ -1045,6 +1079,52 @@ function buildComplianceMappings(
       });
     } else {
       euReqs.push({ id, label, status: 'not_evaluated', evidence_event_ids: [], limitation });
+    }
+  }
+
+  // aep-attribution-grading (aep/v0.5; OWASP MCP Top 10 MCP08, issues #44/#50)
+  {
+    const id = 'aep-attribution-grading';
+    const label = 'Human attribution graded by verifiable backing, not just named (aep/v0.5; MCP08)';
+    const limitation =
+      'Attribution grading states what stands behind the human authorization a record claims. A record that merely names a principal is not evidence that the principal consented — the producer must populate authority_origin, attribution_backing and identity_source at emission time.';
+    const attr = meta?.aep_attribution;
+    if (!attr) {
+      euReqs.push({
+        id,
+        label,
+        status: 'not_evaluated',
+        evidence_event_ids: [],
+        limitation: 'Source record carries no aep/v0.5 attribution grading. ' + limitation,
+      });
+    } else {
+      const strongBacking =
+        attr.attribution_backing === 'qualified_signature' ||
+        attr.attribution_backing === 'principal_key_signed';
+      const consented = attr.authority_origin === 'subject_consented';
+      const unknownAxis =
+        attr.authority_origin === 'unknown' ||
+        attr.attribution_backing === 'unknown' ||
+        attr.identity_source === 'unknown';
+      const weakNotes: string[] = [];
+      if (!strongBacking) {
+        weakNotes.push('attribution backing is operator-asserted or ungraded');
+      }
+      if (!consented) {
+        weakNotes.push('authority was not granted interactively by the named subject');
+      }
+      if (unknownAxis) {
+        weakNotes.push('one or more axes are ungradeable by the producer');
+      }
+      const status: 'supported' | 'partial' =
+        strongBacking && consented && !unknownAxis ? 'supported' : 'partial';
+      euReqs.push({
+        id,
+        label,
+        status,
+        evidence_event_ids: events.slice(0, 3).map((e) => e.event_id),
+        limitation: (weakNotes.length > 0 ? `${weakNotes.join('; ')}. ` : '') + limitation,
+      });
     }
   }
 

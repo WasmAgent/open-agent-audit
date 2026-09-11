@@ -184,6 +184,15 @@ describe('aep-v0_2 adapter — aep/v0.5 attribution records', () => {
     const run = AepV0_2Adapter.beginRun(v05);
     expect(run.run_id).toBe('run-v05-attribution');
     expect(run.source_adapter).toBe('aep-v0.2');
+    // The attribution block is mapped into the AuditRun so downstream
+    // reports can surface who authorized the run and how strongly.
+    expect(run.attribution?.authorized_by).toBe('admin-bob');
+    expect(run.attribution?.authority_origin).toBe('administrator_assigned');
+    expect(run.attribution?.attribution_backing).toBe('operator_asserted');
+    expect(run.attribution?.run_attribution_backing_observed).toEqual([
+      'operator_asserted',
+      'qualified_signature',
+    ]);
   });
 
   it('toEvents accepts a v0.5 record (no actions → zero events, no throw)', () => {

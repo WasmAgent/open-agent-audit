@@ -38,6 +38,41 @@ export interface AepProvenanceForScoring {
   tool_manifest_digest?: string;
 }
 
+/**
+ * aep/v0.5 attribution grading (canonical wasmagent-protocol 0.1.9) used by
+ * {@link computeRiskScore} to boost the provenance_integrity component.
+ *
+ * Shape mirrors `AuditRun['attribution']` from @openagentaudit/schema.
+ */
+export interface AepAttributionForScoring {
+  user_id?: string;
+  authorized_by?: string;
+  authority_origin?:
+    | 'subject_consented'
+    | 'administrator_assigned'
+    | 'organization_wide'
+    | 'unknown';
+  identity_source?:
+    | 'self_asserted'
+    | 'organization_attested'
+    | 'notified_eid'
+    | 'qualified_certificate'
+    | 'unknown';
+  attribution_backing?:
+    | 'operator_asserted'
+    | 'principal_key_signed'
+    | 'qualified_signature'
+    | 'unknown';
+  run_attribution_backing_floor?:
+    | 'operator_asserted'
+    | 'principal_key_signed'
+    | 'qualified_signature'
+    | 'unknown';
+  run_attribution_backing_observed?: Array<
+    'operator_asserted' | 'principal_key_signed' | 'qualified_signature' | 'unknown'
+  >;
+}
+
 function toGrade(score: number): Grade {
   if (score >= 90) return 'A';
   if (score >= 75) return 'B';
@@ -124,6 +159,7 @@ function computeProvenanceIntegrity(
     hashes_content_verified: number;
     hashes_content_mismatch: number;
   },
+  aepAttribution?: AepAttributionForScoring,
 ): number {
   const eventsWithEvidence = events.filter(
     (ev) => ev.evidence?.hash !== undefined || ev.evidence?.prev_hash !== undefined,
@@ -184,6 +220,39 @@ function computeProvenanceIntegrity(
   );
   if (hasDsseAttestation) {
     base = Math.min(100, base + 3);
+  }
+
+  // aep/v0.5 attribution-integrity bonus/penalty. Attribution grading says
+  // whether the human authority named in the record was actually granted —
+  // a record that names a principal without backing overstates what it
+  // proves (OWASP #44 / #50). Reward verifiable backing and honest floor
+  // reporting; penalise 'unknown' where the field exists.
+  if (aepAttribution !== undefined) {
+    let bonus = 0;
+    if (aepAttribution.authorized_by) bonus += 4;
+    if (aepAttribution.authority_origin === 'subject_consented') bonus += 8;
+    else if (
+      aepAttribution.authority_origin === 'administrator_assigned' ||
+      aepAttribution.authority_origin === 'organization_wide'
+    ) {
+      bonus += 2;
+    } else if (aepAttribution.authority_origin === 'unknown') {
+      bonus -= 4;
+    }
+    if (aepAttribution.attribution_backing === 'qualified_signature') bonus += 8;
+    else if (aepAttribution.attribution_backing === 'principal_key_signed') bonus += 5;
+    else if (aepAttribution.attribution_backing === 'unknown') bonus -= 4;
+    if (
+      aepAttribution.identity_source === 'qualified_certificate' ||
+      aepAttribution.identity_source === 'notified_eid'
+    ) {
+      bonus += 4;
+    } else if (aepAttribution.identity_source === 'organization_attested') {
+      bonus += 2;
+    }
+    if (aepAttribution.run_attribution_backing_floor) bonus += 4; // honest floor reporting
+    bonus = Math.max(-8, Math.min(20, bonus));
+    base = Math.max(0, Math.min(100, base + bonus));
   }
 
   // Penalize for content hash mismatches: each mismatch reduces score by 20, floored at 0
@@ -399,9 +468,15 @@ export async function computeRiskScore(
   },
   contaminationResult?: { contamination_score: number },
   driftResult?: DriftResultForScoring,
+  aepAttribution?: AepAttributionForScoring,
 ): Promise<RiskScore> {
   const trace_completeness = computeTraceCompleteness(events);
-  const provenance_integrity = computeProvenanceIntegrity(events, aepProvenance, cryptoSummary);
+  const provenance_integrity = computeProvenanceIntegrity(
+    events,
+    aepProvenance,
+    cryptoSummary,
+    aepAttribution,
+  );
   const objective_verification = computeObjectiveVerification(events);
   const policy_coverage = computePolicyCoverage(events);
   const human_oversight_evidence = computeHumanOversightEvidence(events);

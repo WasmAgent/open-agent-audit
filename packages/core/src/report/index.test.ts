@@ -255,3 +255,71 @@ describe('renderReport null inventoryReport (#57)', () => {
     expect(report.inventory).toBeUndefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// aep/v0.5 attribution-grading requirement (MCP08; OWASP #44/#50)
+// ---------------------------------------------------------------------------
+
+describe('renderReport — aep-attribution-grading requirement', () => {
+  interface AttrRequirement {
+    id: string;
+    status: 'supported' | 'partial' | 'not_evaluated';
+    limitation?: string;
+  }
+
+  async function findAttributionEntry(meta?: {
+    aep_attribution?: Record<string, unknown>;
+  }): Promise<AttrRequirement | undefined> {
+    const findings = await policyAudit(GOLDEN_EVENTS, {
+      manifest: {
+        declared_capabilities: [],
+        high_risk_capabilities: [],
+        denied_capabilities: [],
+      },
+    });
+    const score = await computeRiskScore(GOLDEN_EVENTS);
+    const inv = await inventory(GOLDEN_EVENTS);
+    const bundle = await renderReport(GOLDEN_EVENTS, findings, score, inv, meta);
+    const report = JSON.parse(bundle.json) as {
+      compliance_mappings: Array<{
+        requirements: AttrRequirement[];
+      }>;
+    };
+    for (const profile of report.compliance_mappings) {
+      const entry = profile.requirements.find((r) => r.id === 'aep-attribution-grading');
+      if (entry) return entry;
+    }
+    return undefined;
+  }
+
+  it('reports not_evaluated when the source record carries no attribution grading', async () => {
+    const entry = await findAttributionEntry();
+    expect(entry?.status).toBe('not_evaluated');
+  });
+
+  it('reports supported for subject-consented, principal-key-signed attribution', async () => {
+    const entry = await findAttributionEntry({
+      aep_attribution: {
+        user_id: 'user-dana@acme.example',
+        authorized_by: 'manager-ade@acme.example',
+        authority_origin: 'subject_consented',
+        identity_source: 'organization_attested',
+        attribution_backing: 'principal_key_signed',
+        run_attribution_backing_floor: 'operator_asserted',
+      },
+    });
+    expect(entry?.status).toBe('supported');
+  });
+
+  it('reports partial for weak attribution (operator-asserted backing)', async () => {
+    const entry = await findAttributionEntry({
+      aep_attribution: {
+        user_id: 'user-dana@acme.example',
+        authority_origin: 'subject_consented',
+        attribution_backing: 'operator_asserted',
+      },
+    });
+    expect(entry?.status).toBe('partial');
+    expect(entry?.limitation).toContain('operator-asserted');
+  });
+});

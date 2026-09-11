@@ -96,6 +96,37 @@ export interface CanonicalEvent {
   human_approval?: boolean;
 }
 
+/** aep/v0.5 attribution grading (canonical wasmagent-protocol 0.1.9).
+ *  All fields optional — present only when the upstream record carries them. */
+export interface AttributionGrading {
+  user_id?: string;
+  authorized_by?: string;
+  authority_origin?:
+    | 'subject_consented'
+    | 'administrator_assigned'
+    | 'organization_wide'
+    | 'unknown';
+  identity_source?:
+    | 'self_asserted'
+    | 'organization_attested'
+    | 'notified_eid'
+    | 'qualified_certificate'
+    | 'unknown';
+  attribution_backing?:
+    | 'operator_asserted'
+    | 'principal_key_signed'
+    | 'qualified_signature'
+    | 'unknown';
+  run_attribution_backing_floor?:
+    | 'operator_asserted'
+    | 'principal_key_signed'
+    | 'qualified_signature'
+    | 'unknown';
+  run_attribution_backing_observed?: Array<
+    'operator_asserted' | 'principal_key_signed' | 'qualified_signature' | 'unknown'
+  >;
+}
+
 export interface AuditRun {
   schema_version: SpecVersion;
   run_id: string;
@@ -117,6 +148,8 @@ export interface AuditRun {
   source_adapter?: string;
   profiles?: string[];
   engine_version?: string;
+  /** aep/v0.5 attribution grading — present when the source record carries it. */
+  attribution?: AttributionGrading;
 }
 
 export interface Finding {

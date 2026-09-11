@@ -971,6 +971,7 @@ async function handlePostRun(request: Request, env: WorkerEnv): Promise<Response
   // AEP records are pretty-printed (multi-line), so line-by-line parsing fails.
   let events: CanonicalEvent[];
   let aepProvenance: AepProvenanceForScoring | undefined;
+  let aepAttribution: ReturnType<typeof aepV0_2.getAttribution> | undefined;
   let inputFormat = 'jsonl';
   let parseFailures: number[] = [];
 
@@ -986,7 +987,8 @@ async function handlePostRun(request: Request, env: WorkerEnv): Promise<Response
 
   const isAepRecord =
     singleObject !== undefined &&
-    (singleObject.schema_version === 'aep/v0.2' || singleObject.schema_version === 'aep/v0.1');
+    typeof singleObject.schema_version === 'string' &&
+    /^aep\/v0\.[1-5]$/.test(singleObject.schema_version);
 
   if (isAepRecord && singleObject !== undefined) {
     inputFormat = 'aep';
@@ -999,6 +1001,7 @@ async function handlePostRun(request: Request, env: WorkerEnv): Promise<Response
       if (Object.keys(prov).length > 0) {
         aepProvenance = prov;
       }
+      aepAttribution = aepV0_2.getAttribution(aepRecord);
     } catch {
       // Invalid AEP record — fall through to the JSONL path as promised, so a
       // malformed AEP body is parsed line-by-line (and rejected there if it
@@ -1066,6 +1069,9 @@ async function handlePostRun(request: Request, env: WorkerEnv): Promise<Response
     run_id,
     aepProvenance,
     validationResult.crypto_summary,
+    undefined,
+    undefined,
+    aepAttribution ?? undefined,
   );
 
   const findings: Finding[] = [...auditFindings];
@@ -1098,6 +1104,9 @@ async function handlePostRun(request: Request, env: WorkerEnv): Promise<Response
   }
   if (aepProvenance !== undefined) {
     meta.aep_provenance = aepProvenance;
+  }
+  if (aepAttribution !== undefined) {
+    meta.aep_attribution = aepAttribution;
   }
 
   const bundle = await renderReport(events, findings, score, inv, meta);
