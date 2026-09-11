@@ -145,7 +145,7 @@ CanonicalEvent[]  →  audit engines (validate / inventory / policyAudit / compu
 Adapter versioning rules:
 
 1. **One adapter per external format family** — `aep-v0_2.ts` covers AEP
-   schema_version `aep/v0.1` and `aep/v0.2` (backward-compatible reads).
+   schema_version `aep/v0.1` through `aep/v0.4` (backward-compatible reads).
 2. **When the canonical model gets a new minor**, adapters are updated to
    populate the new optional fields if the upstream data carries them; old
    adapters that do not populate the new fields remain valid.
