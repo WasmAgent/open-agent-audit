@@ -1,0 +1,142 @@
+{
+  "schema_version": "aep/v0.5",
+  "run_id": "run-showcase-attribution-001",
+  "trace_id": "trace-showcase-attribution-001",
+  "parent_trace_id": null,
+  "repo_commit": "3f7a1c9e2b5d8046a1e2c3b4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708",
+  "runtime_version": "@wasmagent/aep@2.4.2",
+  "model_provider": "anthropic",
+  "model_id": "claude-sonnet-4-6",
+  "policy_bundle_digest": "sha256-9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+  "tool_manifest_digest": "sha256-2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+  "mcp_server_card_digest": "sha256-4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a",
+  "user_id": "user-dana@acme.example",
+  "authorized_by": "manager-ade@acme.example",
+  "authority_origin": "subject_consented",
+  "identity_source": "organization_attested",
+  "attribution_backing": "principal_key_signed",
+  "run_attribution_backing_floor": "operator_asserted",
+  "run_attribution_backing_observed": [
+    "operator_asserted",
+    "principal_key_signed"
+  ],
+  "input_refs": [
+    {
+      "uri": "input://prompt/01",
+      "digest": "sha256-1d0aa0c2f7b0e9c0c9e4d1f3b2a3c4d5e6f7081929384a5b6c7d8e9f0a1b2c3d4",
+      "taint_labels": [
+        "user-supplied"
+      ]
+    }
+  ],
+  "output_refs": [
+    {
+      "uri": "output://finance-summary/01",
+      "digest": "sha256-7d3a2e9b1c4d5f6e8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2",
+      "redaction_profile": "default-pii"
+    }
+  ],
+  "capability_decisions": [
+    {
+      "capability": "fs:read",
+      "subject": "agent",
+      "resource": "/invoices/q3/*.csv",
+      "decision": "allow",
+      "reason_code": "policy-dana-finance-reader"
+    },
+    {
+      "capability": "net:egress",
+      "subject": "agent",
+      "resource": "https://fx.thirdparty.example/convert",
+      "decision": "deny",
+      "reason_code": "egress-not-allowlisted",
+      "deny_reason_class": "resource-scope"
+    },
+    {
+      "capability": "fs:write",
+      "subject": "agent",
+      "resource": "/finance-share/q3-summary.md",
+      "decision": "allow",
+      "reason_code": "policy-dana-finance-writer"
+    }
+  ],
+  "actions": [
+    {
+      "action_id": "action-0",
+      "tool_name": "read_file",
+      "state_changing": false,
+      "precondition_digest": "sha256-a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90",
+      "result_digest": "sha256-b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90a1",
+      "timestamp_ms": 1757487000000,
+      "side_effect_class": "read"
+    },
+    {
+      "action_id": "action-1",
+      "tool_name": "http_post",
+      "state_changing": true,
+      "precondition_digest": "sha256-c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2",
+      "result_digest": "sha256-d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3",
+      "timestamp_ms": 1757487006000,
+      "side_effect_class": "network-egress",
+      "capability_decision": {
+        "capability": "net:egress",
+        "subject": "agent",
+        "resource": "https://fx.thirdparty.example/convert",
+        "decision": "deny",
+        "reason_code": "egress-not-allowlisted",
+        "deny_reason_class": "resource-scope"
+      }
+    },
+    {
+      "action_id": "action-2",
+      "tool_name": "write_file",
+      "state_changing": true,
+      "precondition_digest": "sha256-e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4",
+      "result_digest": "sha256-f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5",
+      "argument_drift": {
+        "detected": true,
+        "approved_args_digest": "sha256-07018293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f",
+        "actual_args_digest": "sha256-181293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60",
+        "resolution": "denied"
+      },
+      "timestamp_ms": 1757487012000,
+      "side_effect_class": "mutate-external",
+      "approval_context_hash": "sha256-2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90a1b"
+    }
+  ],
+  "verifier_results": [
+    {
+      "verifier_id": "signature-integrity-v1",
+      "passed": true,
+      "score": 1.0,
+      "claim_ids": ["claim-signature-01"]
+    },
+    {
+      "verifier_id": "pii-leak-scanner-v2",
+      "passed": false,
+      "score": 0.42,
+      "claim_ids": ["claim-pii-07"]
+    }
+  ],
+  "budget_ledger": {
+    "token_budget": { "limit": 200000, "spent": 48213 },
+    "tool_budget": { "limit": 25, "spent": 3 }
+  },
+  "created_at_ms": 1757487018000,
+  "recording_mode": "full",
+  "dsse_envelope": {
+    "payloadType": "application/vnd.wasmagent.aep+json",
+    "payload": "eyJzY2hlbWFfdmVyc2lvbiI6ImFlcC92MC41IiwicnVuX2lkIjoicnVuLXNob3djYXNlLWF0dHJpYnV0aW9uLTAwMSJ9",
+    "signatures": [
+      {
+        "keyid": "acme-ephermeral-signer-2026-09",
+        "sig": "c2hvd2Nhc2UtZHNzZS1zaWduYXR1cmUtYmxvYi1ub3QtYS1yZWFsLXNpZ24="
+      }
+    ]
+  },
+  "signature": {
+    "alg": "ed25519",
+    "key_id": "acme-signer-dana-2026-09",
+    "sig": "c2hvd2Nhc2UtZWQyNTUxOS1zaWduYXR1cmUtYmxvYi1ub3QtYS1yZWFsLXNpZ24="
+  }
+}

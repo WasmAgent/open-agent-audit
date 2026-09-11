@@ -3,6 +3,7 @@ import { Router, Route, Switch, useLocation, useParams } from 'wouter'
 import { AuditProvider, useAudit } from './AuditContext'
 import { Breadcrumb, type Crumb } from './Breadcrumb'
 import { type RawEvent, parseJsonl, isAepJson, buildAepMeta, formatTimestamp } from './utils'
+import { aepV0_2 } from '@openagentaudit/adapters'
 import { useSortable } from './hooks/useSortable'
 import { RunsPage } from './pages/RunsPage'
 import { ApprovalsPage } from './pages/ApprovalsPage'
@@ -404,7 +405,16 @@ function HomePage() {
         try {
           const aep = JSON.parse(text) as Record<string, unknown>
           setAepMeta(buildAepMeta(aep))
-        } catch { /* best-effort */ }
+          // Run the real adapter pipeline client-side so AEP samples render
+          // as a full audit report (event timeline + Generate Report),
+          // not just the metadata strip.
+          const events = aepV0_2.toEventsBatch([aep as unknown as aepV0_2.AEPRecordInput])
+          setEvents(events as unknown as RawEvent[])
+        } catch (e) {
+          // Adapter failure (e.g. genuinely malformed record) — keep the
+          // metadata strip usable rather than blocking the view.
+          console.warn('AEP sample conversion failed:', e instanceof Error ? e.message : String(e))
+        }
         navigate('/audit')
       } else {
         const parsed = parseJsonl(text)
@@ -423,6 +433,7 @@ function HomePage() {
   const samples = [
     { label: 'wasmagent-js (Example)', file: 'wasmagent-js-runtime.aep.json' },
     { label: 'bscode (Example)', file: 'bscode-session.aep.json' },
+    { label: 'Attribution showcase (v0.5)', file: 'showcase-attribution.aep.json' },
   ]
 
   return (
@@ -867,6 +878,28 @@ function AuditPage() {
                     <div className="text-[10px] uppercase tracking-widest text-slate-400 mb-1">Schema</div>
                     <div className="text-xs font-mono text-indigo-600">{aepMeta?.schema_version ?? '—'}</div>
                   </div>
+                  {(aepMeta?.authority_origin || aepMeta?.attribution_backing) && (
+                    <div className="bg-white/70 rounded-xl border border-indigo-100 p-3 shadow-sm sm:col-span-4 text-left">
+                      <div className="text-[10px] uppercase tracking-widest text-slate-400 mb-1">Attribution (aep/v0.5)</div>
+                      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-700">
+                        {aepMeta?.authority_origin && (
+                          <span>authority: <span className="font-mono text-indigo-600">{aepMeta.authority_origin}</span></span>
+                        )}
+                        {aepMeta?.attribution_backing && (
+                          <span>backing: <span className="font-mono text-indigo-600">{aepMeta.attribution_backing}</span></span>
+                        )}
+                        {aepMeta?.identity_source && (
+                          <span>identity: <span className="font-mono text-indigo-600">{aepMeta.identity_source}</span></span>
+                        )}
+                        {aepMeta?.run_attribution_backing_floor && (
+                          <span>floor: <span className="font-mono text-indigo-600">{aepMeta.run_attribution_backing_floor}</span></span>
+                        )}
+                        {aepMeta?.authorized_by && (
+                          <span>authorized by: <span className="font-mono text-slate-700">{aepMeta.authorized_by}</span></span>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
                 <p className="text-xs text-slate-400 mt-3 text-center">Click <strong className="text-slate-600">Generate Report</strong> to run the full audit pipeline.</p>
               </div>

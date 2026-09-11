@@ -55,7 +55,8 @@
       "name": "@openagentaudit/dashboard",
       "version": "0.1.0",
       "dependencies": {
-        "@openagentaudit/schema": "0.5.1",
+        "@openagentaudit/adapters": "0.6.0",
+        "@openagentaudit/schema": "0.6.0",
         "react": "^19.2.8",
         "react-dom": "^19.2.8",
         "wouter": "^3.10.0",

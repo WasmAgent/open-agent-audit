@@ -36,6 +36,12 @@ export interface AepMeta {
   model_provider?: string
   actions?: number
   schema_version?: string
+  /** v0.5 attribution-grading fields (canonical wasmagent-protocol 0.1.9). */
+  authorized_by?: string
+  authority_origin?: string
+  identity_source?: string
+  attribution_backing?: string
+  run_attribution_backing_floor?: string
 }
 
 export function parseJsonl(text: string): RawEvent[] {
@@ -75,6 +81,14 @@ export function buildAepMeta(aep: Record<string, unknown>): AepMeta {
   if (typeof aep['model_provider'] === 'string') m.model_provider = aep['model_provider']
   if (Array.isArray(aep['actions'])) m.actions = (aep['actions'] as unknown[]).length
   if (typeof aep['schema_version'] === 'string') m.schema_version = aep['schema_version']
+  // v0.5 attribution grading — surfaces who authorized the run and what
+  // evidence stands behind that authorization.
+  if (typeof aep['authorized_by'] === 'string') m.authorized_by = aep['authorized_by']
+  if (typeof aep['authority_origin'] === 'string') m.authority_origin = aep['authority_origin']
+  if (typeof aep['identity_source'] === 'string') m.identity_source = aep['identity_source']
+  if (typeof aep['attribution_backing'] === 'string') m.attribution_backing = aep['attribution_backing']
+  if (typeof aep['run_attribution_backing_floor'] === 'string')
+    m.run_attribution_backing_floor = aep['run_attribution_backing_floor']
   return m
 }
 

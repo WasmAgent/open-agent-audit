@@ -13,6 +13,7 @@
     "clean": "rm -rf dist .turbo"
   },
   "dependencies": {
+    "@openagentaudit/adapters": "0.6.0",
     "@openagentaudit/schema": "0.6.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
