@@ -152,6 +152,8 @@ export interface AEPRecordInput {
   run_attribution_backing_observed?: Array<
     'operator_asserted' | 'principal_key_signed' | 'qualified_signature' | 'unknown'
   >;
+  /** v0.5: selective-omission defense (canonical wasmagent-protocol 0.1.10). */
+  authorization_evidence_count?: number;
   /** v0.3 mirror completion: run-level identity fields the canonical schema
    *  has carried since aep/v0.3. Accepted; unmapped downstream (see v0.5
    *  note above). */
@@ -265,6 +267,14 @@ function validateRecord(record: AEPRecordInput): void {
   if (!record.signature?.alg) missing.push('signature.alg');
   if (!record.signature?.key_id) missing.push('signature.key_id');
   if (!record.signature?.sig) missing.push('signature.sig');
+  // Hostile-key rejection: a literal "__proto__" own key on a JSON.parse'd
+  // record is inert here, but carrying it downstream hands every JS
+  // consumer a prototype-pollution primitive.
+  for (const key of Object.keys(record)) {
+    if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
+      throw new Error(`AEP adapter: record contains forbidden key "${key}"`);
+    }
+  }
   if (missing.length > 0) {
     throw new Error(
       `AEP adapter: missing required fields [${missing.join(', ')}]. ` +
