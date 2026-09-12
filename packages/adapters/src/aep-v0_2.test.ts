@@ -365,6 +365,26 @@ describe('aep-v0_2 adapter — aep/v0.4 support', () => {
     }
   });
 
+  it('accepts an aep/v0.5 record with both attribution fields and a DSSE envelope', () => {
+    // v0.5 + DSSE combination: attribution grading rides inside a
+    // DSSE-attested record (the strongest evidence shape this adapter sees).
+    const v05: AEPRecordInput = {
+      ...record,
+      schema_version: 'aep/v0.5',
+      authorized_by: 'manager-ade@acme.example',
+      authority_origin: 'subject_consented',
+      identity_source: 'organization_attested',
+      attribution_backing: 'principal_key_signed',
+      run_attribution_backing_floor: 'operator_asserted',
+      run_attribution_backing_observed: ['operator_asserted', 'principal_key_signed'],
+    };
+    const events = AepV0_2Adapter.toEvents(v05);
+    expect(events.length).toBeGreaterThan(0);
+    for (const ev of events) {
+      expect(ev.evidence?.attestation_format).toBe('dsse');
+    }
+  });
+
   it('toEvents maps recording_mode from actions to events', () => {
     const events = AepV0_2Adapter.toEvents(record);
     const toolCalls = events.filter((e) => e.type === 'tool_call');
