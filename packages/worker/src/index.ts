@@ -1430,7 +1430,14 @@ async function loadCanonicalRunReport(
     .first<{ run_id: string }>();
   if (owned === null) return { state: 'not_found' };
 
-  const object = await env.REPORTS.get(`runs/${runId}/report.json`);
+  // A storage outage on the canonical report must fail issuance closed
+  // (R2-R2-03): never fabricate evidence from a partially readable artifact.
+  let object: Awaited<ReturnType<WorkerEnv['REPORTS']['get']>> | null;
+  try {
+    object = await env.REPORTS.get(`runs/${runId}/report.json`);
+  } catch {
+    return { state: 'unavailable' };
+  }
   if (object === null) return { state: 'unavailable' };
 
   let parsed: unknown;
