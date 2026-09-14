@@ -235,3 +235,5 @@ See [`NOTICE`](./NOTICE) for full third-party attributions.
 ## License
 
 Apache License 2.0 — see [`LICENSE`](./LICENSE).
+
+<!-- n4 verify irrelevant-path required-summary behavior -->
