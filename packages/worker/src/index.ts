@@ -98,6 +98,18 @@ export interface WorkerEnv {
   CORS_ORIGIN?: string;
   /** Shared secret for API authentication. If unset, auth is disabled (dev/demo mode). */
   API_KEY?: string;
+  /**
+   * Tenant this deployment serves in single-tenant mode. Defaults to
+   * `"default"`. Never derived from a request header.
+   */
+  TENANT_ID?: string;
+  /**
+   * JSON object mapping API keys to tenant IDs for multi-tenant deployments,
+   * e.g. `{"<api-key>":"acme"}`. When set, tenant identity is resolved
+   * exclusively from the presented bearer key; `X-Tenant-Id` and query
+   * parameters are ignored for authorization.
+   */
+  TENANT_API_KEYS?: string;
   /** 'public' (default) serves /r/:id without auth; 'private' requires Bearer API_KEY. */
   REPORT_VISIBILITY?: string;
   /** GitHub personal access token for the scheduler to poll issues. */
@@ -170,26 +182,119 @@ function corsError(message: string, status: number, env: WorkerEnv): Response {
 }
 
 // ---------------------------------------------------------------------------
-// Auth helper
+// Auth + tenant resolution
 // ---------------------------------------------------------------------------
 
-async function checkAuth(request: Request, env: WorkerEnv): Promise<boolean> {
-  if (!env.API_KEY) return true; // auth disabled in demo mode
+/**
+ * Caller identity resolved from the request. The bound tenant is derived
+ * exclusively from authentication material — never from `X-Tenant-Id` or any
+ * other client-supplied value (N2-P0-01).
+ */
+interface Principal {
+  /** Whether the request proved an identity (open demo mode counts as open). */
+  authenticated: boolean;
+  /** The bound tenant, or `null` when identity is required but absent. */
+  tenantId: string | null;
+}
+
+function isProduction(env: WorkerEnv): boolean {
+  return (env.OAA_ENV ?? '').toLowerCase() === 'production';
+}
+
+function bearerToken(request: Request): string {
   const header = request.headers.get('Authorization') ?? '';
-  const token = header.startsWith('Bearer ') ? header.slice(7) : '';
-  // Compare SHA-256 digests byte-by-byte so response timing does not leak how
-  // much of the key matched.
-  const [tokenHash, keyHash] = await Promise.all([
-    crypto.subtle.digest('SHA-256', new TextEncoder().encode(token)),
-    crypto.subtle.digest('SHA-256', new TextEncoder().encode(env.API_KEY)),
+  return header.startsWith('Bearer ') ? header.slice(7) : '';
+}
+
+/**
+ * Compare two secrets in constant time by hashing each to a fixed-length
+ * digest and XOR-accumulating every byte. Hashing avoids leaking length; the
+ * loop avoids early-exit timing leaks.
+ */
+async function constantTimeEqual(a: string, b: string): Promise<boolean> {
+  const enc = new TextEncoder();
+  const [aHash, bHash] = await Promise.all([
+    crypto.subtle.digest('SHA-256', enc.encode(a)),
+    crypto.subtle.digest('SHA-256', enc.encode(b)),
   ]);
-  const tokenBytes = new Uint8Array(tokenHash);
-  const keyBytes = new Uint8Array(keyHash);
+  const aBytes = new Uint8Array(aHash);
+  const bBytes = new Uint8Array(bHash);
   let diff = 0;
-  for (let i = 0; i < keyBytes.length; i++) {
-    diff |= (tokenBytes[i] ?? 0) ^ (keyBytes[i] ?? 0);
+  for (let i = 0; i < bBytes.length; i++) {
+    diff |= (aBytes[i] ?? 0) ^ (bBytes[i] ?? 0);
   }
   return diff === 0;
+}
+
+/** True when `TENANT_API_KEYS` is present (even if malformed → fail closed). */
+function isMultiTenantConfigured(env: WorkerEnv): boolean {
+  return env.TENANT_API_KEYS !== undefined && env.TENANT_API_KEYS.trim() !== '';
+}
+
+/** Parse `TENANT_API_KEYS` into a key→tenant map; empty on unset/malformed. */
+function parseTenantKeys(raw: string | undefined): Map<string, string> {
+  const map = new Map<string, string>();
+  if (raw === undefined || raw.trim() === '') return map;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      for (const [key, tenant] of Object.entries(parsed as Record<string, unknown>)) {
+        if (typeof tenant === 'string' && tenant.length > 0) map.set(key, tenant);
+      }
+    }
+  } catch {
+    // Malformed config is treated as configured so callers fail closed rather
+    // than silently degrading to open single-tenant behaviour.
+  }
+  return map;
+}
+
+function deploymentTenant(env: WorkerEnv): string {
+  return env.TENANT_ID && env.TENANT_ID.length > 0 ? env.TENANT_ID : 'default';
+}
+
+/**
+ * Resolve the caller's identity and bound tenant.
+ *
+ * - Multi-tenant (`TENANT_API_KEYS` set): the bearer key selects the tenant.
+ * - Single-tenant (only `API_KEY`): the deployment serves `TENANT_ID`.
+ * - No auth material: open in dev/demo, fail closed in production.
+ */
+async function resolvePrincipal(request: Request, env: WorkerEnv): Promise<Principal> {
+  const token = bearerToken(request);
+
+  if (isMultiTenantConfigured(env)) {
+    for (const [key, tenantId] of parseTenantKeys(env.TENANT_API_KEYS)) {
+      if (token !== '' && (await constantTimeEqual(token, key))) {
+        return { authenticated: true, tenantId };
+      }
+    }
+    return { authenticated: false, tenantId: null };
+  }
+
+  if (env.API_KEY) {
+    const authenticated = token !== '' && (await constantTimeEqual(token, env.API_KEY));
+    return { authenticated, tenantId: deploymentTenant(env) };
+  }
+
+  if (isProduction(env)) {
+    // Production must never run with authentication silently disabled.
+    return { authenticated: false, tenantId: null };
+  }
+  return { authenticated: true, tenantId: deploymentTenant(env) };
+}
+
+/** True when the request may perform a write/decision (or demo-open) action. */
+async function checkAuth(request: Request, env: WorkerEnv): Promise<boolean> {
+  return (await resolvePrincipal(request, env)).authenticated;
+}
+
+/**
+ * Resolve the tenant for a read surface. `null` means the read must be refused
+ * (multi-tenant without a valid key, or keyless production).
+ */
+async function readTenant(request: Request, env: WorkerEnv): Promise<string | null> {
+  return (await resolvePrincipal(request, env)).tenantId;
 }
 
 // ---------------------------------------------------------------------------
@@ -516,33 +621,53 @@ async function handleStatusList(listId: string, env: WorkerEnv): Promise<Respons
 // Route handlers
 // ---------------------------------------------------------------------------
 
-async function handleGetRuns(env: WorkerEnv): Promise<Response> {
+async function handleGetRuns(tenantId: string, env: WorkerEnv): Promise<Response> {
   const result = await env.DB.prepare(
     `SELECT run_id, tenant_id, status, input_format, event_count, finding_count,
             risk_score, evidence_admission_score,
             risk_score AS ars_score, evidence_admission_score AS eas_score,
             created_at, completed_at
      FROM audit_runs
+     WHERE tenant_id = ?
      ORDER BY created_at DESC
      LIMIT 50`,
-  ).all();
+  )
+    .bind(tenantId)
+    .all();
   return corsJson({ runs: result.results }, env);
 }
 
-async function handleGetRun(runId: string, env: WorkerEnv): Promise<Response> {
-  const row = await env.DB.prepare('SELECT * FROM audit_runs WHERE run_id = ?').bind(runId).first();
+async function handleGetRun(tenantId: string, runId: string, env: WorkerEnv): Promise<Response> {
+  const row = await env.DB.prepare('SELECT * FROM audit_runs WHERE tenant_id = ? AND run_id = ?')
+    .bind(tenantId, runId)
+    .first();
   if (row === null) {
     return corsError('Run not found', 404, env);
   }
   return corsJson({ run: row }, env);
 }
 
-async function handleGetFindings(runId: string, env: WorkerEnv): Promise<Response> {
+async function handleGetFindings(
+  tenantId: string,
+  runId: string,
+  env: WorkerEnv,
+): Promise<Response> {
+  // Reject cross-tenant lookups with 404 rather than an empty 200 so a
+  // guessed run id cannot be probed for existence.
+  const owned = await env.DB.prepare(
+    'SELECT 1 AS ok FROM audit_runs WHERE tenant_id = ? AND run_id = ?',
+  )
+    .bind(tenantId, runId)
+    .first();
+  if (owned === null) {
+    return corsError('Run not found', 404, env);
+  }
+
   // Order by logical severity (critical first), not lexicographic TEXT order
   // — otherwise LIMIT can drop critical/high findings while returning
   // medium/low ones.
   const result = await env.DB.prepare(
-    `SELECT * FROM findings WHERE run_id = ?
+    `SELECT * FROM findings WHERE tenant_id = ? AND run_id = ?
      ORDER BY CASE severity
        WHEN 'critical' THEN 0
        WHEN 'high' THEN 1
@@ -552,12 +677,28 @@ async function handleGetFindings(runId: string, env: WorkerEnv): Promise<Respons
      END ASC
      LIMIT 100`,
   )
-    .bind(runId)
+    .bind(tenantId, runId)
     .all();
   return corsJson({ findings: result.results }, env);
 }
 
-async function handleGetReport(runId: string, format: string, env: WorkerEnv): Promise<Response> {
+async function handleGetReport(
+  tenantId: string,
+  runId: string,
+  format: string,
+  env: WorkerEnv,
+): Promise<Response> {
+  // Reports are stored under a bare run key in R2, so ownership is enforced
+  // against the tenant-scoped run row before the object is served.
+  const owned = await env.DB.prepare(
+    'SELECT 1 AS ok FROM audit_runs WHERE tenant_id = ? AND run_id = ?',
+  )
+    .bind(tenantId, runId)
+    .first();
+  if (owned === null) {
+    return corsError('Report not found', 404, env);
+  }
+
   const validFormats = new Set(['md', 'html', 'json', 'csv']);
   const fmt = validFormats.has(format) ? format : 'md';
 
@@ -616,7 +757,11 @@ interface RiskTrendPoint {
  * runs. Each bucket reports the average/min/max risk score and the run count,
  * for building risk-trend charts. Runs with a NULL risk_score are excluded.
  */
-async function handleGetRiskTrends(url: URL, env: WorkerEnv): Promise<Response> {
+async function handleGetRiskTrends(
+  url: URL,
+  env: WorkerEnv,
+  tenantId: string,
+): Promise<Response> {
   const days = clampDays(url.searchParams.get('days'));
   const bucket = bucketLabel(url.searchParams.get('bucket'));
   const bucketExpr = bucketExpression(bucket);
@@ -629,11 +774,11 @@ async function handleGetRiskTrends(url: URL, env: WorkerEnv): Promise<Response> 
             MAX(risk_score) AS max_risk_score,
             COUNT(*) AS run_count
      FROM audit_runs
-     WHERE created_at >= ? AND risk_score IS NOT NULL
+     WHERE tenant_id = ? AND created_at >= ? AND risk_score IS NOT NULL
      GROUP BY bucket_start
      ORDER BY bucket_start ASC`,
   )
-    .bind(since)
+    .bind(tenantId, since)
     .all<RiskTrendPoint>();
 
   const series = result.results.map((row) => ({
@@ -668,7 +813,11 @@ interface FindingTrendPoint {
  * reports the new findings raised in that period, the cumulative open count,
  * and a per-severity breakdown.
  */
-async function handleGetFindingTrends(url: URL, env: WorkerEnv): Promise<Response> {
+async function handleGetFindingTrends(
+  url: URL,
+  env: WorkerEnv,
+  tenantId: string,
+): Promise<Response> {
   const days = clampDays(url.searchParams.get('days'));
   const bucket = bucketLabel(url.searchParams.get('bucket'));
   const bucketExpr = bucketExpression(bucket);
@@ -679,11 +828,11 @@ async function handleGetFindingTrends(url: URL, env: WorkerEnv): Promise<Respons
             severity,
             COUNT(*) AS count
      FROM findings
-     WHERE created_at >= ?
+     WHERE tenant_id = ? AND created_at >= ?
      GROUP BY bucket_start, severity
      ORDER BY bucket_start ASC`,
   )
-    .bind(since)
+    .bind(tenantId, since)
     .all<FindingTrendRow>();
 
   const orderedBuckets: string[] = [];
@@ -843,7 +992,11 @@ interface OrgRiskRow {
  *   - `days` (default 30, max 365): lookback window
  *   - `min_runs` (default 1): exclude projects with fewer than this many runs
  */
-async function handleGetOrgRiskRollup(url: URL, env: WorkerEnv): Promise<Response> {
+async function handleGetOrgRiskRollup(
+  url: URL,
+  env: WorkerEnv,
+  tenantId: string,
+): Promise<Response> {
   const days = clampDays(url.searchParams.get('days'));
   const minRuns = Math.max(1, Number.parseInt(url.searchParams.get('min_runs') ?? '1', 10) || 1);
   const since = new Date(Date.now() - days * 86_400_000).toISOString();
@@ -860,12 +1013,12 @@ async function handleGetOrgRiskRollup(url: URL, env: WorkerEnv): Promise<Respons
        MAX(ar.completed_at) AS latest_run_at,
        COALESCE(SUM(ar.finding_count), 0) AS open_finding_count
      FROM audit_runs ar
-     WHERE ar.created_at >= ?
+     WHERE ar.tenant_id = ? AND ar.created_at >= ?
      GROUP BY ar.project_id
      HAVING COUNT(ar.run_id) >= ?
      ORDER BY avg_risk_score ASC NULLS LAST`,
   )
-    .bind(since, minRuns)
+    .bind(tenantId, since, minRuns)
     .all<OrgRiskRow>();
 
   const projects = (result.results ?? []).map((row) => ({
@@ -909,12 +1062,16 @@ function retentionDate(fromIso: string): string {
   return d.toISOString().slice(0, 10);
 }
 
-async function handlePostRun(request: Request, env: WorkerEnv): Promise<Response> {
+async function handlePostRun(
+  request: Request,
+  env: WorkerEnv,
+  tenant_id: string,
+): Promise<Response> {
   const maxMb = Number.parseInt(env.MAX_UPLOAD_MB, 10) || 100;
   const maxBytes = maxMb * 1024 * 1024;
 
-  // Rate-limit check via TenantLimiter Durable Object
-  const tenant_id = request.headers.get('x-tenant-id') ?? 'default';
+  // Rate-limit check via TenantLimiter Durable Object. The tenant comes from
+  // the authenticated principal, never from a request header.
   const doId = env.TENANT_LIMITER.idFromName(tenant_id);
   const limiterStub = env.TENANT_LIMITER.get(doId);
   const limiterResp = await limiterStub.fetch('https://do/check', {
@@ -1559,7 +1716,13 @@ async function handleFetch(request: Request, env: WorkerEnv): Promise<Response> 
 
   // GET /health
   if (method === 'GET' && pathname === '/health') {
-    const authMode = env.API_KEY ? 'api_key' : 'open';
+    let authMode: string;
+    if (env.API_KEY || isMultiTenantConfigured(env)) {
+      authMode = isMultiTenantConfigured(env) ? 'multi_tenant' : 'api_key';
+    } else {
+      // No auth material: open only outside production (fail closed in prod).
+      authMode = isProduction(env) ? 'fail_closed' : 'open';
+    }
     return new Response(
       JSON.stringify({ status: 'ok', version: '0.1.0', env: env.OAA_ENV, auth_mode: authMode }),
       { headers: { 'content-type': 'application/json' } },
@@ -1580,14 +1743,21 @@ async function handleFetch(request: Request, env: WorkerEnv): Promise<Response> 
   }
 
   // GET /api/v1/runs
+  // Tenant-scoped read. Public for the single deployment tenant (the SPA reads
+  // it unauthenticated); requires a key in multi-tenant mode.
   if (method === 'GET' && pathname === '/api/v1/runs') {
-    return handleGetRuns(env);
+    const tenantId = await readTenant(request, env);
+    if (tenantId === null) return corsError('Unauthorized', 401, env);
+    return handleGetRuns(tenantId, env);
   }
 
   // POST /api/v1/runs
   if (method === 'POST' && pathname === '/api/v1/runs') {
-    if (!(await checkAuth(request, env))) return corsError('Unauthorized', 401, env);
-    return handlePostRun(request, env);
+    const principal = await resolvePrincipal(request, env);
+    if (!principal.authenticated || principal.tenantId === null) {
+      return corsError('Unauthorized', 401, env);
+    }
+    return handlePostRun(request, env, principal.tenantId);
   }
 
   // GET /api/v1/runs/:runId
@@ -1595,7 +1765,9 @@ async function handleFetch(request: Request, env: WorkerEnv): Promise<Response> 
   if (runMatch !== null && method === 'GET') {
     const runId = runMatch[1];
     if (runId === undefined) return corsError('Bad route', 400, env);
-    return handleGetRun(runId, env);
+    const tenantId = await readTenant(request, env);
+    if (tenantId === null) return corsError('Unauthorized', 401, env);
+    return handleGetRun(tenantId, runId, env);
   }
 
   // GET /api/v1/runs/:runId/findings
@@ -1603,7 +1775,9 @@ async function handleFetch(request: Request, env: WorkerEnv): Promise<Response> 
   if (findingsMatch !== null && method === 'GET') {
     const runId = findingsMatch[1];
     if (runId === undefined) return corsError('Bad route', 400, env);
-    return handleGetFindings(runId, env);
+    const tenantId = await readTenant(request, env);
+    if (tenantId === null) return corsError('Unauthorized', 401, env);
+    return handleGetFindings(tenantId, runId, env);
   }
 
   // GET /api/v1/runs/:runId/report
@@ -1611,25 +1785,37 @@ async function handleFetch(request: Request, env: WorkerEnv): Promise<Response> 
   if (reportMatch !== null && method === 'GET') {
     const runId = reportMatch[1];
     if (runId === undefined) return corsError('Bad route', 400, env);
+    const tenantId = await readTenant(request, env);
+    if (tenantId === null) return corsError('Unauthorized', 401, env);
     const format = url.searchParams.get('format') ?? 'md';
-    return handleGetReport(runId, format, env);
+    return handleGetReport(tenantId, runId, format, env);
   }
 
   // --- Dashboard API (risk & open-finding trends over time) ---
 
   // GET /api/v1/dashboard/risk-trends
   if (method === 'GET' && pathname === '/api/v1/dashboard/risk-trends') {
-    return handleGetRiskTrends(url, env);
+    const tenantId = await readTenant(request, env);
+    if (tenantId === null) return corsError('Unauthorized', 401, env);
+    return handleGetRiskTrends(url, env, tenantId);
   }
 
   // GET /api/v1/dashboard/finding-trends
   if (method === 'GET' && pathname === '/api/v1/dashboard/finding-trends') {
-    return handleGetFindingTrends(url, env);
+    const tenantId = await readTenant(request, env);
+    if (tenantId === null) return corsError('Unauthorized', 401, env);
+    return handleGetFindingTrends(url, env, tenantId);
   }
 
   // GET /api/v1/dashboard/org-risk-rollup (Milestone 6 #206/#214)
+  // Cross-project rollup is a cross-tenant aggregate — always requires an
+  // authenticated principal and is scoped to that principal's tenant.
   if (method === 'GET' && pathname === '/api/v1/dashboard/org-risk-rollup') {
-    return handleGetOrgRiskRollup(url, env);
+    const principal = await resolvePrincipal(request, env);
+    if (!principal.authenticated || principal.tenantId === null) {
+      return corsError('Unauthorized', 401, env);
+    }
+    return handleGetOrgRiskRollup(url, env, principal.tenantId);
   }
 
   // --- Approvals API ---
