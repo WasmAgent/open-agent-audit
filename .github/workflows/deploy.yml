@@ -55,9 +55,13 @@ jobs:
           CF_D1_DATABASE_ID: ${{ secrets.CF_D1_DATABASE_ID }}
           CF_KV_PASSPORTS_ID: ${{ secrets.CF_KV_PASSPORTS_ID }}
           CF_KV_APPROVALS_ID: ${{ secrets.CF_KV_APPROVALS_ID }}
+          BUILD_SHA: ${{ github.sha }}
+          BUILD_REPOSITORY: ${{ github.repository }}
+          BUILD_WORKFLOW_RUN: ${{ github.run_id }}
         run: |
           python3 - <<'EOF'
-          import os, re
+          import os
+          from datetime import datetime, timezone
 
           src = open("examples/cloudflare/wrangler.example.jsonc").read()
           d1_id = os.environ["CF_D1_DATABASE_ID"]
@@ -66,8 +70,22 @@ jobs:
           out = src.replace("REPLACE_ME_D1_ID", d1_id)
           out = out.replace("REPLACE_ME_KV_PASSPORTS_ID", kv_id)
           out = out.replace("REPLACE_ME_KV_APPROVALS_ID", kv_approvals_id)
+          # R0 deployment identity — bind the deployed Worker to the exact
+          # source SHA / repository / workflow run that produced it.
+          out = out.replace("REPLACE_ME_BUILD_SHA", os.environ["BUILD_SHA"])
+          out = out.replace("REPLACE_ME_BUILD_REPOSITORY", os.environ["BUILD_REPOSITORY"])
+          out = out.replace("REPLACE_ME_BUILD_WORKFLOW_RUN", os.environ["BUILD_WORKFLOW_RUN"])
+          out = out.replace(
+              "REPLACE_ME_BUILD_TIMESTAMP",
+              datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+          )
+          out = out.replace("REPLACE_ME_BUILD_PROFILE", "production")
           open("wrangler.jsonc", "w").write(out)
           print("wrangler.jsonc written")
+          print(
+              "build identity: %s @ %s (run %s)"
+              % (os.environ["BUILD_SHA"], os.environ["BUILD_REPOSITORY"], os.environ["BUILD_WORKFLOW_RUN"])
+          )
           # Sanity check — abort if placeholder still present
           if "REPLACE_ME" in out:
               raise SystemExit("ERROR: unreplaced placeholder in wrangler.jsonc")
@@ -79,3 +97,47 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: deploy --config wrangler.jsonc
+
+      # R0 deployment identity: a successful `wrangler deploy` is necessary but
+      # insufficient. Probe the live production route and prove that the exact
+      # SHA this workflow deployed is the revision actually serving. Any failed
+      # assertion fails the deploy job. Override HEALTH_URL for non-standard
+      # routes.
+      - name: R0 — post-deploy live identity verification
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+          EXPECTED_REPOSITORY: ${{ github.repository }}
+          EXPECTED_WORKFLOW_RUN: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          health_url="${HEALTH_URL:-https://trustavo.com/health}"
+          deployment_target="${health_url#https://}"
+          deployment_target="${deployment_target%%/*}"
+          echo "R0: probing $health_url (expect sha $EXPECTED_SHA)"
+
+          # Capture the live /health body. A failed probe leaves no file and the
+          # verifier fails the job (R0-ID-03).
+          rc=0
+          curl --fail --silent --show-error \
+            --retry 8 --retry-delay 3 --retry-all-errors --max-time 15 \
+            "$health_url" -o health.json || rc=$?
+          echo "curl exit code: $rc"
+
+          # Evaluates identity verdicts, ALWAYS writes the attestation artifact
+          # (evidence on failure too), and exits non-zero on any failing
+          # verdict so the deploy job fails closed.
+          bun packages/worker/scripts/verify-deployment.ts \
+            --health-file health.json \
+            --expect-sha "$EXPECTED_SHA" \
+            --expect-repository "$EXPECTED_REPOSITORY" \
+            --expect-workflow-run "$EXPECTED_WORKFLOW_RUN" \
+            --deployment-target "$deployment_target" \
+            --out runtime-deployment-attestation.json
+
+      - name: R0 — upload runtime deployment attestation
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: runtime-deployment-attestation
+          path: runtime-deployment-attestation.json
+          if-no-files-found: warn
