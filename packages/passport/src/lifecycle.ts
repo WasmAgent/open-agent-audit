@@ -29,7 +29,15 @@ export function status(passport: TrustPassport): PassportStatus {
  * `await` this function.
  */
 export async function renew(options: RenewOptions): Promise<TrustPassport | SignedPassport> {
-  const { passport, report, agentbom, posture, validityDays = 90, signer } = options;
+  const {
+    passport,
+    report,
+    agentbom,
+    posture,
+    validityDays = 90,
+    signer,
+    maxEvidenceAgeDays,
+  } = options;
 
   // Revocation is a terminal issuer decision: renewing must never resurrect a
   // revoked passport (which would silently mint a valid identity from a
@@ -60,6 +68,30 @@ export async function renew(options: RenewOptions): Promise<TrustPassport | Sign
   }
   const expiresAt = new Date(now.getTime() + validityDays * 24 * 60 * 60 * 1000);
   const newPassportId = `tp-${randomUUID()}`;
+
+  // N4-P2-03: distinguish a re-audited renewal from an administrative
+  // extension. When no fresh report is supplied the new issuance inherits the
+  // original evidence time; the new `issued_at` must not be read as new
+  // evidence.
+  const renewalBasis = report !== undefined ? 'reaudit' : 'administrative_extension';
+  const evidenceAsOf =
+    report !== undefined
+      ? now.toISOString()
+      : (passport.audit_ref?.generated_at ?? passport.validity.issued_at);
+
+  if (renewalBasis === 'administrative_extension' && maxEvidenceAgeDays !== undefined) {
+    const evidenceMs = Date.parse(evidenceAsOf);
+    if (
+      !Number.isFinite(evidenceMs) ||
+      now.getTime() - evidenceMs > maxEvidenceAgeDays * 24 * 60 * 60 * 1000
+    ) {
+      throw new Error(
+        `passport renew: administrative extension refused — evidence_as_of ` +
+          `${evidenceAsOf} exceeds maxEvidenceAgeDays=${maxEvidenceAgeDays}; ` +
+          'supply a fresh report (N4-P2-03).',
+      );
+    }
+  }
 
   const renewed: TrustPassport = {
     ...passport,
@@ -92,6 +124,8 @@ export async function renew(options: RenewOptions): Promise<TrustPassport | Sign
         : {}),
       renewed_at: now.toISOString(),
       renewal_count: (passport.validity.renewal_count ?? 0) + 1,
+      renewal_basis: renewalBasis,
+      evidence_as_of: evidenceAsOf,
     },
     revocation: {
       revoked: false,

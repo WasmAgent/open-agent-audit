@@ -38,7 +38,10 @@ export class SqliteStatement {
 
   async run(): Promise<{ success: true; meta: Record<string, unknown> }> {
     this.db.run(this.sql, ...(this.params as never[]));
-    return { success: true, meta: {} };
+    // Mirror D1's `meta.changes` so atomic transitions (INSERT ... ON CONFLICT
+    // DO NOTHING) can detect whether a row was written.
+    const row = this.db.query('SELECT changes() AS changes').get() as { changes: number } | null;
+    return { success: true, meta: { changes: row?.changes ?? 0 } };
   }
 
   /** Exposed for tests that need the raw SQLite result of a RETURNING clause. */
