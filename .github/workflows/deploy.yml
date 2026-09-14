@@ -33,7 +33,7 @@ jobs:
           cache: "npm"
 
       - name: Install all dependencies
-        run: npm install
+        run: npm ci
 
       - name: Build packages (schema → core → passport → adapters)
         run: |
@@ -45,7 +45,7 @@ jobs:
       - name: Build dashboard
         run: |
           cd packages/dashboard
-          npm install
+          npm ci
           npm run build
 
       - name: Generate wrangler.jsonc
