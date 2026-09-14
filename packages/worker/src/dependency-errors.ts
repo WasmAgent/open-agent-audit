@@ -45,10 +45,19 @@ export interface DependencyUnavailableBody {
 const D1_MARKER = /\bD1_ERROR\b|\bD1\b|Cloudflare D1/i;
 
 /** Ordered availability signals; first match wins. */
+// Evidence-label priority (kind order matters): explicit quota/daily-limit
+// signals first, then rate limiting, timeouts, and generic unavailability.
+// quota_exhausted is deliberately narrow — a generic "limit exceeded" (which
+// also matches "rate limit exceeded") must label as rate_limited so runtime
+// artifacts and logs carry the true failure kind.
 const KIND_SIGNATURES: Array<{ kind: DependencyFailureKind; pattern: RegExp }> = [
   // Observed in production (R-G-01); free-tier daily read/write limits.
-  { kind: 'quota_exhausted', pattern: /exceeded [^.\n]*(row )?(read|write) limit|daily row (read|write) limit|quota (exceeded|exhausted)|limit (has been )?exceeded/i },
-  { kind: 'rate_limited', pattern: /rate limit|too many requests/i },
+  {
+    kind: 'quota_exhausted',
+    pattern:
+      /daily row (read|write) limit|free tier[^.\n]{0,40}limit|quota (exceeded|exhausted)|exceeded [^.\n]{0,40}quota/i,
+  },
+  { kind: 'rate_limited', pattern: /\brate[- ]limit(?:ed)?\b|too many requests/i },
   { kind: 'timeout', pattern: /\btimeout\b|timed out/i },
   { kind: 'unavailable', pattern: /service unavailable|temporarily unavailable|backend error|database is (unavailable|overloaded)/i },
 ];

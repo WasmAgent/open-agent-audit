@@ -50,7 +50,17 @@ describe('classifyD1Error — conservative signatures', () => {
   it('classifies unavailable / timeout / rate-limit signals on D1 errors', () => {
     expect(classifyD1Error(new Error('D1_ERROR: service unavailable'))?.kind).toBe('unavailable');
     expect(classifyD1Error(new Error('D1_ERROR: query timed out'))?.kind).toBe('timeout');
-    expect(classifyD1Error(new Error('D1_ERROR: rate limit exceeded'))?.kind).toBe('quota_exhausted');
+    // Evidence-label precision: "rate limit exceeded" is rate limiting, NOT
+    // quota exhaustion — the quota signature only matches explicit
+    // daily/free-tier/quota signals.
+    expect(classifyD1Error(new Error('D1_ERROR: rate limit exceeded'))?.kind).toBe('rate_limited');
+    expect(classifyD1Error(new Error('D1_ERROR: too many requests'))?.kind).toBe('rate_limited');
+    expect(
+      classifyD1Error(new Error("D1_ERROR: exceeded D1's free tier daily row write limit"))?.kind,
+    ).toBe('quota_exhausted');
+    expect(classifyD1Error(new Error('D1_ERROR: account quota exhausted'))?.kind).toBe(
+      'quota_exhausted',
+    );
   });
 
   it('never classifies without a D1 marker, or for SQL/schema defects', () => {
