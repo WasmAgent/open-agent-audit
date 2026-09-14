@@ -73,18 +73,6 @@ jobs:
               raise SystemExit("ERROR: unreplaced placeholder in wrangler.jsonc")
           EOF
 
-      # N4-P1-03: the Worker now treats D1 as the authoritative revocation
-      # registry. The 0006 migration is fully idempotent (CREATE ... IF NOT
-      # EXISTS), so it is applied before every deploy to guarantee the table
-      # exists for the code that is about to run. This runs before the deploy
-      # step so new code never lands against a missing table.
-      - name: Apply authoritative revocation schema (idempotent)
-        uses: cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: d1 execute oaa-meta --remote --file=packages/worker/migrations/0006_passport_revocations.sql --yes
-
       - name: Deploy to Cloudflare Workers
         uses: cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd
         with:

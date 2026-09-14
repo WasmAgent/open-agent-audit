@@ -1445,6 +1445,45 @@ type RevocationLookup =
   | { state: 'unavailable' };
 
 /**
+ * Bootstrap the authoritative revocation table. Migration 0006 owns the
+ * canonical DDL, but a deployed D1 database may not have migrations applied
+ * (CI holds no D1 API credential). The DDL is fully idempotent and is invoked
+ * through the Worker's own D1 binding only when a query reports the table
+ * missing, so it is not executed on the steady-state request path.
+ */
+async function ensureRevocationSchema(env: WorkerEnv): Promise<void> {
+  await env.DB.exec(
+    `CREATE TABLE IF NOT EXISTS passport_revocations (
+       passport_id  TEXT PRIMARY KEY,
+       record       TEXT NOT NULL,
+       sequence     INTEGER NOT NULL DEFAULT 1,
+       effective_at TEXT NOT NULL,
+       created_at   TEXT NOT NULL
+     );
+     CREATE INDEX IF NOT EXISTS idx_passport_revocations_effective_at
+       ON passport_revocations (effective_at);`,
+  );
+}
+
+function isMissingTableError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return /no such table/i.test(message);
+}
+
+async function queryAuthoritativeRevocation(
+  env: WorkerEnv,
+  passportId: string,
+): Promise<RevocationLookup> {
+  const row = await env.DB.prepare(
+    'SELECT record FROM passport_revocations WHERE passport_id = ?',
+  )
+    .bind(passportId)
+    .first<{ record: string }>();
+  if (row === null) return { state: 'absent' };
+  return { state: 'present', record: JSON.parse(row.record) as TrustPassportRevocation };
+}
+
+/**
  * Read the authoritative revocation registry (D1). A row is the serialized
  * ownership of revocation state; absence of a row is authoritative only when
  * this query itself succeeded.
@@ -1454,15 +1493,15 @@ async function readAuthoritativeRevocation(
   passportId: string,
 ): Promise<RevocationLookup> {
   try {
-    const row = await env.DB.prepare(
-      'SELECT record FROM passport_revocations WHERE passport_id = ?',
-    )
-      .bind(passportId)
-      .first<{ record: string }>();
-    if (row === null) return { state: 'absent' };
-    return { state: 'present', record: JSON.parse(row.record) as TrustPassportRevocation };
-  } catch {
-    return { state: 'unavailable' };
+    return await queryAuthoritativeRevocation(env, passportId);
+  } catch (err) {
+    if (!isMissingTableError(err)) return { state: 'unavailable' };
+    try {
+      await ensureRevocationSchema(env);
+      return await queryAuthoritativeRevocation(env, passportId);
+    } catch {
+      return { state: 'unavailable' };
+    }
   }
 }
 
@@ -1506,7 +1545,7 @@ async function resolveRevocation(
  * compare-and-set: exactly one concurrent caller can write the row
  * (N4-P1-03). Returns false when the transition already happened.
  */
-async function writeAuthoritativeRevocation(
+async function insertAuthoritativeRevocation(
   env: WorkerEnv,
   record: TrustPassportRevocation,
 ): Promise<boolean> {
@@ -1525,6 +1564,19 @@ async function writeAuthoritativeRevocation(
     .run();
   const changes = (result.meta as { changes?: number }).changes;
   return changes === undefined ? true : changes > 0;
+}
+
+async function writeAuthoritativeRevocation(
+  env: WorkerEnv,
+  record: TrustPassportRevocation,
+): Promise<boolean> {
+  try {
+    return await insertAuthoritativeRevocation(env, record);
+  } catch (err) {
+    if (!isMissingTableError(err)) throw err;
+    await ensureRevocationSchema(env);
+    return await insertAuthoritativeRevocation(env, record);
+  }
 }
 
 async function handlePassportRevoke(
