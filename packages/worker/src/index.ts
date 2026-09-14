@@ -33,7 +33,13 @@ import type {
   ResolvedRetentionPolicy,
   RetentionCandidate,
 } from '@openagentaudit/core';
-import { createRevocationRecord, issue, renew, verifyPassportLayers } from '@openagentaudit/passport';
+import {
+  createRevocationRecord,
+  issuanceDigest,
+  issue,
+  renew,
+  verifyPassportLayers,
+} from '@openagentaudit/passport';
 import type { TrustPassport, TrustPassportRevocation } from '@openagentaudit/passport';
 import { validateEvents } from '@openagentaudit/schema';
 import type { CanonicalEvent, Finding, RiskScore } from '@openagentaudit/schema';
@@ -1377,7 +1383,60 @@ async function handlePublicReportLink(
 // Passport route handlers
 // ---------------------------------------------------------------------------
 
-async function handlePassportIssue(request: Request, env: WorkerEnv): Promise<Response> {
+/**
+ * Canonical, server-owned audit evidence for an owned run.
+ *
+ * - `not_found`: unknown run, or a run owned by another tenant. The caller must
+ *   receive 404 without learning which (N5-P1-01 / N5-EV-01..02).
+ * - `unavailable`: the run is owned but its canonical report is missing or
+ *   unreadable. Issuance must fail closed rather than mint from partial bytes.
+ */
+type CanonicalEvidence =
+  | { state: 'ok'; report: Record<string, unknown> }
+  | { state: 'not_found' }
+  | { state: 'unavailable' };
+
+/**
+ * Load the canonical, server-owned audit evidence for a run owned by
+ * `tenantId`.
+ *
+ * The persisted `report.json` bundle is the canonical report: it is written by
+ * the audit pipeline from server-owned engine output and is the same bytes a
+ * verifier can retrieve. Production issuance hashes exactly these bytes rather
+ * than anything the caller supplies.
+ */
+async function loadCanonicalRunReport(
+  env: WorkerEnv,
+  tenantId: string,
+  runId: string,
+): Promise<CanonicalEvidence> {
+  const owned = await env.DB.prepare(
+    'SELECT run_id FROM audit_runs WHERE tenant_id = ? AND run_id = ?',
+  )
+    .bind(tenantId, runId)
+    .first<{ run_id: string }>();
+  if (owned === null) return { state: 'not_found' };
+
+  const object = await env.REPORTS.get(`runs/${runId}/report.json`);
+  if (object === null) return { state: 'unavailable' };
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(await object.text()) as unknown;
+  } catch {
+    return { state: 'unavailable' };
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return { state: 'unavailable' };
+  }
+  return { state: 'ok', report: parsed as Record<string, unknown> };
+}
+
+async function handlePassportIssue(
+  request: Request,
+  env: WorkerEnv,
+  tenantId: string,
+): Promise<Response> {
   let body: Record<string, unknown>;
   try {
     body = (await request.json()) as Record<string, unknown>;
@@ -1385,8 +1444,9 @@ async function handlePassportIssue(request: Request, env: WorkerEnv): Promise<Re
     return corsError('Invalid JSON body', 400, env);
   }
 
-  const { report, agentId, agentName, agentbom, posture, validityDays } = body as {
+  const { report, runId, agentId, agentName, agentbom, posture, validityDays } = body as {
     report?: unknown;
+    runId?: string;
     agentId?: string;
     agentName?: string;
     agentbom?: unknown;
@@ -1394,22 +1454,74 @@ async function handlePassportIssue(request: Request, env: WorkerEnv): Promise<Re
     validityDays?: number;
   };
 
-  if (!report || !agentId) {
-    return corsError('Missing required fields: report, agentId', 400, env);
+  if (!agentId) {
+    return corsError('Missing required fields: agentId', 400, env);
+  }
+
+  // Issuance evidence is server-owned whenever the deployment is a real
+  // (production or multi-tenant) deployment: the caller supplies only a run id
+  // and the Worker loads the canonical persisted report itself (N5-P1-01).
+  const serverAuditedOnly = isProduction(env) || isMultiTenantConfigured(env);
+
+  let issuanceReport: unknown;
+  let issuanceContext: 'self-issued' | 'trustavo';
+
+  if (runId !== undefined) {
+    if (typeof runId !== 'string' || runId.length === 0) {
+      return corsError('Invalid field: runId', 400, env);
+    }
+    const canonical = await loadCanonicalRunReport(env, tenantId, runId);
+    if (canonical.state === 'not_found') {
+      // Unknown or foreign run: 404 avoids cross-tenant enumeration.
+      return corsError('Audit run not found', 404, env);
+    }
+    if (canonical.state === 'unavailable') {
+      return corsError('Canonical audit report unavailable for this run', 409, env);
+    }
+    issuanceReport = canonical.report;
+    issuanceContext = 'trustavo';
+  } else if (report !== undefined) {
+    if (serverAuditedOnly) {
+      return corsError(
+        'Production issuance requires runId backed by a stored audit run; caller-supplied reports are dev/self-asserted only',
+        400,
+        env,
+      );
+    }
+    // Dev/demo only: explicitly self-asserted evidence, not server-audited.
+    issuanceReport = report;
+    issuanceContext = 'self-issued';
+  } else {
+    return corsError('Missing required fields: runId (or report in dev/demo)', 400, env);
   }
 
   const passport = await issue({
-    report,
+    report: issuanceReport,
     agentId,
     ...(agentName !== undefined && { agentName }),
     ...(agentbom !== undefined && { agentbom }),
     ...(posture !== undefined && { posture }),
     ...(validityDays !== undefined && { validityDays }),
     issuer: 'trustavo.com',
-    issuanceContext: 'trustavo',
+    issuanceContext,
   });
 
   await env.PASSPORTS.put(passport.identity.passport_id, JSON.stringify(passport));
+
+  // Persist the authoritative owner mapping. If it cannot be written the
+  // issuance must not be reported as successful (N5-P0-01), so the document is
+  // rolled back and the caller sees a hard failure.
+  try {
+    await writePassportOwnership(env, {
+      passportId: passport.identity.passport_id,
+      tenantId,
+      issuanceDigest: passport.attestation.passport_hash ?? issuanceDigest(passport),
+      reportId: passport.audit_ref?.report_id ?? null,
+    });
+  } catch {
+    await env.PASSPORTS.delete(passport.identity.passport_id).catch(() => undefined);
+    return corsError('Passport ownership registry unavailable', 503, env);
+  }
 
   return corsJson(passport, env, 201);
 }
@@ -1579,10 +1691,191 @@ async function writeAuthoritativeRevocation(
   }
 }
 
+/**
+ * Outcome of consulting the authoritative Passport ownership registry (D1).
+ * Mirrors {@link RevocationLookup}: `unavailable` must never be read as
+ * "unowned".
+ */
+type OwnershipLookup =
+  | { state: 'present'; tenantId: string }
+  | { state: 'absent' }
+  | { state: 'unavailable' };
+
+/**
+ * Bootstrap the authoritative Passport ownership table. Migration 0007 owns the
+ * canonical DDL, but a deployed D1 database may not have migrations applied
+ * (CI holds no D1 API credential). The DDL is fully idempotent and only runs
+ * when a query reports the table missing.
+ */
+async function ensurePassportOwnershipSchema(env: WorkerEnv): Promise<void> {
+  await env.DB.exec(
+    `CREATE TABLE IF NOT EXISTS passport_issuances (
+       passport_id      TEXT PRIMARY KEY,
+       tenant_id        TEXT NOT NULL,
+       issuance_digest  TEXT NOT NULL,
+       report_id        TEXT,
+       created_at       TEXT NOT NULL
+     );
+     CREATE INDEX IF NOT EXISTS idx_passport_issuances_tenant
+       ON passport_issuances (tenant_id);`,
+  );
+}
+
+async function queryPassportOwner(
+  env: WorkerEnv,
+  passportId: string,
+): Promise<OwnershipLookup> {
+  const row = await env.DB.prepare(
+    'SELECT tenant_id FROM passport_issuances WHERE passport_id = ?',
+  )
+    .bind(passportId)
+    .first<{ tenant_id: string }>();
+  if (row === null) return { state: 'absent' };
+  return { state: 'present', tenantId: row.tenant_id };
+}
+
+/**
+ * Read the authoritative ownership registry (D1). Absence of a row is
+ * authoritative only when this query itself succeeded; a failed lookup is
+ * `unavailable` so callers fail closed rather than treating a Passport as
+ * unowned (N5-P0-01 / N5-PT-07).
+ */
+async function readPassportOwner(
+  env: WorkerEnv,
+  passportId: string,
+): Promise<OwnershipLookup> {
+  try {
+    return await queryPassportOwner(env, passportId);
+  } catch (err) {
+    if (!isMissingTableError(err)) return { state: 'unavailable' };
+    try {
+      await ensurePassportOwnershipSchema(env);
+      return await queryPassportOwner(env, passportId);
+    } catch {
+      return { state: 'unavailable' };
+    }
+  }
+}
+
+interface PassportOwnershipInput {
+  passportId: string;
+  tenantId: string;
+  issuanceDigest: string;
+  reportId: string | null;
+}
+
+/**
+ * Persist the authoritative owner row. A plain INSERT is deliberate: a
+ * conflicting passport_id (which should be impossible for a fresh UUID) must
+ * surface as an error instead of silently overwriting another tenant's owner.
+ */
+async function insertPassportOwnership(
+  env: WorkerEnv,
+  ownership: PassportOwnershipInput,
+): Promise<void> {
+  await env.DB.prepare(
+    `INSERT INTO passport_issuances (passport_id, tenant_id, issuance_digest, report_id, created_at)
+     VALUES (?, ?, ?, ?, ?)`,
+  )
+    .bind(
+      ownership.passportId,
+      ownership.tenantId,
+      ownership.issuanceDigest,
+      ownership.reportId,
+      new Date().toISOString(),
+    )
+    .run();
+}
+
+async function writePassportOwnership(
+  env: WorkerEnv,
+  ownership: PassportOwnershipInput,
+): Promise<void> {
+  try {
+    await insertPassportOwnership(env, ownership);
+  } catch (err) {
+    if (!isMissingTableError(err)) throw err;
+    await ensurePassportOwnershipSchema(env);
+    await insertPassportOwnership(env, ownership);
+  }
+}
+
+/**
+ * Authorization outcome for a Passport write route.
+ *
+ * - `owned`: the caller's tenant authoritatively owns the Passport.
+ * - `unowned`: no owner row exists. Single-tenant deployments may claim it for
+ *   the deployment tenant (explicit legacy migration); multi-tenant
+ *   deployments refuse (`foreign`).
+ * - `foreign`: owned by another tenant, or unowned in multi-tenant mode. The
+ *   caller must receive 404 so a guessed Passport id cannot be enumerated.
+ * - `unavailable`: the registry could not be consulted → fail closed.
+ */
+type PassportOwnerCheck =
+  | { state: 'owned' }
+  | { state: 'unowned' }
+  | { state: 'foreign' }
+  | { state: 'unavailable' };
+
+async function checkPassportOwner(
+  env: WorkerEnv,
+  passportId: string,
+  tenantId: string,
+): Promise<PassportOwnerCheck> {
+  const lookup = await readPassportOwner(env, passportId);
+  if (lookup.state === 'unavailable') return { state: 'unavailable' };
+  if (lookup.state === 'present') {
+    return lookup.tenantId === tenantId ? { state: 'owned' } : { state: 'foreign' };
+  }
+  // No authoritative owner row. Never guess an owner in multi-tenant mode:
+  // unowned legacy Passports fail closed until an explicit ownership migration.
+  return isMultiTenantConfigured(env) ? { state: 'foreign' } : { state: 'unowned' };
+}
+
+/** Resolve the D1 ownership guard for a write route, or a ready 503/404. */
+async function guardPassportWrite(
+  env: WorkerEnv,
+  passportId: string,
+  tenantId: string,
+): Promise<{ ok: true; needsBackfill: boolean } | { ok: false; response: Response }> {
+  const owner = await checkPassportOwner(env, passportId, tenantId);
+  if (owner.state === 'unavailable') {
+    return {
+      ok: false,
+      response: corsError('Passport ownership registry unavailable', 503, env),
+    };
+  }
+  if (owner.state === 'foreign') {
+    return { ok: false, response: corsError('Passport not found', 404, env) };
+  }
+  return { ok: true, needsBackfill: owner.state === 'unowned' };
+}
+
+/** Claim an unowned (legacy) Passport for the authenticated tenant. */
+async function backfillPassportOwnership(
+  env: WorkerEnv,
+  passportId: string,
+  tenantId: string,
+  passport: TrustPassport,
+): Promise<boolean> {
+  try {
+    await writePassportOwnership(env, {
+      passportId,
+      tenantId,
+      issuanceDigest: passport.attestation?.passport_hash ?? issuanceDigest(passport),
+      reportId: passport.audit_ref?.report_id ?? null,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function handlePassportRevoke(
   passportId: string,
   request: Request,
   env: WorkerEnv,
+  tenantId: string,
 ): Promise<Response> {
   let body: Record<string, unknown>;
   try {
@@ -1596,11 +1889,23 @@ async function handlePassportRevoke(
     return corsError('Missing required field: reason', 400, env);
   }
 
+  // Ownership is authoritative in D1 and is checked before any state change:
+  // a valid bearer key alone does not prove the caller owns this Passport.
+  const guard = await guardPassportWrite(env, passportId, tenantId);
+  if (!guard.ok) return guard.response;
+
   const raw = await env.PASSPORTS.get(passportId);
   if (raw === null) {
     return corsError('Passport not found', 404, env);
   }
   const passport = JSON.parse(raw) as TrustPassport;
+
+  if (
+    guard.needsBackfill &&
+    !(await backfillPassportOwnership(env, passportId, tenantId, passport))
+  ) {
+    return corsError('Passport ownership registry unavailable', 503, env);
+  }
 
   // Legacy embedded revocation is terminal and cannot be transitioned again.
   if (passport.revocation?.revoked === true) {
@@ -1684,6 +1989,7 @@ async function handlePassportRenew(
   passportId: string,
   request: Request,
   env: WorkerEnv,
+  tenantId: string,
 ): Promise<Response> {
   let body: Record<string, unknown>;
   try {
@@ -1692,12 +1998,23 @@ async function handlePassportRenew(
     body = {};
   }
 
+  // Renewal is a privileged write: prove ownership before minting anything.
+  const guard = await guardPassportWrite(env, passportId, tenantId);
+  if (!guard.ok) return guard.response;
+
   const raw = await env.PASSPORTS.get(passportId);
   if (raw === null) {
     return corsError('Passport not found', 404, env);
   }
 
   const passport = JSON.parse(raw) as TrustPassport;
+
+  if (
+    guard.needsBackfill &&
+    !(await backfillPassportOwnership(env, passportId, tenantId, passport))
+  ) {
+    return corsError('Passport ownership registry unavailable', 503, env);
+  }
 
   // Revocation is terminal, whether recorded externally (current format) or
   // embedded in a legacy passport. An unavailable registry fails closed.
@@ -1730,6 +2047,20 @@ async function handlePassportRenew(
   }
 
   await env.PASSPORTS.put(renewed.identity.passport_id, JSON.stringify(renewed));
+
+  // Invariant: a renewal never changes the owner tenant. Persist the owner row
+  // for the new issuance; failure fails the renewal closed (N5-P0-01).
+  try {
+    await writePassportOwnership(env, {
+      passportId: renewed.identity.passport_id,
+      tenantId,
+      issuanceDigest: renewed.attestation?.passport_hash ?? issuanceDigest(renewed),
+      reportId: renewed.audit_ref?.report_id ?? null,
+    });
+  } catch {
+    await env.PASSPORTS.delete(renewed.identity.passport_id).catch(() => undefined);
+    return corsError('Passport ownership registry unavailable', 503, env);
+  }
 
   return corsJson(renewed, env);
 }
@@ -2250,11 +2581,15 @@ async function handleFetch(request: Request, env: WorkerEnv): Promise<Response> 
   }
 
   // POST /passport/issue
-  // Issuance mints a signed, publicly readable trust artifact — it must not
-  // be callable unauthenticated while renew/revoke are protected.
+  // Issuance mints a publicly readable trust artifact. It requires a full
+  // authenticated principal (not just a boolean) so the issuance can be bound
+  // to the caller's tenant (N5-P0-01).
   if (method === 'POST' && pathname === '/passport/issue') {
-    if (!(await checkAuth(request, env))) return corsError('Unauthorized', 401, env);
-    return handlePassportIssue(request, env);
+    const principal = await resolvePrincipal(request, env);
+    if (!principal.authenticated || principal.tenantId === null) {
+      return corsError('Unauthorized', 401, env);
+    }
+    return handlePassportIssue(request, env, principal.tenantId);
   }
 
   // GET /passport/:id
@@ -2268,10 +2603,13 @@ async function handleFetch(request: Request, env: WorkerEnv): Promise<Response> 
   // POST /passport/:id/revoke
   const passportRevokeMatch = matchRoute(pathname, /^\/passport\/([^/]+)\/revoke$/);
   if (passportRevokeMatch !== null && method === 'POST') {
-    if (!(await checkAuth(request, env))) return corsError('Unauthorized', 401, env);
+    const principal = await resolvePrincipal(request, env);
+    if (!principal.authenticated || principal.tenantId === null) {
+      return corsError('Unauthorized', 401, env);
+    }
     const passportId = passportRevokeMatch[1];
     if (passportId === undefined) return corsError('Bad route', 400, env);
-    return handlePassportRevoke(passportId, request, env);
+    return handlePassportRevoke(passportId, request, env, principal.tenantId);
   }
 
   // GET /passport/:id/status
@@ -2285,10 +2623,13 @@ async function handleFetch(request: Request, env: WorkerEnv): Promise<Response> 
   // POST /passport/:id/renew
   const passportRenewMatch = matchRoute(pathname, /^\/passport\/([^/]+)\/renew$/);
   if (passportRenewMatch !== null && method === 'POST') {
-    if (!(await checkAuth(request, env))) return corsError('Unauthorized', 401, env);
+    const principal = await resolvePrincipal(request, env);
+    if (!principal.authenticated || principal.tenantId === null) {
+      return corsError('Unauthorized', 401, env);
+    }
     const passportId = passportRenewMatch[1];
     if (passportId === undefined) return corsError('Bad route', 400, env);
-    return handlePassportRenew(passportId, request, env);
+    return handlePassportRenew(passportId, request, env, principal.tenantId);
   }
 
   // Fall through: serve SPA for all other GET requests (client-side routing)

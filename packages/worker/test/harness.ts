@@ -129,10 +129,16 @@ export class MemoryR2 {
     this.store.set(key, typeof value === 'string' ? new TextEncoder().encode(value) : value);
   }
 
-  async get(key: string): Promise<{ body: Uint8Array } | null> {
+  async get(
+    key: string,
+  ): Promise<{ body: Uint8Array; text(): Promise<string>; json<T>(): Promise<T> } | null> {
     const bytes = this.store.get(key);
     if (bytes === undefined) return null;
-    return { body: bytes };
+    return {
+      body: bytes,
+      text: async () => new TextDecoder().decode(bytes),
+      json: async <T>() => JSON.parse(new TextDecoder().decode(bytes)) as T,
+    };
   }
 
   async delete(key: string): Promise<void> {
