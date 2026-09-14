@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto';
 import type { TrustPassport } from './types.js';
+import { issuanceDigest } from './sign.js';
 
 export interface ValidationError {
   field: string;
@@ -256,28 +256,20 @@ export function validateTrustPassport(data: unknown): ValidationResult {
     }
   }
 
-  // passport_hash should match computed hash (if attestation is present and uses hash)
-  if (isObject(data['attestation']) && isObject(data['identity']) && isObject(data['validity'])) {
+  // passport_hash binds the issuance: it must equal the canonical issuance
+  // digest (passport minus attestation), the same payload that is signed and
+  // that revocation records bind to (N3-P1-06).
+  if (isObject(data['attestation'])) {
     const attestation = data['attestation'] as Record<string, unknown>;
     const passportHash = attestation['passport_hash'];
     if (typeof passportHash === 'string' && passportHash.length > 0) {
-      const identity = data['identity'] as Record<string, unknown>;
-      const validity = data['validity'] as Record<string, unknown>;
-      const computedHash = createHash('sha256')
-        .update(
-          JSON.stringify({
-            passport_version: '0.1',
-            identity: { passport_id: identity['passport_id'], agent_id: identity['agent_id'] },
-            validity: { issued_at: validity['issued_at'], expires_at: validity['expires_at'] },
-          }),
-        )
-        .digest('hex');
+      const computedHash = issuanceDigest(data as unknown as TrustPassport);
       if (passportHash !== computedHash) {
         addError(
           structuredErrors,
           'attestation.passport_hash',
           'hash_mismatch',
-          'attestation.passport_hash does not match computed hash from identity + validity fields',
+          'attestation.passport_hash does not match the canonical issuance digest',
           passportHash,
         );
       }

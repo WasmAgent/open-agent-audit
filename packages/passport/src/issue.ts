@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { signPassport } from './sign.js';
+import { issuanceDigest, signPassport } from './sign.js';
 import type { SignedPassport } from './sign.js';
 import type { FrameworkMapping, IssueOptions, TrustPassport } from './types.js';
 import { KNOWN_FRAMEWORK_PROFILES } from './types.js';
@@ -193,13 +193,6 @@ export async function issue(options: IssueOptions): Promise<TrustPassport | Sign
     attestation: {
       issuer,
       signing_method: 'none',
-      passport_hash: sha256(
-        JSON.stringify({
-          passport_version: '0.1',
-          identity: { passport_id: passportId, agent_id: agentId },
-          validity: { issued_at: now.toISOString(), expires_at: expiresAt.toISOString() },
-        }),
-      ),
     },
   };
 
@@ -222,6 +215,11 @@ export async function issue(options: IssueOptions): Promise<TrustPassport | Sign
       captured_at: now.toISOString(),
     };
   }
+
+  // The attestation hash binds the issuance: it is the sha256 of the canonical
+  // issuance payload (passport minus attestation), recomputable by any verifier
+  // and used to bind external revocation records (N3-P1-06).
+  passport.attestation.passport_hash = issuanceDigest(passport);
 
   if (signer) {
     return signPassport(passport, signer);
