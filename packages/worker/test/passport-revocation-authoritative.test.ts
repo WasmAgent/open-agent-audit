@@ -100,6 +100,18 @@ describe('N4-RV — authoritative passport revocation (N4-P1-03)', () => {
     expect(body.status).toBe('unknown');
   });
 
+  it('self-bootstraps the authoritative table when it is missing', async () => {
+    const env = passportEnv();
+    const id = await issuePassport(env);
+
+    // Simulate a deployed D1 database without migration 0006 applied.
+    dbOf(env).db.run('DROP TABLE IF EXISTS passport_revocations');
+
+    const res = await call(env, 'POST', `/passport/${id}/revoke`, { reason: 'bootstrap' });
+    expect(res.status).toBe(200);
+    expect((await statusOf(env, id)).verification.revocation_status).toBe('revoked');
+  });
+
   it('legacy KV revocation is still honoured and backfilled into D1', async () => {
     const env = passportEnv();
     const id = await issuePassport(env);
