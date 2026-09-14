@@ -1,12 +1,13 @@
--- OpenAgentAudit — Initial D1 schema (v0.1)
+-- packages/worker/migrations/0004_schema_baseline_repair.sql
 --
--- Apply with: wrangler d1 execute oaa-meta --file=examples/cloudflare/d1-schema.sql
+-- Baseline repair for deployments where 0001_init.sql was applied as a
+-- comment-only stub and the base tables were created out-of-band from
+-- examples/cloudflare/d1-schema.sql (N2-P1-08). Every statement is guarded so
+-- this migration is a no-op on an already-correct schema and safe to re-run.
 --
--- This file is a reference mirror of the canonical migration
--- packages/worker/migrations/0001_init.sql. The schema-drift test
--- (packages/worker/test/migrations.test.ts) fails if the two diverge.
---
--- This file contains DDL only. No data is committed to the public repo.
+-- This does not rewrite any already-applied migration. It also adds the
+-- per-tenant project-slug uniqueness constraint that the surrogate-key fix
+-- (N2-P0-01) relies on.
 
 CREATE TABLE IF NOT EXISTS tenants (
   tenant_id  TEXT PRIMARY KEY,
@@ -20,12 +21,13 @@ CREATE TABLE IF NOT EXISTS projects (
   tenant_id  TEXT NOT NULL,
   name       TEXT NOT NULL,
   created_at TEXT NOT NULL,
-  -- A project slug is unique per tenant. The globally-unique project_id is a
-  -- tenant-namespaced surrogate so two tenants can each own a project named
-  -- "default" (N2-P0-01).
   UNIQUE (tenant_id, name),
   FOREIGN KEY (tenant_id) REFERENCES tenants(tenant_id)
 );
+
+-- For databases whose `projects` table predates the inline UNIQUE constraint,
+-- add the equivalent unique index. Idempotent and additive.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_tenant_name ON projects(tenant_id, name);
 
 CREATE TABLE IF NOT EXISTS audit_runs (
   run_id                   TEXT PRIMARY KEY,
@@ -53,17 +55,28 @@ CREATE TABLE IF NOT EXISTS audit_runs (
 CREATE INDEX IF NOT EXISTS idx_audit_runs_tenant ON audit_runs(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_audit_runs_status ON audit_runs(status);
 
+-- Includes the columns added by 0003_findings_extended.sql so a database that
+-- is missing the table entirely can still be rebuilt.
 CREATE TABLE IF NOT EXISTS findings (
-  finding_id        TEXT PRIMARY KEY,
-  run_id            TEXT NOT NULL,
-  tenant_id         TEXT NOT NULL,
-  severity          TEXT NOT NULL,
-  category          TEXT NOT NULL,
-  title             TEXT NOT NULL,
-  evidence_ids      TEXT NOT NULL,
-  standard_mappings TEXT,
-  recommendation    TEXT,
-  created_at        TEXT NOT NULL,
+  finding_id                TEXT PRIMARY KEY,
+  run_id                    TEXT NOT NULL,
+  tenant_id                 TEXT NOT NULL,
+  severity                  TEXT NOT NULL,
+  category                  TEXT NOT NULL,
+  title                     TEXT NOT NULL,
+  evidence_ids              TEXT NOT NULL,
+  standard_mappings         TEXT,
+  recommendation            TEXT,
+  created_at                TEXT NOT NULL,
+  description               TEXT,
+  event_id                  TEXT,
+  confidence                TEXT,
+  false_positive_likelihood REAL,
+  first_seen                TEXT,
+  last_seen                 TEXT,
+  occurrence_count          INTEGER,
+  suppressed                INTEGER,
+  suppression_reason        TEXT,
   FOREIGN KEY (run_id) REFERENCES audit_runs(run_id)
 );
 
