@@ -154,7 +154,7 @@ describe('passport/status', () => {
 describe('passport/renew', () => {
   test('produces a new passport with new ID', async () => {
     const original = await issue({ report: MOCK_REPORT, agentId: 'a' });
-    const renewed = renew({ passport: original, report: MOCK_REPORT });
+    const renewed = await renew({ passport: original, report: MOCK_REPORT });
     expect(renewed.identity.passport_id).not.toBe(original.identity.passport_id);
     expect(renewed.identity.agent_id).toBe('a');
     expect(renewed.revocation.revoked).toBe(false);
@@ -164,7 +164,7 @@ describe('passport/renew', () => {
     const original = await issue({ report: MOCK_REPORT, agentId: 'a' });
     const revoked = revoke({ passport: original, reason: 'test' });
     // Revocation is terminal — renewing must not resurrect a revoked passport.
-    expect(() => renew({ passport: revoked, report: MOCK_REPORT })).toThrow(/revoked/);
+    await expect(renew({ passport: revoked, report: MOCK_REPORT })).rejects.toThrow(/revoked/);
   });
 });
 
@@ -554,7 +554,7 @@ describe('passport/renew — evidence_facts (#77)', () => {
     expect(original.evidence_facts).toBeDefined();
     expect(original.evidence_facts!['fact-key']).toBeDefined();
 
-    const renewed = renew({ passport: original, report: MOCK_REPORT });
+    const renewed = await renew({ passport: original, report: MOCK_REPORT });
     expect(renewed.evidence_facts).toBeDefined();
     expect(renewed.evidence_facts!['fact-key']).toBeDefined();
     expect(renewed.evidence_facts!['fact-key']!.content_hash).toBe(
@@ -565,16 +565,16 @@ describe('passport/renew — evidence_facts (#77)', () => {
   test('renew without evidence_facts does not add them', async () => {
     const original = await issue({ report: MOCK_REPORT, agentId: 'a' });
     // Do not add any facts
-    const renewed = renew({ passport: original, report: MOCK_REPORT });
+    const renewed = await renew({ passport: original, report: MOCK_REPORT });
     expect(renewed.evidence_facts).toBeUndefined();
   });
 
   test('renewed passport has renewal_count incremented', async () => {
     const original = await issue({ report: MOCK_REPORT, agentId: 'a' });
-    const renewed = renew({ passport: original, report: MOCK_REPORT });
+    const renewed = await renew({ passport: original, report: MOCK_REPORT });
     expect(renewed.validity.renewal_count).toBe(1);
 
-    const renewedAgain = renew({ passport: renewed, report: MOCK_REPORT });
+    const renewedAgain = await renew({ passport: renewed, report: MOCK_REPORT });
     expect(renewedAgain.validity.renewal_count).toBe(2);
   });
 });
