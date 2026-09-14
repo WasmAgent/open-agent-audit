@@ -38,9 +38,18 @@ function nonEmpty(value: unknown): value is string {
  * - R4-SCHEMA-01  source SHA present (40-hex)
  * - R4-SCHEMA-02  observed live SHA equals the source SHA
  * - R4-SCHEMA-03  R0 artifact digest present
- * - R4-SCHEMA-04  a `pass` verdict requires a passing R1 production smoke
+ * - R4-SCHEMA-04  a `pass` verdict requires passing R0 AND R1 runtime gates
  * - R4-SCHEMA-05  Cloudflare deployment/version id is a well-formed UUID
  * - R4-SCHEMA-06  (baseline) a fully valid, complete artifact passes
+ *
+ * TWO DISTINCT CONCEPTS — never conflate them:
+ * - `artifact_valid`: schema/structure + internal consistency (what
+ *   {@link validateRuntimeProvenance}.ok reports).
+ * - `provenance_verdict`: whether the artifact GRANTS release provenance —
+ *   `artifact.verdict === 'pass'` with `r0_verdict === 'pass'` and
+ *   `r1_verdict === 'pass'`. A `fail` artifact can be perfectly valid
+ *   (honest failure reporting) while granting nothing. Any future R4 gate
+ *   must check the provenance verdict, not merely artifact validity.
  */
 export function validateRuntimeProvenance(artifact: unknown): ProvenanceValidation {
   const checks: ProvenanceCheck[] = [];
@@ -106,12 +115,13 @@ export function validateRuntimeProvenance(artifact: unknown): ProvenanceValidati
   });
 
   const r1Verdict = runtime.r1_verdict;
+  const r0Verdict = runtime.r0_verdict;
   const overall = artifact.verdict;
-  const r1Gate = overall !== 'pass' || r1Verdict === 'pass';
+  const gatePass = overall !== 'pass' || (r0Verdict === 'pass' && r1Verdict === 'pass');
   checks.push({
     id: 'R4-SCHEMA-04',
-    pass: r1Gate,
-    detail: `verdict=${String(overall)} with r1_verdict=${String(r1Verdict)} — provenance cannot be pass without a passing R1 smoke`,
+    pass: gatePass,
+    detail: `verdict=${String(overall)} with r0_verdict=${String(r0Verdict)}/r1_verdict=${String(r1Verdict)} — provenance cannot be pass without passing R0 AND R1 gates`,
   });
 
   const versionId = deployment.version_id;
@@ -144,6 +154,22 @@ export function validateRuntimeProvenance(artifact: unknown): ProvenanceValidati
   });
 
   return { checks, ok: checks.every((check) => check.pass) };
+}
+
+/** The verdict that matters for an R4 gate — independent of artifact validity. */
+export type ProvenanceVerdict = 'pass' | 'fail';
+
+/**
+ * Whether this artifact GRANTS release provenance: `pass` only when the
+ * artifact itself claims pass AND both runtime gates report pass. An honestly
+ * failing artifact is still valid (see {@link validateRuntimeProvenance}) but
+ * grants nothing — gates must check THIS, not artifact validity alone.
+ */
+export function provenanceVerdict(artifact: unknown): ProvenanceVerdict {
+  if (!isRecord(artifact) || !isRecord(artifact.runtime)) return 'fail';
+  return artifact.verdict === 'pass' && artifact.runtime.r0_verdict === 'pass' && artifact.runtime.r1_verdict === 'pass'
+    ? 'pass'
+    : 'fail';
 }
 
 /** Valid full example, for tests/tools. */

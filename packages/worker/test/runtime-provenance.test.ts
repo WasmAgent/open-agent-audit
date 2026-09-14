@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import {
   completeProvenanceExample,
+  provenanceVerdict,
   validateRuntimeProvenance,
   type ProvenanceCheck,
   type ProvenanceValidation,
@@ -66,15 +67,36 @@ describe('R4 — runtime release provenance validator', () => {
     }
   });
 
-  it('R4-SCHEMA-04b a fail verdict with a failing R1 is internally consistent (fails only on honest reporting)', () => {
-    const result = validateRuntimeProvenance(
-      withMutation((a) => {
-        (a.runtime as Record<string, unknown>).r1_verdict = 'fail';
-        a.verdict = 'fail';
-      }),
-    );
+  it('R4-SCHEMA-04 a pass verdict with a non-passing R0 gate is rejected', () => {
+    const artifact = withMutation((a) => {
+      (a.runtime as Record<string, unknown>).r0_verdict = 'fail';
+    });
+    const result = validateRuntimeProvenance(artifact);
+    expect(checkOf(result, 'R4-SCHEMA-04').pass).toBe(false);
+    expect(result.ok).toBe(false);
+    expect(provenanceVerdict(artifact)).toBe('fail');
+  });
+
+  it('R4-SCHEMA-04b a fail verdict with failing gates is internally consistent (valid artifact, no provenance)', () => {
+    const artifact = withMutation((a) => {
+      (a.runtime as Record<string, unknown>).r1_verdict = 'fail';
+      a.verdict = 'fail';
+    });
+    const result = validateRuntimeProvenance(artifact);
     expect(checkOf(result, 'R4-SCHEMA-04').pass).toBe(true);
     expect(result.ok).toBe(true);
+    // artifact_valid and provenance_verdict are DIFFERENT concepts: the
+    // artifact is structurally valid, but it grants no release provenance.
+    expect(provenanceVerdict(artifact)).toBe('fail');
+  });
+
+  it('provenanceVerdict: valid + all gates pass -> pass', () => {
+    expect(provenanceVerdict(completeProvenanceExample())).toBe('pass');
+  });
+
+  it('provenanceVerdict: non-artifact garbage -> fail', () => {
+    expect(provenanceVerdict(null)).toBe('fail');
+    expect(provenanceVerdict('nonsense')).toBe('fail');
   });
 
   it('R4-SCHEMA-05 malformed Cloudflare version id fails', () => {
