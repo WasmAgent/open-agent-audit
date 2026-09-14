@@ -199,8 +199,152 @@ export function evaluateDeploymentIdentity(
 }
 
 // ---------------------------------------------------------------------------
+// R0.5 — deployment toolchain reproducibility
+// ---------------------------------------------------------------------------
+
+/** Toolchain that actually produced and deployed the revision. */
+export interface ToolchainIdentity {
+  bun: string | null;
+  wrangler: string | null;
+  worker_compatibility_date: string | null;
+}
+
+export interface ToolchainEvaluationInput {
+  /** Exact version pinned in package.json devDependencies, e.g. "4.131.2". */
+  expectedWrangler: string;
+  /** The `wrangler@x.y.z` resolution string grepped from bun.lock. */
+  lockPin: string;
+  /** Version reported by the binary that actually ran the deploy. */
+  wranglerVersion: string;
+  /** How the deploy binary was resolved. Only `locked` is acceptable: a
+   * runtime (implicit) install inside the deploy step is prohibited. */
+  wranglerSource: 'locked' | 'unknown';
+  /** Full output of the `wrangler deploy` invocation. */
+  deployLog: string | null;
+  bunVersion: string | null;
+  /** compatibility_date parsed from the deployed wrangler.jsonc. */
+  compatibilityDate: string | null;
+}
+
+export interface ToolchainEvaluation {
+  verdict: 'pass' | 'fail';
+  checks: DeploymentIdentityCheck[];
+  ok: boolean;
+}
+
+/**
+ * Config-warning signatures wrangler emits when it does not recognize a field.
+ * A hit means the deploy tool silently ignored part of the intended
+ * configuration (R0-TC-03) — e.g. the `Unexpected fields found in assets
+ * field: "run_worker_first"` warning wrangler 3.90.0 produced.
+ */
+const UNEXPECTED_CONFIG_FIELD =
+  /unexpected field|unknown field|unrecognized field|is not expected/i;
+
+/**
+ * Evaluate deployment toolchain reproducibility (R0.5):
+ * - `R0-TC-01` the binary that deployed reports exactly the pinned version.
+ * - `R0-TC-02` the binary came from the lockfile install (no runtime install).
+ * - `R0-TC-03` the deploy log contains no unknown/unexpected config field
+ *   warnings, i.e. wrangler understood the full intended configuration.
+ * - `R0-TC-04` package.json and bun.lock pin the exact same wrangler version.
+ */
+export function evaluateToolchain(input: ToolchainEvaluationInput): ToolchainEvaluation {
+  const trimmed = (v: string | null | undefined): string =>
+    typeof v === 'string' ? v.trim() : '';
+
+  const tc01 = trimmed(input.wranglerVersion) === trimmed(input.expectedWrangler);
+  const tc02 = input.wranglerSource === 'locked';
+  const hasLog = typeof input.deployLog === 'string' && input.deployLog.length > 0;
+  const tc03 = hasLog && !UNEXPECTED_CONFIG_FIELD.test(input.deployLog as string);
+  const tc04 = trimmed(input.lockPin) === `wrangler@${trimmed(input.expectedWrangler)}`;
+
+  const checks: DeploymentIdentityCheck[] = [
+    {
+      id: 'R0-TC-01',
+      description: 'deploying wrangler binary reports exactly the pinned version',
+      pass: tc01,
+      detail: `pinned ${trimmed(input.expectedWrangler) || '<none>'}, running ${trimmed(input.wranglerVersion) || '<none>'}`,
+    },
+    {
+      id: 'R0-TC-02',
+      description: 'wrangler resolved from the lockfile install — no runtime implicit install',
+      pass: tc02,
+      detail:
+        input.wranglerSource === 'locked'
+          ? 'invoked from node_modules/.bin (bun install --frozen-lockfile)'
+          : `wrangler source '${input.wranglerSource}' is not the lockfile install`,
+    },
+    {
+      id: 'R0-TC-03',
+      description: 'deploy log contains no unknown/unexpected config field warnings',
+      pass: tc03,
+      detail: hasLog
+        ? tc03
+          ? 'no unexpected config field warnings in deploy log'
+          : 'deploy log reports unknown/unexpected config fields'
+        : 'deploy log not captured — cannot prove the tool understood the full config',
+    },
+    {
+      id: 'R0-TC-04',
+      description: 'package.json and bun.lock pin the exact same wrangler version',
+      pass: tc04,
+      detail: `package.json wrangler@${trimmed(input.expectedWrangler) || '<none>'}, bun.lock ${trimmed(input.lockPin) || '<none>'}`,
+    },
+  ];
+
+  const ok = tc01 && tc02 && tc03 && tc04;
+  return { verdict: ok ? 'pass' : 'fail', checks, ok };
+}
+
+/**
+ * Extract `compatibility_date` from a wrangler JSONC config. Comment-stripping
+ * is string-aware so `https://` URLs inside values survive.
+ */
+export function readCompatibilityDate(configJsonc: string): string | null {
+  const stripped: string[] = [];
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < configJsonc.length; i++) {
+    const ch = configJsonc.charAt(i);
+    if (inString) {
+      stripped.push(ch);
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      stripped.push(ch);
+      continue;
+    }
+    if (ch === '/' && configJsonc.charAt(i + 1) === '/') {
+      while (i < configJsonc.length && configJsonc.charAt(i) !== '\n') i++;
+      continue;
+    }
+    stripped.push(ch);
+  }
+  try {
+    const parsed: unknown = JSON.parse(stripped.join(''));
+    if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const date = (parsed as Record<string, unknown>).compatibility_date;
+      return typeof date === 'string' && date.trim() !== '' ? date : null;
+    }
+  } catch {
+    /* malformed config → null */
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Runtime deployment attestation artifact
 // ---------------------------------------------------------------------------
+
+/** Verdicts recorded in the attestation: R0 identity gates + R0.5 toolchain. */
+export type AttestationVerdicts = DeploymentIdentityVerdicts & {
+  toolchain_reproducibility: 'pass' | 'fail';
+};
 
 export interface RuntimeDeploymentAttestation {
   format: 'wasmagent-runtime-deployment/v1';
@@ -214,7 +358,8 @@ export interface RuntimeDeploymentAttestation {
     auth_mode: string | null;
     build_sha: string | null;
   };
-  verdicts: DeploymentIdentityVerdicts;
+  toolchain: ToolchainIdentity;
+  verdicts: AttestationVerdicts;
   checks: DeploymentIdentityCheck[];
   observed_at: string;
 }
@@ -226,6 +371,8 @@ export interface DeploymentAttestationInput {
   deploymentTarget: string;
   observedAt: string;
   evaluation: DeploymentIdentityEvaluation;
+  toolchain: ToolchainEvaluation;
+  toolchainIdentity: ToolchainIdentity;
   payload: unknown;
 }
 
@@ -257,8 +404,16 @@ export function buildDeploymentAttestation(
       auth_mode: nonEmptyString(body.auth_mode),
       build_sha: nonEmptyString(build.sha),
     },
-    verdicts: input.evaluation.verdicts,
-    checks: input.evaluation.checks,
+    toolchain: {
+      bun: nonEmptyString(input.toolchainIdentity.bun),
+      wrangler: nonEmptyString(input.toolchainIdentity.wrangler),
+      worker_compatibility_date: nonEmptyString(input.toolchainIdentity.worker_compatibility_date),
+    },
+    verdicts: {
+      ...input.evaluation.verdicts,
+      toolchain_reproducibility: input.toolchain.verdict,
+    },
+    checks: [...input.evaluation.checks, ...input.toolchain.checks],
     observed_at: input.observedAt,
   };
 }

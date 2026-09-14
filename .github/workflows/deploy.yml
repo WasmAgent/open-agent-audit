@@ -2,6 +2,9 @@ name: Deploy
 
 # Deploys to Cloudflare Workers on every push to main.
 #
+# The deployment toolchain (wrangler) is an exact-pinned devDependency resolved
+# from bun.lock — never installed at runtime inside the deploy step (R0.5).
+#
 # Required GitHub Secrets (Settings → Secrets and variables → Actions):
 #   CLOUDFLARE_API_TOKEN  — API token with Workers:Edit, D1:Edit, R2:Edit, Queues:Edit
 #   CLOUDFLARE_ACCOUNT_ID — Cloudflare account ID
@@ -91,12 +94,53 @@ jobs:
               raise SystemExit("ERROR: unreplaced placeholder in wrangler.jsonc")
           EOF
 
+      # R0.5 deployment toolchain reproducibility: wrangler is an exact-pinned
+      # devDependency. R0-TC-02 forbids any runtime install inside the deploy
+      # step; R0-TC-01/04 prove package.json, bun.lock and the installed
+      # binary all agree on the exact version before anything is deployed.
+      - name: R0.5 — verify pinned deployment toolchain
+        run: |
+          set -euo pipefail
+          wrangler_bin="./node_modules/.bin/wrangler"
+          test -x "$wrangler_bin" || {
+            echo "::error::wrangler binary missing from lockfile install (R0-TC-02)"; exit 1;
+          }
+
+          expected_wrangler="$(node -p "require('./package.json').devDependencies.wrangler")"
+          lock_pin="wrangler@${expected_wrangler}"
+          grep -Fq "\"${lock_pin}\"" bun.lock || {
+            echo "::error::${lock_pin} not pinned in bun.lock (R0-TC-04)"; exit 1;
+          }
+
+          actual_wrangler="$("$wrangler_bin" --version)"
+          echo "pinned wrangler: ${expected_wrangler}; installed binary reports: ${actual_wrangler}"
+          test "$actual_wrangler" = "$expected_wrangler" || {
+            echo "::error::installed wrangler ${actual_wrangler} != pinned ${expected_wrangler} (R0-TC-01)"; exit 1;
+          }
+
+          {
+            echo "EXPECTED_WRANGLER=${expected_wrangler}"
+            echo "LOCK_PIN=${lock_pin}"
+            echo "DEPLOYED_WRANGLER_VERSION=${actual_wrangler}"
+            echo "DEPLOYED_BUN_VERSION=$(bun --version)"
+          } >> "$GITHUB_ENV"
+
       - name: Deploy to Cloudflare Workers
-        uses: cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: deploy --config wrangler.jsonc
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          # Direct lockfile binary — no wrangler-action, no runtime install.
+          ./node_modules/.bin/wrangler deploy --config wrangler.jsonc 2>&1 | tee deploy-output.log
+
+          # R0-TC-03: wrangler warning about fields it does not recognize means
+          # the deploy tool silently ignored part of the intended configuration.
+          if grep -Eiq 'unexpected field|unknown field|unrecognized field' deploy-output.log; then
+            echo "::error::Wrangler reported unknown/unexpected config fields (R0-TC-03)"
+            grep -Ein 'unexpected field|unknown field|unrecognized field' deploy-output.log
+            exit 1
+          fi
 
       # R0 deployment identity: a successful `wrangler deploy` is necessary but
       # insufficient. Probe the live production route and prove that the exact
@@ -123,15 +167,22 @@ jobs:
             "$health_url" -o health.json || rc=$?
           echo "curl exit code: $rc"
 
-          # Evaluates identity verdicts, ALWAYS writes the attestation artifact
-          # (evidence on failure too), and exits non-zero on any failing
-          # verdict so the deploy job fails closed.
+          # Evaluates identity + toolchain verdicts, ALWAYS writes the
+          # attestation artifact (evidence on failure too), and exits non-zero
+          # on any failing verdict so the deploy job fails closed.
           bun packages/worker/scripts/verify-deployment.ts \
             --health-file health.json \
             --expect-sha "$EXPECTED_SHA" \
             --expect-repository "$EXPECTED_REPOSITORY" \
             --expect-workflow-run "$EXPECTED_WORKFLOW_RUN" \
             --deployment-target "$deployment_target" \
+            --expect-wrangler "$EXPECTED_WRANGLER" \
+            --lock-pin "$LOCK_PIN" \
+            --wrangler-version "$DEPLOYED_WRANGLER_VERSION" \
+            --wrangler-source locked \
+            --bun-version "$DEPLOYED_BUN_VERSION" \
+            --config-file wrangler.jsonc \
+            --deploy-log deploy-output.log \
             --out runtime-deployment-attestation.json
 
       - name: R0 — upload runtime deployment attestation
