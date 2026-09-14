@@ -68,6 +68,10 @@ export async function signPassport(
 
 /**
  * verifySignature — verify the Ed25519 signature on a signed passport.
+ *
+ * Also returns invalid when the passport has expired. Use
+ * {@link verifySignatureOnly} when you need to separate issuance authenticity
+ * from validity/expiry (e.g. layered revocation verification).
  */
 export async function verifySignature(
   passport: TrustPassport,
@@ -88,6 +92,28 @@ export async function verifySignature(
     if (expiresAt.getTime() < Date.now()) {
       return { valid: false, error: 'Passport has expired' };
     }
+  }
+
+  return verifySignatureOnly(passport, publicKey);
+}
+
+/**
+ * verifySignatureOnly — verify the Ed25519 signature over the immutable
+ * issuance payload, **ignoring expiry and revocation**. This isolates signature
+ * authenticity so a caller can report "authentic issuance, subsequently
+ * revoked" instead of collapsing everything to one boolean (N2-P1-01).
+ */
+export async function verifySignatureOnly(
+  passport: TrustPassport,
+  publicKey: Uint8Array,
+): Promise<VerifyResult> {
+  const att = passport.attestation;
+  if (!att || att.signing_method !== 'ed25519') {
+    return { valid: false, error: 'Passport is not signed with ed25519' };
+  }
+
+  if (!att.signature) {
+    return { valid: false, error: 'Missing signature in attestation' };
   }
 
   // Strip attestation, canonicalize

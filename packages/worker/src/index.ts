@@ -33,8 +33,8 @@ import type {
   ResolvedRetentionPolicy,
   RetentionCandidate,
 } from '@openagentaudit/core';
-import { issue, revoke, status } from '@openagentaudit/passport';
-import type { TrustPassport } from '@openagentaudit/passport';
+import { createRevocationRecord, issue, verifyPassportLayers } from '@openagentaudit/passport';
+import type { TrustPassport, TrustPassportRevocation } from '@openagentaudit/passport';
 import { validateEvents } from '@openagentaudit/schema';
 import type { CanonicalEvent, Finding, RiskScore } from '@openagentaudit/schema';
 
@@ -1399,6 +1399,24 @@ async function handlePassportGet(passportId: string, env: WorkerEnv): Promise<Re
   return corsJson(JSON.parse(raw), env);
 }
 
+/**
+ * External revocation records live in the PASSPORTS KV namespace under a
+ * separate key so the signed issuance bytes are never mutated (N2-P1-01).
+ */
+const REVOCATION_PREFIX = 'revocation:';
+
+function revocationKey(passportId: string): string {
+  return `${REVOCATION_PREFIX}${passportId}`;
+}
+
+async function readRevocation(
+  env: WorkerEnv,
+  passportId: string,
+): Promise<TrustPassportRevocation | null> {
+  const raw = await env.PASSPORTS.get(revocationKey(passportId));
+  return raw === null ? null : (JSON.parse(raw) as TrustPassportRevocation);
+}
+
 async function handlePassportRevoke(
   passportId: string,
   request: Request,
@@ -1420,13 +1438,17 @@ async function handlePassportRevoke(
   if (raw === null) {
     return corsError('Passport not found', 404, env);
   }
-
   const passport = JSON.parse(raw) as TrustPassport;
-  const revoked = revoke({ passport, reason });
 
-  await env.PASSPORTS.put(passportId, JSON.stringify(revoked));
+  if ((await readRevocation(env, passportId)) !== null || passport.revocation?.revoked === true) {
+    return corsError('Passport already revoked', 409, env);
+  }
 
-  return corsJson(revoked, env);
+  // Revocation is a separate signed status record; the issuance is immutable.
+  const record = await createRevocationRecord({ passport, reason, sequence: 1 });
+  await env.PASSPORTS.put(revocationKey(passportId), JSON.stringify(record));
+
+  return corsJson(record, env);
 }
 
 async function handlePassportStatus(passportId: string, env: WorkerEnv): Promise<Response> {
@@ -1436,13 +1458,26 @@ async function handlePassportStatus(passportId: string, env: WorkerEnv): Promise
   }
 
   const passport = JSON.parse(raw) as TrustPassport;
-  const currentStatus = status(passport);
+  const revocation = await readRevocation(env, passportId);
+  const verification = await verifyPassportLayers({ passport, revocation });
+
+  // Summary kept for backward compatibility with the previous `status` field.
+  const expiresMs = Date.parse(passport.validity.expires_at);
+  const expired = Number.isNaN(expiresMs) || expiresMs <= Date.now();
+  const summary =
+    verification.revocation_status === 'revoked'
+      ? 'revoked'
+      : expired
+        ? 'expired'
+        : 'valid';
 
   return corsJson(
     {
-      status: currentStatus,
+      status: summary,
       passport_id: passport.identity.passport_id,
       expires_at: passport.validity.expires_at,
+      verification,
+      ...(revocation !== null ? { revocation } : {}),
     },
     env,
   );
@@ -1466,9 +1501,10 @@ async function handlePassportRenew(
   }
 
   const passport = JSON.parse(raw) as TrustPassport;
-  const currentStatus = status(passport);
 
-  if (currentStatus === 'revoked') {
+  // Revocation is terminal, whether recorded externally (current format) or
+  // embedded in a legacy passport.
+  if ((await readRevocation(env, passportId)) !== null || passport.revocation?.revoked === true) {
     return corsError('Cannot renew a revoked passport', 409, env);
   }
 

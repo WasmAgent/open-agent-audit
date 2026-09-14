@@ -109,6 +109,15 @@ export function renew(options: RenewOptions): TrustPassport {
   return renewed;
 }
 
+/**
+ * @deprecated Mutating a passport to record revocation invalidates its
+ * issuance signature (the `revocation` field is part of the signed payload), so
+ * a verifier reports "tampered" instead of "authentic, revoked" (N2-P1-01).
+ *
+ * Use `createRevocationRecord` + `verifyPassportLayers` from `./revocation.js`
+ * to record revocation externally. This function is retained only for parsing
+ * and producing the historical embedded-revocation format.
+ */
 export function revoke(options: RevokeOptions): TrustPassport {
   const { passport, reason } = options;
   return {
