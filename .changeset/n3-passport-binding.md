@@ -1,6 +1,5 @@
 ---
 "@openagentaudit/passport": minor
-"@openagentaudit/worker": patch
 ---
 
 Harden passport revocation binding, authenticity semantics and renewal (third-round audit).

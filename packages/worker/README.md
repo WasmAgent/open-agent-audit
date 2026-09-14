@@ -77,8 +77,8 @@ HTTP / Queue message
 | `RAW_TRACES` | R2 | Incoming trace uploads |
 | `ARTIFACTS` | R2 | Intermediate engine artifacts |
 | `REPORTS` | R2 | Final audit report bundles |
-| `DB` | D1 | Runs, findings, projects, **approvals**, evidence metadata |
-| `PASSPORTS` | KV | Immutable passport issuances and external revocation/status records (see "Passport signing truth") |
+| `DB` | D1 | Runs, findings, projects, **approvals**, **passport ownership + revocation state**, evidence metadata |
+| `PASSPORTS` | KV | Immutable Passport documents + legacy/best-effort revocation mirror (D1 is authoritative — see "Passport storage and signing truth") |
 | `APPROVALS` | KV | **Deprecated** — approval state now lives in D1 (`approvals` table) |
 | `AUDIT_JOBS` | Queue | Async audit job dispatch |
 | `AUDIT_RUN_COORDINATOR` | DO | Per-run state coordination |
@@ -112,7 +112,34 @@ In multi-tenant mode (`TENANT_API_KEYS`) every tenant surface requires a key. A
 production deployment with no auth material fails closed (`401`, and `/health`
 reports `auth_mode: fail_closed`).
 
-### Passport signing truth
+### Passport storage and signing truth
+
+Authoritative Passport state lives in D1; KV is a document/mirror store only:
+
+```text
+DB / D1
+  passport_issuances    authoritative Passport ownership (tenant owner per passport)
+  passport_revocations  authoritative revocation state
+
+PASSPORTS / KV
+  immutable Passport documents
+  legacy/best-effort revocation mirror (never a trust source)
+```
+
+Passport write routes (`POST /passport/issue`, `/revoke`, `/renew`) resolve the
+full authenticated principal and enforce that the caller's tenant owns the
+Passport (`passport_issuances.tenant_id == principal.tenantId`); a foreign
+Passport is answered `404` to avoid cross-tenant enumeration. Authentication
+alone is not an authorization boundary — a Passport id is a random public
+identifier. In multi-tenant deployments an unowned Passport fails closed until
+an explicit ownership migration; single-tenant deployments claim legacy
+Passports for `TENANT_ID`.
+
+Production issuance binds to server-owned evidence: pass `{"runId": "run-…"}` and
+the Worker loads the canonical persisted `runs/<runId>/report.json` for the
+caller's tenant and hashes exactly those bytes. A caller-supplied `report` is
+accepted only in dev/demo (`OAA_ENV` not `production` and `TENANT_API_KEYS`
+unset) and is marked `issuance_context: "self-issued"`.
 
 The Worker calls `issue()` and `createRevocationRecord()` **without a signer**.
 The Worker deployment path is therefore:
@@ -132,8 +159,9 @@ Concretely:
   that does not trust the registry reports the status as `unknown`.
 - Renewal mints a **new** immutable issuance (new `passport_id`,
   `identity.renewed_from` lineage, fresh attestation) and never mutates the
-  stored issuance in place. A passport already signed with `ed25519` cannot be
-  renewed by the Worker without a configured signer.
+  stored issuance in place; the new issuance inherits the same owner tenant. A
+  passport already signed with `ed25519` cannot be renewed by the Worker without
+  a configured signer.
 - Do not describe the Worker deployment path as cryptographically signed until
   production signing/key resolution is actually wired.
 
