@@ -88,7 +88,19 @@
     "DEFAULT_PROFILES": "owasp-agentic-top10-2026,nist-ai-rmf-1.0",
     "ISSUER_NAME": "Trustavo (trustavo.com)",
     "ISSUER_EMAIL": "issuer@trustavo.com",
-    "PUBLIC_URL": "https://trustavo.com"
+    "PUBLIC_URL": "https://trustavo.com",
+
+    // R0 deployment identity — injected by .github/workflows/deploy.yml from
+    // github.sha / github.repository / github.run_id and exposed via GET
+    // /health. Never set these by hand: the deploy workflow aborts when an
+    // unreplaced placeholder survives its sanity check, and a blank value
+    // fails the post-deploy exact-SHA assertion.
+    "BUILD_SHA": "REPLACE_ME_BUILD_SHA",
+    "BUILD_REPOSITORY": "REPLACE_ME_BUILD_REPOSITORY",
+    "BUILD_WORKFLOW_RUN": "REPLACE_ME_BUILD_WORKFLOW_RUN",
+    "BUILD_TIMESTAMP": "REPLACE_ME_BUILD_TIMESTAMP",
+    "BUILD_PROFILE": "REPLACE_ME_BUILD_PROFILE"
+
     // "CORS_ORIGIN": "https://trustavo.com"  // optional — restrict CORS to your domain; defaults to '*'
     // "API_KEY": "your-secret-api-key"  // optional — if unset, auth is disabled (demo/dev mode)
   }

@@ -43,6 +43,7 @@ import {
 import type { TrustPassport, TrustPassportRevocation } from '@openagentaudit/passport';
 import { validateEvents } from '@openagentaudit/schema';
 import type { CanonicalEvent, Finding, RiskScore } from '@openagentaudit/schema';
+import { buildIdentity } from './deployment-identity.js';
 
 // ---------------------------------------------------------------------------
 // Job message shapes
@@ -100,6 +101,18 @@ export interface WorkerEnv {
   ISSUER_EMAIL: string;
   /** Public base URL of this deployment, e.g. "https://trustavo.com" */
   PUBLIC_URL: string;
+  /**
+   * Deployed build identity (R0 deployment identity). Injected exclusively by
+   * .github/workflows/deploy.yml from github.sha / github.repository /
+   * github.run_id — never from user input. Exposed via GET /health so the
+   * post-deploy probe can prove the live revision serves the exact deployed
+   * source SHA. Unset in local dev; /health then reports nulls.
+   */
+  BUILD_SHA?: string;
+  BUILD_REPOSITORY?: string;
+  BUILD_WORKFLOW_RUN?: string;
+  BUILD_TIMESTAMP?: string;
+  BUILD_PROFILE?: string;
   /** Allowed CORS origin. Defaults to '*' if not set. */
   CORS_ORIGIN?: string;
   /** Shared secret for API authentication. If unset, auth is disabled (dev/demo mode). */
@@ -2375,7 +2388,15 @@ async function handleFetch(request: Request, env: WorkerEnv): Promise<Response> 
       authMode = isProduction(env) ? 'fail_closed' : 'open';
     }
     return new Response(
-      JSON.stringify({ status: 'ok', version: '0.1.0', env: env.OAA_ENV, auth_mode: authMode }),
+      JSON.stringify({
+        status: 'ok',
+        version: '0.1.0',
+        env: env.OAA_ENV,
+        auth_mode: authMode,
+        // R0 deployment identity: nulls when BUILD_* is not injected (local
+        // dev), which the post-deploy probe treats as a failed identity check.
+        build: buildIdentity(env),
+      }),
       { headers: { 'content-type': 'application/json' } },
     );
   }
