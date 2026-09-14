@@ -22,33 +22,17 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: "20"
-          cache: "npm"
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version: "1.3.14"
 
-      - name: Install dependencies
-        run: npm ci
+      # OAA-1: the committed bun.lock is the single source of truth. Never mix
+      # npm resolution with Bun lock semantics in required CI.
+      - name: Install dependencies (frozen)
+        run: bun install --frozen-lockfile
 
-      - name: Build packages (schema, core, adapters, passport)
-        run: |
-          npx tsc -p packages/schema/tsconfig.json
-          npx tsc -p packages/core/tsconfig.json
-          npx tsc -p packages/adapters/tsconfig.json
-          npx tsc -p packages/passport/tsconfig.json
-
-      - name: Typecheck CLI
-        run: npx tsc -p packages/cli/tsconfig.json --noEmit
-
-      - name: Typecheck worker
-        run: npx tsc -p packages/worker/tsconfig.json --noEmit
-
-      - name: Run verify scripts
-        run: |
-          node scripts/check-no-sensitive-info.mjs
-          node scripts/verify-disclaimers.mjs
-
-      - name: Run tests
-        run: npm test --workspaces --if-present
+      # lint + verify:all + typecheck + build + test (see package.json check:all)
+      - name: Lint, verify, typecheck, build, test
+        run: bun run check:all

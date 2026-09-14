@@ -97,7 +97,7 @@ See `CONSTRAINTS.md` for the full list.
 |---|---|
 | AEP + compliance **schema definitions** | `wasmagent-protocol` (`@wasmagent/protocol`) |
 | AEP evidence **emission** at runtime | `wasmagent-js` (`@wasmagent/aep`) |
-| AgentBOM / MCP Posture / Trust Passport specifications (schemas) | `agent-trust-infra` |
+| AgentBOM / MCP Posture / Trust Passport specifications (schemas) | `wasmagent-protocol` (canonical schemas); `agentbom` (AgentBOM/MCP Posture implementation); `open-agent-audit` (Trust Passport product/schema layer) — `agent-trust-infra` is archived |
 | Runtime evidence collection (MCP firewall, capability attestation) | `wasmagent-js` |
 | Training data pipeline (SFT/DPO export, contamination stats) | `trace-pipeline` |
 | Dynamic evaluation protocol (FAEP) | `fresharena` |

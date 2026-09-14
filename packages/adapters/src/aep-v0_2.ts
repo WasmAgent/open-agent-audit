@@ -11,7 +11,15 @@ import type { SourceFormatAdapter } from './index.js';
 import { base64Utf8, msToIso } from './mapping-utils.js';
 
 // ---------------------------------------------------------------------------
-// Local AEPRecord type — mirrors @wasmagent/aep without importing it.
+// Local AEPRecord projection.
+//
+// This is a deliberately narrow, read-only projection of the canonical
+// @wasmagent/protocol `aep-record` schema (pinned 0.1.10), NOT an independent
+// contract. It provides ergonomic TS types for the adapter's inputs; the
+// authoritative shape always comes from `getSchema('aep-record')`. The mirror
+// is enforced by the canonical drift gate in `canonical-drift.test.ts`, which
+// fails if this projection declares any field the canonical schema does not
+// define or advertises a schema_version the canonical enum does not list.
 // ---------------------------------------------------------------------------
 
 export interface CapabilityDecisionInput {
@@ -89,7 +97,8 @@ export interface RunContextInput {
 export const SUPPORTED_AEP_VERSIONS = ['aep/v0.1', 'aep/v0.2', 'aep/v0.3', 'aep/v0.4', 'aep/v0.5'] as const;
 export type SupportedAepVersion = (typeof SUPPORTED_AEP_VERSIONS)[number];
 
-/** Local mirror of the AEPRecord type from @wasmagent/aep. */
+/** Guarded projection of the canonical aep-record schema (wasmagent-protocol
+ *  0.1.10). Not an independent contract — see the drift gate note above. */
 export interface AEPRecordInput {
   schema_version: SupportedAepVersion;
   run_id: string;
@@ -161,6 +170,47 @@ export interface AEPRecordInput {
   subject_id?: string;
 }
 
+/**
+ * OAA-3: runtime inventory of the local projection's fields, pinned to the
+ * interface by `satisfies` so it cannot silently fall out of sync. The
+ * canonical drift gate (canonical-drift.test.ts) asserts this set is a subset
+ * of the canonical `aep-record` schema properties, so the mirror can never
+ * invent — or retain after upstream removal — a field the canonical contract
+ * does not define.
+ */
+export const AEP_RECORD_INPUT_KEYS = {
+  schema_version: true,
+  run_id: true,
+  trace_id: true,
+  parent_trace_id: true,
+  repo_commit: true,
+  runtime_version: true,
+  model_provider: true,
+  model_id: true,
+  policy_bundle_digest: true,
+  tool_manifest_digest: true,
+  mcp_server_card_digest: true,
+  input_refs: true,
+  output_refs: true,
+  capability_decisions: true,
+  actions: true,
+  verifier_results: true,
+  budget_ledger: true,
+  created_at_ms: true,
+  run_context: true,
+  signature: true,
+  dsse_envelope: true,
+  authorized_by: true,
+  authority_origin: true,
+  identity_source: true,
+  attribution_backing: true,
+  run_attribution_backing_floor: true,
+  run_attribution_backing_observed: true,
+  authorization_evidence_count: true,
+  user_id: true,
+  subject_id: true,
+} as const satisfies Record<keyof AEPRecordInput, true>;
+
 // ---------------------------------------------------------------------------
 // Upstream provenance
 // ---------------------------------------------------------------------------
@@ -198,6 +248,9 @@ export function getAttribution(record: AEPRecordInput): AuditRun['attribution'] 
   }
   if (record.run_attribution_backing_observed !== undefined) {
     a.run_attribution_backing_observed = record.run_attribution_backing_observed;
+  }
+  if (record.authorization_evidence_count !== undefined) {
+    a.authorization_evidence_count = record.authorization_evidence_count;
   }
   return Object.keys(a).length > 0 ? a : undefined;
 }
@@ -342,7 +395,10 @@ function toEvents(record: AEPRecordInput, opts?: { prevHash?: string }): Canonic
         signature: sigSig,
         signature_algorithm: 'ed25519',
         signer_key_id: sigKeyId,
-        ...(hasDsse ? { attestation_format: 'dsse' as const, dsse_pre_verified: true } : {}),
+        // OAA-5: an envelope's mere presence is NOT cryptographic verification.
+        // attestation_format records the shape; dsse_pre_verified stays unset
+        // until a real DSSE verification pass has run (never assert it here).
+        ...(hasDsse ? { attestation_format: 'dsse' as const } : {}),
       },
       ...partial,
     };
@@ -497,8 +553,8 @@ function beginRun(record: AEPRecordInput): AuditRun {
     model_id: modelId,
     created_at: msToIso(record.created_at_ms),
     event_count: 0,
-    source_adapter: 'aep-v0.2',
-    input_format: 'aep/v0.2',
+    source_adapter: 'aep-adapter',
+    input_format: record.schema_version,
     task: {
       id: record.run_id,
       description: `AEP run ${record.run_id}`,

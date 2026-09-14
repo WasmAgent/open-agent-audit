@@ -22,7 +22,7 @@ describe('aep-v0_2 adapter — wasmagent-js fixture', () => {
     const run = AepV0_2Adapter.beginRun(record);
     expect(run.run_id).toBe('run-wasmagent-fixture-001');
     expect(run.model_id).toBe('claude-sonnet-4-6');
-    expect(run.source_adapter).toBe('aep-v0.2');
+    expect(run.source_adapter).toBe('aep-adapter');
     expect(run.input_format).toBe('aep/v0.2');
   });
 
@@ -97,7 +97,7 @@ describe('aep-v0_2 adapter — bscode fixture', () => {
     const run = AepV0_2Adapter.beginRun(record);
     expect(run.run_id).toBe('run-bscode-fixture-001');
     expect(run.model_id).toBe('claude-sonnet-4-6');
-    expect(run.source_adapter).toBe('aep-v0.2');
+    expect(run.source_adapter).toBe('aep-adapter');
   });
 
   it('toEvents emits two tool_call events', () => {
@@ -183,7 +183,7 @@ describe('aep-v0_2 adapter — aep/v0.5 attribution records', () => {
   it('beginRun accepts a v0.5 record carrying attribution fields', () => {
     const run = AepV0_2Adapter.beginRun(v05);
     expect(run.run_id).toBe('run-v05-attribution');
-    expect(run.source_adapter).toBe('aep-v0.2');
+    expect(run.source_adapter).toBe('aep-adapter');
     // The attribution block is mapped into the AuditRun so downstream
     // reports can surface who authorized the run and how strongly.
     expect(run.attribution?.authorized_by).toBe('admin-bob');
@@ -256,7 +256,7 @@ describe('aep-v0_2 adapter — aep/v0.3 support', () => {
     expect(run.run_id).toBe('run-v03-fixture-001');
     expect(run.agent_id).toBe('v03-agent');
     expect(run.model_id).toBe('claude-sonnet-4-6');
-    expect(run.source_adapter).toBe('aep-v0.2');
+    expect(run.source_adapter).toBe('aep-adapter');
   });
 
   it('toEvents accepts aep/v0.3 schema_version without throwing', () => {
@@ -328,7 +328,7 @@ describe('aep-v0_2 adapter — aep/v0.4 support', () => {
     expect(run.run_id).toBe('run-v04-fixture-001');
     expect(run.agent_id).toBe('v04-agent');
     expect(run.model_id).toBe('claude-sonnet-4-6');
-    expect(run.source_adapter).toBe('aep-v0.2');
+    expect(run.source_adapter).toBe('aep-adapter');
   });
 
   it('toEvents accepts aep/v0.4 schema_version without throwing', () => {
@@ -358,10 +358,12 @@ describe('aep-v0_2 adapter — aep/v0.4 support', () => {
     }
   });
 
-  it('toEvents sets dsse_pre_verified to true when dsse_envelope present', () => {
+  it('toEvents does NOT claim dsse_pre_verified from envelope presence (OAA-5)', () => {
     const events = AepV0_2Adapter.toEvents(record);
     for (const ev of events) {
-      expect(ev.evidence?.dsse_pre_verified).toBe(true);
+      // Envelope presence is not cryptographic verification; the adapter must
+      // never upgrade DSSE metadata to "pre-verified" on its own.
+      expect(ev.evidence?.dsse_pre_verified).toBeUndefined();
     }
   });
 
@@ -383,6 +385,25 @@ describe('aep-v0_2 adapter — aep/v0.4 support', () => {
     for (const ev of events) {
       expect(ev.evidence?.attestation_format).toBe('dsse');
     }
+  });
+
+  it('preserves authorization_evidence_count and input_format for aep/v0.5 (OAA-5)', () => {
+    const v05: AEPRecordInput = {
+      ...record,
+      schema_version: 'aep/v0.5',
+      authorization_evidence_count: 3,
+    };
+    const run = AepV0_2Adapter.beginRun(v05);
+    expect(run.input_format).toBe('aep/v0.5');
+    expect(run.attribution?.authorization_evidence_count).toBe(3);
+  });
+
+  it('does not normalize a semantically invalid record to valid (OAA-5)', () => {
+    // A record whose schema_version is not in the supported set must throw,
+    // not be silently coerced to a supported version.
+    const bad = { ...record, schema_version: 'aep/v9.9' } as unknown as AEPRecordInput;
+    expect(() => AepV0_2Adapter.toEvents(bad)).toThrow();
+    expect(() => AepV0_2Adapter.beginRun(bad)).toThrow();
   });
 
   it('toEvents maps recording_mode from actions to events', () => {
