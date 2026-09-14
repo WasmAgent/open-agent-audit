@@ -4,7 +4,7 @@
  * real route code without Miniflare or a Cloudflare account.
  */
 import { Database } from 'bun:sqlite';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { WorkerEnv } from '../src/index.js';
 import { defaultProjectId } from '../src/index.js';
@@ -53,7 +53,7 @@ export class SqliteD1 {
   constructor(schemaSql?: string) {
     this.db = new Database(':memory:');
     this.db.run('PRAGMA foreign_keys = ON');
-    if (schemaSql !== undefined && schemaSql.trim() !== '') this.db.run(schemaSql);
+    if (schemaSql !== undefined && schemaSql.trim() !== '') this.db.exec(schemaSql);
   }
 
   prepare(sql: string): SqliteStatement {
@@ -162,26 +162,19 @@ function makeQueue(): unknown {
 // ---------------------------------------------------------------------------
 
 const REPO_ROOT = join(import.meta.dir, '..', '..', '..');
+const MIGRATIONS_DIR = join(import.meta.dir, '..', 'migrations');
 
 export function readExampleSchema(): string {
   return readFileSync(join(REPO_ROOT, 'examples', 'cloudflare', 'd1-schema.sql'), 'utf8');
 }
 
-/** Base schema = authoritative example schema + migration 0003 columns. */
-export function baseSchemaSql(): string {
-  const base = readExampleSchema();
-  const extended = `
-ALTER TABLE findings ADD COLUMN description        TEXT;
-ALTER TABLE findings ADD COLUMN event_id           TEXT;
-ALTER TABLE findings ADD COLUMN confidence         TEXT;
-ALTER TABLE findings ADD COLUMN false_positive_likelihood REAL;
-ALTER TABLE findings ADD COLUMN first_seen         TEXT;
-ALTER TABLE findings ADD COLUMN last_seen          TEXT;
-ALTER TABLE findings ADD COLUMN occurrence_count   INTEGER;
-ALTER TABLE findings ADD COLUMN suppressed         INTEGER;
-ALTER TABLE findings ADD COLUMN suppression_reason TEXT;
-`;
-  return `${base}\n${extended}`;
+/** Concatenated migration DDL, in filename order — the real schema chain. */
+export function allMigrationsSql(): string {
+  return readdirSync(MIGRATIONS_DIR)
+    .filter((f) => f.endsWith('.sql'))
+    .sort()
+    .map((f) => readFileSync(join(MIGRATIONS_DIR, f), 'utf8'))
+    .join('\n');
 }
 
 export interface TestEnvOptions extends Partial<WorkerEnv> {
@@ -191,7 +184,7 @@ export interface TestEnvOptions extends Partial<WorkerEnv> {
 
 export function createEnv(options: TestEnvOptions = {}): WorkerEnv {
   const { schemaSql, ...overrides } = options;
-  const d1 = new SqliteD1(baseSchemaSql() + (schemaSql ?? ''));
+  const d1 = new SqliteD1(allMigrationsSql() + (schemaSql ?? ''));
   return {
     RAW_TRACES: new MemoryR2() as unknown as R2Bucket,
     ARTIFACTS: new MemoryR2() as unknown as R2Bucket,

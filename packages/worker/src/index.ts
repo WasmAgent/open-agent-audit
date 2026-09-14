@@ -1516,51 +1516,126 @@ interface ApprovalRequest {
   reason?: string;
 }
 
-async function handleListApprovals(url: URL, env: WorkerEnv): Promise<Response> {
-  const statusFilter = url.searchParams.get('status') as ApprovalRequest['status'] | null;
+interface ApprovalRow {
+  id: string;
+  tenant_id: string;
+  agent_id: string;
+  tool_name: string;
+  input: string;
+  status: 'pending' | 'approved' | 'denied';
+  created_at: string;
+  decided_at: string | null;
+  decided_by: string | null;
+  reason: string | null;
+}
+
+function rowToApproval(row: ApprovalRow): ApprovalRequest {
+  let input: Record<string, unknown> = {};
+  try {
+    const parsed = JSON.parse(row.input) as unknown;
+    if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      input = parsed as Record<string, unknown>;
+    }
+  } catch {
+    // Persisted input is always valid JSON; fall back to an empty object.
+  }
+  return {
+    id: row.id,
+    agentId: row.agent_id,
+    toolName: row.tool_name,
+    input,
+    status: row.status,
+    createdAt: row.created_at,
+    ...(row.decided_at !== null ? { decidedAt: row.decided_at } : {}),
+    ...(row.decided_by !== null ? { decidedBy: row.decided_by } : {}),
+    ...(row.reason !== null ? { reason: row.reason } : {}),
+  };
+}
+
+/**
+ * Atomic `pending → decided` transition via a single conditional UPDATE
+ * (N2-P1-02). Returns the decided approval, or `null` when no pending row
+ * matched (not found, wrong tenant, or already decided).
+ */
+async function transitionApproval(
+  env: WorkerEnv,
+  tenantId: string,
+  id: string,
+  decision: 'approved' | 'denied',
+  reason: string | undefined,
+): Promise<ApprovalRequest | null> {
+  const row = await env.DB.prepare(
+    `UPDATE approvals
+        SET status = ?, decided_at = ?, decided_by = 'api', reason = ?
+      WHERE tenant_id = ? AND id = ? AND status = 'pending'
+      RETURNING *`,
+  )
+    .bind(decision, new Date().toISOString(), reason ?? null, tenantId, id)
+    .first<ApprovalRow>();
+  return row === null ? null : rowToApproval(row);
+}
+
+/** Distinguish "not found" (404) from "already decided" (409). */
+async function approvalDecisionFailure(
+  env: WorkerEnv,
+  tenantId: string,
+  id: string,
+): Promise<'not_found' | 'already_decided'> {
+  const existing = await env.DB.prepare(
+    'SELECT 1 AS ok FROM approvals WHERE tenant_id = ? AND id = ?',
+  )
+    .bind(tenantId, id)
+    .first();
+  return existing === null ? 'not_found' : 'already_decided';
+}
+
+async function handleListApprovals(
+  url: URL,
+  env: WorkerEnv,
+  tenantId: string,
+): Promise<Response> {
+  const statusFilter = url.searchParams.get('status');
   const agentIdFilter = url.searchParams.get('agentId');
 
-  const approvals: ApprovalRequest[] = [];
-  // Walk the full key list with the cursor (KV pages at ~1000 keys — a single
-  // un-paginated list silently drops everything past the first page), then
-  // fetch each page of values concurrently instead of one sequential get per
-  // key.
-  let cursor: string | undefined;
-  for (;;) {
-    const listResult =
-      cursor === undefined
-        ? await env.APPROVALS.list({ prefix: 'approval:' })
-        : await env.APPROVALS.list({ prefix: 'approval:', cursor });
-    const keys = listResult.keys;
-    if (keys.length > 0) {
-      const page = await Promise.all(keys.map((key) => env.APPROVALS.get(key.name)));
-      for (const raw of page) {
-        if (raw === null) continue;
-        const approval = JSON.parse(raw) as ApprovalRequest;
-        if (statusFilter && approval.status !== statusFilter) continue;
-        if (agentIdFilter && approval.agentId !== agentIdFilter) continue;
-        approvals.push(approval);
-      }
-    }
-    if (!listResult.list_complete) {
-      cursor = listResult.cursor;
-    } else {
-      break;
-    }
+  const clauses = ['tenant_id = ?'];
+  const binds: string[] = [tenantId];
+  if (statusFilter === 'pending' || statusFilter === 'approved' || statusFilter === 'denied') {
+    clauses.push('status = ?');
+    binds.push(statusFilter);
+  }
+  if (agentIdFilter !== null && agentIdFilter !== '') {
+    clauses.push('agent_id = ?');
+    binds.push(agentIdFilter);
   }
 
-  return corsJson({ approvals }, env);
+  const result = await env.DB.prepare(
+    `SELECT * FROM approvals WHERE ${clauses.join(' AND ')} ORDER BY created_at DESC LIMIT 100`,
+  )
+    .bind(...binds)
+    .all<ApprovalRow>();
+
+  return corsJson({ approvals: result.results.map(rowToApproval) }, env);
 }
 
-async function handleGetApproval(id: string, env: WorkerEnv): Promise<Response> {
-  const raw = await env.APPROVALS.get(`approval:${id}`);
-  if (raw === null) {
+async function handleGetApproval(
+  id: string,
+  env: WorkerEnv,
+  tenantId: string,
+): Promise<Response> {
+  const row = await env.DB.prepare('SELECT * FROM approvals WHERE tenant_id = ? AND id = ?')
+    .bind(tenantId, id)
+    .first<ApprovalRow>();
+  if (row === null) {
     return corsError('Approval not found', 404, env);
   }
-  return corsJson(JSON.parse(raw), env);
+  return corsJson(rowToApproval(row), env);
 }
 
-async function handleCreateApproval(request: Request, env: WorkerEnv): Promise<Response> {
+async function handleCreateApproval(
+  request: Request,
+  env: WorkerEnv,
+  tenantId: string,
+): Promise<Response> {
   let body: Record<string, unknown>;
   try {
     body = (await request.json()) as Record<string, unknown>;
@@ -1578,9 +1653,8 @@ async function handleCreateApproval(request: Request, env: WorkerEnv): Promise<R
     return corsError('Missing required fields: agentId, toolName', 400, env);
   }
 
-  const id = crypto.randomUUID();
   const approval: ApprovalRequest = {
-    id,
+    id: crypto.randomUUID(),
     agentId,
     toolName,
     input: input ?? {},
@@ -1588,11 +1662,32 @@ async function handleCreateApproval(request: Request, env: WorkerEnv): Promise<R
     createdAt: new Date().toISOString(),
   };
 
-  await env.APPROVALS.put(`approval:${id}`, JSON.stringify(approval));
+  await env.DB.batch([
+    env.DB.prepare(
+      'INSERT OR IGNORE INTO tenants (tenant_id, name, plan, created_at) VALUES (?, ?, ?, ?)',
+    ).bind(tenantId, tenantId, 'pilot', approval.createdAt),
+    env.DB.prepare(
+      `INSERT INTO approvals (id, tenant_id, agent_id, tool_name, input, status, created_at)
+       VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
+    ).bind(
+      approval.id,
+      tenantId,
+      approval.agentId,
+      approval.toolName,
+      JSON.stringify(approval.input),
+      approval.createdAt,
+    ),
+  ]);
+
   return corsJson(approval, env, 201);
 }
 
-async function handleApprovalDecision(id: string, request: Request, env: WorkerEnv): Promise<Response> {
+async function handleApprovalDecision(
+  id: string,
+  request: Request,
+  env: WorkerEnv,
+  tenantId: string,
+): Promise<Response> {
   let body: Record<string, unknown>;
   try {
     body = (await request.json()) as Record<string, unknown>;
@@ -1609,25 +1704,16 @@ async function handleApprovalDecision(id: string, request: Request, env: WorkerE
     return corsError('Missing or invalid field: decision (must be "approved" or "denied")', 400, env);
   }
 
-  const raw = await env.APPROVALS.get(`approval:${id}`);
-  if (raw === null) {
+  const decided = await transitionApproval(env, tenantId, id, decision, reason);
+  if (decided !== null) {
+    return corsJson(decided, env);
+  }
+
+  const failure = await approvalDecisionFailure(env, tenantId, id);
+  if (failure === 'not_found') {
     return corsError('Approval not found', 404, env);
   }
-
-  const approval = JSON.parse(raw) as ApprovalRequest;
-  if (approval.status !== 'pending') {
-    return corsError('Approval already decided', 409, env);
-  }
-
-  approval.status = decision;
-  approval.decidedAt = new Date().toISOString();
-  approval.decidedBy = 'api';
-  if (reason) {
-    approval.reason = reason;
-  }
-
-  await env.APPROVALS.put(`approval:${id}`, JSON.stringify(approval));
-  return corsJson(approval, env);
+  return corsError('Approval already decided', 409, env);
 }
 
 interface BatchDecisionItem {
@@ -1642,7 +1728,16 @@ interface BatchResultItem {
   body: unknown;
 }
 
-async function handleBatchDecision(request: Request, env: WorkerEnv): Promise<Response> {
+/**
+ * Batch decisions are **best-effort per item**: each item is transitioned
+ * independently via the same conditional UPDATE, so a duplicate id in one
+ * batch transitions only once (the second item gets 409).
+ */
+async function handleBatchDecision(
+  request: Request,
+  env: WorkerEnv,
+  tenantId: string,
+): Promise<Response> {
   let body: Record<string, unknown>;
   try {
     body = (await request.json()) as Record<string, unknown>;
@@ -1667,27 +1762,18 @@ async function handleBatchDecision(request: Request, env: WorkerEnv): Promise<Re
       continue;
     }
 
-    const raw = await env.APPROVALS.get(`approval:${item.id}`);
-    if (raw === null) {
-      results.push({ id: item.id, status: 404, body: { error: 'Approval not found' } });
+    const decided = await transitionApproval(env, tenantId, item.id, item.decision, item.reason);
+    if (decided !== null) {
+      results.push({ id: item.id, status: 200, body: decided });
       continue;
     }
 
-    const approval = JSON.parse(raw) as ApprovalRequest;
-    if (approval.status !== 'pending') {
-      results.push({ id: item.id, status: 409, body: { error: 'Approval already decided' } });
-      continue;
-    }
-
-    approval.status = item.decision;
-    approval.decidedAt = new Date().toISOString();
-    approval.decidedBy = 'api';
-    if (item.reason) {
-      approval.reason = item.reason;
-    }
-
-    await env.APPROVALS.put(`approval:${item.id}`, JSON.stringify(approval));
-    results.push({ id: item.id, status: 200, body: approval });
+    const failure = await approvalDecisionFailure(env, tenantId, item.id);
+    results.push({
+      id: item.id,
+      status: failure === 'not_found' ? 404 : 409,
+      body: { error: failure === 'not_found' ? 'Approval not found' : 'Approval already decided' },
+    });
   }
 
   return corsJson({ results }, env, 207);
@@ -1819,43 +1905,58 @@ async function handleFetch(request: Request, env: WorkerEnv): Promise<Response> 
   }
 
   // --- Approvals API ---
+  // Approval reads embed tool `input` payloads and decisions are human
+  // decisions, so every approvals surface requires an authenticated tenant.
 
   // GET /api/v1/approvals
   if (method === 'GET' && pathname === '/api/v1/approvals') {
-    // Approval requests embed the tool `input` payloads — same trust level as
-    // the decision endpoints, so the read is protected when auth is enabled.
-    if (!(await checkAuth(request, env))) return corsError('Unauthorized', 401, env);
-    return handleListApprovals(url, env);
+    const principal = await resolvePrincipal(request, env);
+    if (!principal.authenticated || principal.tenantId === null) {
+      return corsError('Unauthorized', 401, env);
+    }
+    return handleListApprovals(url, env, principal.tenantId);
   }
 
   // POST /api/v1/approvals
   if (method === 'POST' && pathname === '/api/v1/approvals') {
-    if (!(await checkAuth(request, env))) return corsError('Unauthorized', 401, env);
-    return handleCreateApproval(request, env);
+    const principal = await resolvePrincipal(request, env);
+    if (!principal.authenticated || principal.tenantId === null) {
+      return corsError('Unauthorized', 401, env);
+    }
+    return handleCreateApproval(request, env, principal.tenantId);
   }
 
   // POST /api/v1/approvals/batch
   if (method === 'POST' && pathname === '/api/v1/approvals/batch') {
-    if (!(await checkAuth(request, env))) return corsError('Unauthorized', 401, env);
-    return handleBatchDecision(request, env);
+    const principal = await resolvePrincipal(request, env);
+    if (!principal.authenticated || principal.tenantId === null) {
+      return corsError('Unauthorized', 401, env);
+    }
+    return handleBatchDecision(request, env, principal.tenantId);
   }
 
   // GET /api/v1/approvals/:id
   const approvalGetMatch = matchRoute(pathname, /^\/api\/v1\/approvals\/([^/]+)$/);
   if (approvalGetMatch !== null && method === 'GET') {
-    if (!(await checkAuth(request, env))) return corsError('Unauthorized', 401, env);
+    const principal = await resolvePrincipal(request, env);
+    if (!principal.authenticated || principal.tenantId === null) {
+      return corsError('Unauthorized', 401, env);
+    }
     const approvalId = approvalGetMatch[1];
     if (approvalId === undefined) return corsError('Bad route', 400, env);
-    return handleGetApproval(approvalId, env);
+    return handleGetApproval(approvalId, env, principal.tenantId);
   }
 
   // POST /api/v1/approvals/:id/decision
   const approvalDecisionMatch = matchRoute(pathname, /^\/api\/v1\/approvals\/([^/]+)\/decision$/);
   if (approvalDecisionMatch !== null && method === 'POST') {
-    if (!(await checkAuth(request, env))) return corsError('Unauthorized', 401, env);
+    const principal = await resolvePrincipal(request, env);
+    if (!principal.authenticated || principal.tenantId === null) {
+      return corsError('Unauthorized', 401, env);
+    }
     const approvalId = approvalDecisionMatch[1];
     if (approvalId === undefined) return corsError('Bad route', 400, env);
-    return handleApprovalDecision(approvalId, request, env);
+    return handleApprovalDecision(approvalId, request, env, principal.tenantId);
   }
 
   // GET /r/:reportId — public short link for QR code scan
