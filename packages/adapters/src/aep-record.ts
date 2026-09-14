@@ -79,11 +79,32 @@ function validateEvents(events: CanonicalEvent[]): void {
 // ---------------------------------------------------------------------------
 
 /**
+ * Explicit serialization target for the lossy inverse adapter. Only the legacy
+ * aep/v0.2 projection is supported; the caller must name it — there is no
+ * default, so a v0.2 downgrade can never happen silently.
+ */
+export type LegacyAepTargetVersion = 'aep/v0.2';
+
+/**
  * Convert an array of CanonicalEvents (all sharing the same run_id) into a
  * reconstructed aep/v0.2 projection. The output is a legacy reconstruction,
  * not a validly-signed record — see the module doc for the compliance boundary.
+ *
+ * `targetVersion` is required (OAA-4): serialization must be an explicit,
+ * auditable choice, and only the legacy `aep/v0.2` target is offered here.
+ * Current (aep/v0.5) output requires re-signing through the real DSSE path.
  */
-export function fromCanonicalEventsLegacyV02(events: CanonicalEvent[]): AEPRecordInput {
+export function fromCanonicalEventsLegacyV02(
+  targetVersion: LegacyAepTargetVersion,
+  events: CanonicalEvent[],
+): AEPRecordInput {
+  if (targetVersion !== 'aep/v0.2') {
+    throw new Error(
+      `aep-record adapter: unsupported target version "${targetVersion}". ` +
+        'Only the legacy aep/v0.2 projection is produced here; current AEP ' +
+        'output must be reconstructed and re-signed through the DSSE path.',
+    );
+  }
   validateEvents(events);
 
   const runId = events[0]!.run_id;
@@ -202,7 +223,7 @@ export function fromCanonicalEventsLegacyV02(events: CanonicalEvent[]): AEPRecor
 
   // -- Assemble AEPRecordInput --------------------------------------------
   const record: AEPRecordInput = {
-    schema_version: 'aep/v0.2',
+    schema_version: targetVersion,
     run_id: runId,
     model_id: modelId,
     run_context: { agent_id: agentId },
@@ -222,12 +243,11 @@ export function fromCanonicalEventsLegacyV02(events: CanonicalEvent[]): AEPRecor
 }
 
 /**
- * @deprecated Lossy legacy aep/v0.2 reconstruction. Renamed to
- * `fromCanonicalEventsLegacyV02`; the old name remains for compatibility but
- * the output must be treated as a legacy projection only — never as a
- * validly-signed or current-schemaversion record.
+ * NOTE (OAA-4): there is intentionally no generic `fromCanonicalEvents`
+ * alias. A generic name silently produced an aep/v0.2 downgrade; callers must
+ * invoke `fromCanonicalEventsLegacyV02('aep/v0.2', events)` so the legacy
+ * projection is explicit at every call site.
  */
-export const fromCanonicalEvents = fromCanonicalEventsLegacyV02;
 
 export const id = 'aep-record' as const;
 export const version = '0.1.0' as const;

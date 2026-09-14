@@ -96,7 +96,7 @@ export interface CanonicalEvent {
   human_approval?: boolean;
 }
 
-/** aep/v0.5 attribution grading (canonical wasmagent-protocol 0.1.9).
+/** aep/v0.5 attribution grading (canonical wasmagent-protocol 0.1.10).
  *  All fields optional — present only when the upstream record carries them. */
 export interface AttributionGrading {
   user_id?: string;
@@ -125,6 +125,10 @@ export interface AttributionGrading {
   run_attribution_backing_observed?: Array<
     'operator_asserted' | 'principal_key_signed' | 'qualified_signature' | 'unknown'
   >;
+  /** v0.5 selective-omission defense (canonical wasmagent-protocol 0.1.10).
+   *  Number of authorization evidence items the producer attests to; preserved
+   *  verbatim so downstream can detect omitted evidence. */
+  authorization_evidence_count?: number;
 }
 
 export interface AuditRun {
@@ -292,6 +296,35 @@ export const AuditRunSchema = z.object({
   source_adapter: z.string().optional(),
   profiles: z.array(z.string()).optional(),
   engine_version: z.string().optional(),
+  // aep/v0.5 attribution grading — must survive schema validation verbatim.
+  attribution: z
+    .object({
+      user_id: z.string().optional(),
+      authorized_by: z.string().optional(),
+      authority_origin: z
+        .enum(['subject_consented', 'administrator_assigned', 'organization_wide', 'unknown'])
+        .optional(),
+      identity_source: z
+        .enum([
+          'self_asserted',
+          'organization_attested',
+          'notified_eid',
+          'qualified_certificate',
+          'unknown',
+        ])
+        .optional(),
+      attribution_backing: z
+        .enum(['operator_asserted', 'principal_key_signed', 'qualified_signature', 'unknown'])
+        .optional(),
+      run_attribution_backing_floor: z
+        .enum(['operator_asserted', 'principal_key_signed', 'qualified_signature', 'unknown'])
+        .optional(),
+      run_attribution_backing_observed: z
+        .array(z.enum(['operator_asserted', 'principal_key_signed', 'qualified_signature', 'unknown']))
+        .optional(),
+      authorization_evidence_count: z.number().optional(),
+    })
+    .optional(),
 });
 
 export const FindingSchema = z.object({

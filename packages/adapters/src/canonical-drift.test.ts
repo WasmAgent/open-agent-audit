@@ -8,6 +8,7 @@ import {
   scan,
 } from '@wasmagent/protocol';
 import { join } from 'node:path';
+import { AEP_RECORD_INPUT_KEYS, SUPPORTED_AEP_VERSIONS } from './aep-v0_2.js';
 
 /**
  * OAA-3 — canonical contract drift gate.
@@ -75,5 +76,25 @@ describe('canonical contract drift gate (OAA-3)', () => {
     const a = normalizeSchema(JSON.stringify(schema));
     const b = normalizeSchema(JSON.parse(JSON.stringify(schema)));
     expect(a).toBe(b);
+  });
+
+  it('local AEPRecordInput projection declares no field absent from canonical', () => {
+    // OAA-3/OAA-05: the local TS mirror is a guarded projection. Any field it
+    // declares must exist in the canonical aep-record schema — inventing or
+    // retaining an upstream-removed field fails this gate.
+    const schema = getSchema('aep-record') as { properties?: Record<string, unknown> };
+    const canonicalProps = new Set(Object.keys(schema.properties ?? {}));
+    const invented = Object.keys(AEP_RECORD_INPUT_KEYS).filter((k) => !canonicalProps.has(k));
+    expect(invented).toEqual([]);
+  });
+
+  it('SUPPORTED_AEP_VERSIONS is a subset of the canonical schema_version enum', () => {
+    const schema = getSchema('aep-record') as {
+      properties?: { schema_version?: { enum?: string[] } };
+    };
+    const canonical = new Set(schema.properties?.schema_version?.enum ?? []);
+    expect(canonical.size).toBeGreaterThan(0);
+    const unsupported = [...SUPPORTED_AEP_VERSIONS].filter((v) => !canonical.has(v));
+    expect(unsupported).toEqual([]);
   });
 });

@@ -433,11 +433,22 @@ export async function validate(
     for (const e of events) {
       if (e.evidence?.signature === undefined) continue;
 
-      // If attestation_format is 'dsse' and dsse_pre_verified is true,
-      // skip legacy signature verification — the DSSE envelope was already
-      // verified by the emitter before producing this event.
-      if (e.evidence.attestation_format === 'dsse' && e.evidence.dsse_pre_verified === true) {
-        signatures_verified++;
+      // OAA-5: DSSE metadata must not be falsely upgraded. The legacy
+      // Ed25519 check verifies a signature over the event content, which is
+      // not what a DSSE envelope signature covers. Only count a DSSE event as
+      // verified when the emitter explicitly attests pre-verification;
+      // otherwise record it as unverified rather than reusing the legacy path
+      // (which would raise a spurious signature failure).
+      if (e.evidence.attestation_format === 'dsse') {
+        if (e.evidence.dsse_pre_verified === true) {
+          signatures_verified++;
+        } else {
+          warnings.push({
+            event_id: e.event_id ?? '',
+            path: 'evidence.signature',
+            message: `DSSE envelope signature for event '${e.event_id}' was not verified by this pass (no pre-verification attestation present).`,
+          });
+        }
         continue;
       }
 
