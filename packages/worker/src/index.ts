@@ -1974,6 +1974,19 @@ async function handleFetch(request: Request, env: WorkerEnv): Promise<Response> 
  * Shared helper: upsert an audit run and batch-insert its findings into D1.
  * Called from both handlePostRun (direct upload) and processAuditJob (queue).
  */
+/**
+ * Tenant-namespaced surrogate id for the implicit "default" project.
+ *
+ * `project_id` is globally unique (it is referenced by a plain FK from
+ * `audit_runs`), so the raw slug `"default"` cannot be shared across tenants:
+ * the first tenant to create it would silently own it for everyone
+ * (N2-P0-01). Namespacing by tenant keeps `projects` collision-free while the
+ * `UNIQUE(tenant_id, name)` constraint keeps slugs unique *within* a tenant.
+ */
+export function defaultProjectId(tenantId: string): string {
+  return `${tenantId}:default`;
+}
+
 async function writeRunToD1(
   env: WorkerEnv,
   run_id: string,
@@ -1991,14 +2004,16 @@ async function writeRunToD1(
   // column); consumers derive it from the EAS if needed.
   const arsScore = score.agent_risk_score.score;
 
-  // Ensure the tenant and default project exist (single-tenant deployments use 'default').
+  // Ensure the tenant and its default project exist. The project id is
+  // tenant-namespaced so two tenants can each own a project named "default".
+  const projectId = defaultProjectId(tenant_id);
   await env.DB.batch([
     env.DB.prepare(
       'INSERT OR IGNORE INTO tenants (tenant_id, name, plan, created_at) VALUES (?, ?, ?, ?)',
     ).bind(tenant_id, tenant_id, 'pilot', completedAt),
     env.DB.prepare(
       'INSERT OR IGNORE INTO projects (project_id, tenant_id, name, created_at) VALUES (?, ?, ?, ?)',
-    ).bind('default', tenant_id, 'default', completedAt),
+    ).bind(projectId, tenant_id, 'default', completedAt),
   ]);
 
   await env.DB.prepare(
@@ -2018,7 +2033,7 @@ async function writeRunToD1(
     .bind(
       run_id,
       tenant_id,
-      'default',
+      projectId,
       'completed',
       inputFormat,
       'open-agent-audit/v0.1',

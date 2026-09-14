@@ -7,6 +7,7 @@ import { Database } from 'bun:sqlite';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { WorkerEnv } from '../src/index.js';
+import { defaultProjectId } from '../src/index.js';
 
 // ---------------------------------------------------------------------------
 // D1 (SQLite)
@@ -68,7 +69,7 @@ export class SqliteD1 {
   }
 
   async exec(sql: string): Promise<void> {
-    this.db.run(sql);
+    this.db.exec(sql);
   }
 
   /** Convenience for seeding test fixtures. */
@@ -235,7 +236,7 @@ export function seedRun(env: WorkerEnv, options: SeedRunOptions): void {
   const {
     runId,
     tenantId,
-    projectId = 'default',
+    projectId = defaultProjectId(tenantId),
     riskScore = 50,
     eas = 70,
     findingCount = 0,
