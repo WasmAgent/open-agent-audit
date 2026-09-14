@@ -25,12 +25,29 @@ Storage bindings (R2, D1, Queues, Durable Objects) are injected via `WorkerEnv`.
 - **JSONL** (`CanonicalEvent` records, one per line) — standard OAA format. Lines
   that cannot be parsed as JSON generate an `OAA-P-001` finding instead of being
   silently dropped.
-- **AEP JSON** (a single `AEPRecord` with `schema_version: "aep/v0.2"`) — the worker
-  auto-detects this format, converts via the adapter, and extracts run-provenance
-  for scoring and report rendering. No pre-conversion needed.
+- **AEP JSON** (a single `AEPRecord`) — the worker auto-detects `schema_version`
+  values `aep/v0.1` through `aep/v0.5`, converts via the adapter, and extracts
+  run-provenance for scoring and report rendering. No pre-conversion needed.
+
+**Current supported contract: `aep/v0.5`.** Legacy `aep/v0.2` documents are
+handled through the explicit legacy adapter path; they are never silently
+normalized or "inverse-downgraded" to the current contract.
 
 Every direct `POST /api/v1/runs` response immediately writes the run metadata and
 findings to D1, so the run appears in `GET /api/v1/runs` without delay.
+
+### Contract layers — do not conflate
+
+Upload parsing and adapter conversion prove **parsing** only. They do not by
+themselves prove:
+
+- **semantic conformance** — canonical schema/contract validation of the record,
+- **authenticity / DSSE** — verification of signatures or an in-toto/DSSE envelope,
+- **capture completeness** — that the trace contains every event the runtime was
+  expected to emit.
+
+Each layer is reported independently; a successful upload must not be read as
+proof of the others.
 
 ## Engine notes
 
@@ -60,10 +77,13 @@ HTTP / Queue message
 | `RAW_TRACES` | R2 | Incoming trace uploads |
 | `ARTIFACTS` | R2 | Intermediate engine artifacts |
 | `REPORTS` | R2 | Final audit report bundles |
-| `DB` | D1 | Run / finding / evidence metadata |
+| `DB` | D1 | Runs, findings, projects, **approvals**, evidence metadata |
+| `PASSPORTS` | KV | Signed passports and external revocation records |
+| `APPROVALS` | KV | **Deprecated** — approval state now lives in D1 (`approvals` table) |
 | `AUDIT_JOBS` | Queue | Async audit job dispatch |
 | `AUDIT_RUN_COORDINATOR` | DO | Per-run state coordination |
 | `TENANT_LIMITER` | DO | Per-tenant rate limiting |
+| `ALERT_GATEKEEPER` | DO (optional) | Alert de-duplication / rate cap |
 
 ## Environment vars (wrangler.jsonc `vars`)
 
@@ -76,7 +96,21 @@ HTTP / Queue message
 | `ISSUER_EMAIL` | yes | — | Contact email in reports and 404 pages |
 | `PUBLIC_URL` | yes | — | Base URL for QR code links and report permalinks |
 | `CORS_ORIGIN` | no | `*` | Allowed CORS origin (e.g. `https://app.example.com`); defaults to wildcard |
-| `API_KEY` | no | (unset) | Bearer token required on POST /api/v1/runs; omit to run in open/demo mode |
+| `API_KEY` | no | (unset) | Shared secret for write/decision endpoints and the org risk rollup. Unset + `OAA_ENV=production` **fails closed** |
+| `TENANT_ID` | no | `default` | Tenant this single-tenant deployment serves. Never taken from a request header |
+| `TENANT_API_KEYS` | no | (unset) | JSON `{ "<key>": "<tenant>" }` map. When set, every tenant surface requires a Bearer key and the key selects the tenant |
+| `REPORT_VISIBILITY` | no | `public` | `private` requires the Bearer key on `/r/:id` report links |
+
+### Authentication and tenant isolation
+
+Tenant identity is resolved **only** from authentication material — never from
+`X-Tenant-Id` or a query parameter. In single-tenant mode, list/detail/report and
+dashboard reads are deliberately public (the same-origin SPA renders them) and
+are always scoped to `TENANT_ID`; writes, approval decisions, passport
+issue/revoke/renew and `GET /api/v1/dashboard/org-risk-rollup` require the key.
+In multi-tenant mode (`TENANT_API_KEYS`) every tenant surface requires a key. A
+production deployment with no auth material fails closed (`401`, and `/health`
+reports `auth_mode: fail_closed`).
 
 ## References
 
