@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "wasmagent-runtime-release-provenance/v1",
+  "title": "WasmAgent runtime release provenance (R4)",
+  "type": "object",
+  "required": ["format", "source", "build", "deployment", "runtime", "verdict", "observed_at"],
+  "additionalProperties": false,
+  "properties": {
+    "format": { "const": "wasmagent-runtime-release-provenance/v1" },
+    "source": {
+      "type": "object",
+      "required": ["repository", "sha"],
+      "additionalProperties": false,
+      "properties": {
+        "repository": { "type": "string", "minLength": 3 },
+        "sha": { "$ref": "#/$defs/gitSha" }
+      }
+    },
+    "build": {
+      "type": "object",
+      "required": ["workflow_sha", "workflow_run", "lockfile_sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "workflow_sha": { "$ref": "#/$defs/gitSha" },
+        "workflow_run": { "type": "string", "pattern": "^[0-9]+$" },
+        "lockfile_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "deployment": {
+      "type": "object",
+      "required": ["provider", "target", "version_id"],
+      "additionalProperties": false,
+      "properties": {
+        "provider": { "const": "cloudflare-workers" },
+        "target": { "type": "string", "minLength": 1 },
+        "version_id": { "$ref": "#/$defs/uuid" }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "required": ["observed_live_sha", "r0_artifact_sha256", "r1_artifact_sha256", "r0_verdict", "r1_verdict"],
+      "additionalProperties": false,
+      "properties": {
+        "observed_live_sha": { "$ref": "#/$defs/gitSha" },
+        "r0_artifact_sha256": { "$ref": "#/$defs/sha256" },
+        "r1_artifact_sha256": { "$ref": "#/$defs/sha256" },
+        "r0_verdict": { "enum": ["pass", "fail", "not_run"] },
+        "r1_verdict": { "enum": ["pass", "fail", "partial", "not_run"] }
+      }
+    },
+    "verdict": { "enum": ["pass", "fail"] },
+    "observed_at": { "$ref": "#/$defs/isoTimestamp" }
+  },
+  "$defs": {
+    "gitSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "isoTimestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$"
+    }
+  }
+}
