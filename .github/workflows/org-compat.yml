@@ -49,7 +49,7 @@ jobs:
     name: Org compat (open-agent-audit, internal)
     needs: changes
     if: needs.changes.outputs.relevant == 'true'
-    uses: WasmAgent/.github/.github/workflows/reusable-compat-check.yml@13bcca67098052c9591353127fac39800cd9876c
+    uses: WasmAgent/.github/.github/workflows/reusable-compat-check.yml@61fcf0ba801bcc5b8b70eff35ad52398870cca84
     with:
       repo: open-agent-audit
       candidate_sha: ${{ github.event.pull_request.head.sha || github.sha }}
