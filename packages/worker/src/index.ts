@@ -33,7 +33,7 @@ import type {
   ResolvedRetentionPolicy,
   RetentionCandidate,
 } from '@openagentaudit/core';
-import { createRevocationRecord, issue, verifyPassportLayers } from '@openagentaudit/passport';
+import { createRevocationRecord, issue, renew, verifyPassportLayers } from '@openagentaudit/passport';
 import type { TrustPassport, TrustPassportRevocation } from '@openagentaudit/passport';
 import { validateEvents } from '@openagentaudit/schema';
 import type { CanonicalEvent, Finding, RiskScore } from '@openagentaudit/schema';
@@ -1319,26 +1319,49 @@ async function handlePostRun(
   );
 }
 
+function reportNotFound(runId: string, env: WorkerEnv): Response {
+  const issuerEmail = env.ISSUER_EMAIL;
+  const issuerName = env.ISSUER_NAME;
+  const publicUrl = env.PUBLIC_URL;
+  return new Response(
+    `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Report Not Found — ${issuerName}</title><style>body{font-family:sans-serif;max-width:520px;margin:80px auto;text-align:center;color:#374151;padding:0 20px}h1{color:#4f46e5;font-size:1.6rem;margin-bottom:8px}p{color:#6b7280;margin:8px 0}a{color:#4f46e5;text-decoration:none}a:hover{text-decoration:underline}code{background:#f3f4f6;padding:2px 6px;border-radius:4px;font-size:.85em}</style></head><body><h1>OpenAgentAudit</h1><p>Report <code>${runId.slice(0, 8)}…</code> was not found.</p><p>It may have expired or the ID may be incorrect.</p><p>Contact: <a href="mailto:${issuerEmail}">${issuerEmail}</a></p><p style="margin-top:24px"><a href="${publicUrl}/">← Go to ${issuerName}</a></p></body></html>`,
+    { status: 404, headers: { 'content-type': 'text/html; charset=utf-8' } },
+  );
+}
+
 async function handlePublicReportLink(
   runId: string,
   env: WorkerEnv,
   request: Request,
 ): Promise<Response> {
+  const principal = await resolvePrincipal(request, env);
+  const multiTenant = isMultiTenantConfigured(env);
   const isPrivate = (env.REPORT_VISIBILITY ?? 'public') === 'private';
-  if (isPrivate && !(await checkAuth(request, env))) {
+
+  if (multiTenant) {
+    // A public short link must never cross the tenant boundary. In multi-tenant
+    // deployments a valid key is required and the run must belong to the key's
+    // tenant before any R2 object is served (N3-P0-01). The raw run id is not
+    // an authorization token.
+    if (!principal.authenticated || principal.tenantId === null) {
+      return new Response('Unauthorized', { status: 401 });
+    }
+    const row = await env.DB.prepare('SELECT tenant_id FROM audit_runs WHERE run_id = ?')
+      .bind(runId)
+      .first<{ tenant_id: string }>();
+    if (row === null || row.tenant_id !== principal.tenantId) {
+      // 404 (not 403) avoids disclosing cross-tenant run existence.
+      return reportNotFound(runId, env);
+    }
+  } else if (isPrivate && !principal.authenticated) {
     return new Response('Unauthorized', { status: 401 });
   }
-  const issuerEmail = env.ISSUER_EMAIL;
-  const issuerName = env.ISSUER_NAME;
-  const publicUrl = env.PUBLIC_URL;
+
   const key = `runs/${runId}/report.html`;
   const object = await env.REPORTS.get(key);
 
   if (object === null) {
-    return new Response(
-      `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Report Not Found — ${issuerName}</title><style>body{font-family:sans-serif;max-width:520px;margin:80px auto;text-align:center;color:#374151;padding:0 20px}h1{color:#4f46e5;font-size:1.6rem;margin-bottom:8px}p{color:#6b7280;margin:8px 0}a{color:#4f46e5;text-decoration:none}a:hover{text-decoration:underline}code{background:#f3f4f6;padding:2px 6px;border-radius:4px;font-size:.85em}</style></head><body><h1>OpenAgentAudit</h1><p>Report <code>${runId.slice(0, 8)}…</code> was not found.</p><p>It may have expired or the ID may be incorrect.</p><p>Contact: <a href="mailto:${issuerEmail}">${issuerEmail}</a></p><p style="margin-top:24px"><a href="${publicUrl}/">← Go to ${issuerName}</a></p></body></html>`,
-      { status: 404, headers: { 'content-type': 'text/html; charset=utf-8' } },
-    );
+    return reportNotFound(runId, env);
   }
 
   return new Response(object.body, {
@@ -1459,7 +1482,13 @@ async function handlePassportStatus(passportId: string, env: WorkerEnv): Promise
 
   const passport = JSON.parse(raw) as TrustPassport;
   const revocation = await readRevocation(env, passportId);
-  const verification = await verifyPassportLayers({ passport, revocation });
+  // The Worker owns the status registry: an unsigned record stored here is
+  // authoritative, so the registry is explicitly marked trusted (N3-P1-07).
+  const verification = await verifyPassportLayers({
+    passport,
+    revocation,
+    revocationSourceTrusted: true,
+  });
 
   // Summary kept for backward compatibility with the previous `status` field.
   const expiresMs = Date.parse(passport.validity.expires_at);
@@ -1516,22 +1545,16 @@ async function handlePassportRenew(
     (body.validityDays as number | undefined) ??
     Math.round(originalDurationMs / (24 * 60 * 60 * 1000));
 
-  const now = new Date();
-  const newExpiresAt = new Date(now.getTime() + extensionDays * 24 * 60 * 60 * 1000);
+  // Renewal mints a *new* immutable issuance (new id, lineage, fresh
+  // attestation). It never mutates the signed passport in place (N3-P1-08).
+  let renewed: TrustPassport;
+  try {
+    renewed = (await renew({ passport, validityDays: extensionDays })) as TrustPassport;
+  } catch (err) {
+    return corsError(err instanceof Error ? err.message : 'Renewal failed', 409, env);
+  }
 
-  const currentRenewalCount = passport.validity.renewal_count ?? 0;
-
-  const renewed: TrustPassport = {
-    ...passport,
-    validity: {
-      ...passport.validity,
-      expires_at: newExpiresAt.toISOString(),
-      renewed_at: now.toISOString(),
-      renewal_count: currentRenewalCount + 1,
-    },
-  };
-
-  await env.PASSPORTS.put(passportId, JSON.stringify(renewed));
+  await env.PASSPORTS.put(renewed.identity.passport_id, JSON.stringify(renewed));
 
   return corsJson(renewed, env);
 }

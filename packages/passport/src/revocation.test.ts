@@ -4,6 +4,7 @@ import { sha512 } from '@noble/hashes/sha2.js';
 import {
   createRevocationRecord,
   issue,
+  renew,
   signPassport,
   verifyPassportLayers,
   verifyRevocation,
@@ -151,5 +152,89 @@ describe('N2-PP — passport revocation separates from issuance (N2-P1-01)', () 
 
     const layers = await verifyPassportLayers({ passport, publicKey, revocation });
     expect(layers.status_freshness).toBe('stale');
+  });
+});
+
+describe('N3-PP — canonical issuance binding + authenticity semantics', () => {
+  test('N3-PP-09 revoke A then verify against B is invalid/unknown', async () => {
+    const { signer, publicKey } = await createTestSigner();
+    const passportA = (await issue({ report: MOCK_REPORT, agentId: 'agent-a', signer })) as SignedPassport;
+    const passportB = (await issue({ report: MOCK_REPORT, agentId: 'agent-b', signer })) as SignedPassport;
+    const revocation = await createRevocationRecord({ passport: passportA, reason: 'x', signer });
+
+    const layers = await verifyPassportLayers({ passport: passportB, publicKey, revocation });
+    expect(layers.revocation_authenticity).toBe('invalid');
+    expect(layers.revocation_status).toBe('unknown');
+  });
+
+  test('N3-PP-10 mutating B.attestation.passport_hash cannot bind A revocation to B', async () => {
+    const { signer, publicKey } = await createTestSigner();
+    const passportA = (await issue({ report: MOCK_REPORT, agentId: 'agent-a', signer })) as SignedPassport;
+    const passportB = (await issue({ report: MOCK_REPORT, agentId: 'agent-b', signer })) as SignedPassport;
+    const revocation = await createRevocationRecord({ passport: passportA, reason: 'x', signer });
+
+    // The attestation object is NOT part of the signed issuance payload, so an
+    // attacker can rewrite it freely — the verifier must recompute the digest.
+    if (revocation.passport_hash !== undefined) {
+      passportB.attestation.passport_hash = revocation.passport_hash;
+    }
+
+    const layers = await verifyPassportLayers({ passport: passportB, publicKey, revocation });
+    expect(layers.revocation_authenticity).toBe('invalid');
+    expect(layers.revocation_status).toBe('unknown');
+  });
+
+  test('N3-PP-11 signed revocation without canonical issuance digest fails closed', async () => {
+    const { signer, publicKey } = await createTestSigner();
+    const passport = (await issue({ report: MOCK_REPORT, agentId: 'agent-1', signer })) as SignedPassport;
+    const revocation = await createRevocationRecord({ passport, reason: 'x', signer });
+    const revocationNoHash = { ...revocation } as Record<string, unknown>;
+    delete revocationNoHash.passport_hash;
+
+    const layers = await verifyPassportLayers({
+      passport,
+      publicKey,
+      revocation: revocationNoHash as unknown as typeof revocation,
+    });
+    expect(layers.revocation_authenticity).toBe('invalid');
+    expect(layers.revocation_status).toBe('unknown');
+  });
+
+  test('N3-P1-07 unsigned issuance authenticity is not-present, not invalid', async () => {
+    const passport = await issue({ report: MOCK_REPORT, agentId: 'agent-1' });
+    const layers = await verifyPassportLayers({ passport });
+    expect(layers.issuance_authenticity).toBe('not-present');
+  });
+
+  test('N3-P1-07 unsigned revocation is unknown unless the registry is trusted', async () => {
+    const { passport, publicKey } = await signedPassport();
+    const revocation = await createRevocationRecord({ passport, reason: 'x' });
+
+    const untrusted = await verifyPassportLayers({ passport, publicKey, revocation });
+    expect(untrusted.revocation_authenticity).toBe('not-present');
+    expect(untrusted.revocation_status).toBe('unknown');
+
+    const trusted = await verifyPassportLayers({
+      passport,
+      publicKey,
+      revocation,
+      revocationSourceTrusted: true,
+    });
+    expect(trusted.revocation_status).toBe('revoked');
+  });
+
+  test('N3-P1-08 signed renewal mints a new signed issuance and refuses downgrade', async () => {
+    const { signer, publicKey } = await createTestSigner();
+    const passport = (await issue({ report: MOCK_REPORT, agentId: 'agent-1', signer })) as SignedPassport;
+
+    const renewed = (await renew({ passport, report: MOCK_REPORT, signer })) as SignedPassport;
+    expect(renewed.identity.passport_id).not.toBe(passport.identity.passport_id);
+    expect(renewed.identity.renewed_from).toBe(passport.identity.passport_id);
+    expect((await verifySignature(renewed, publicKey)).valid).toBe(true);
+
+    // The original signed issuance is untouched and still verifies.
+    expect((await verifySignature(passport, publicKey)).valid).toBe(true);
+
+    await expect(renew({ passport, report: MOCK_REPORT })).rejects.toThrow(/signed/);
   });
 });

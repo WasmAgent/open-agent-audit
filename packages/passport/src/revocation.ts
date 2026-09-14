@@ -10,7 +10,7 @@
  * (legacy) documents — see `revoke()` in lifecycle.ts.
  */
 import * as ed from '@noble/ed25519';
-import { canonicalize, verifySignatureOnly } from './sign.js';
+import { canonicalize, issuanceDigest, verifySignatureOnly } from './sign.js';
 import type { PassportSigner } from './sign.js';
 import type { TrustPassport } from './types.js';
 
@@ -37,7 +37,7 @@ export type StatusFreshness = 'current' | 'stale' | 'unknown';
 
 /** Layered verification result — never collapse to a single boolean. */
 export interface PassportVerificationLayers {
-  issuance_authenticity: 'valid' | 'invalid';
+  issuance_authenticity: LayerAuthenticity;
   revocation_status: RevocationStatus;
   revocation_authenticity: LayerAuthenticity;
   status_freshness: StatusFreshness;
@@ -84,9 +84,9 @@ export async function createRevocationRecord(
     effective_at: effectiveAt,
     sequence,
     issuer: options.issuer ?? passport.identity.issuer,
-    ...(passport.attestation?.passport_hash !== undefined
-      ? { passport_hash: passport.attestation.passport_hash }
-      : {}),
+    // Bind the record to the *canonical issuance payload* recomputed from the
+    // passport, never to the mutable attestation hash (N3-P1-06).
+    passport_hash: issuanceDigest(passport),
   };
 
   if (!signer) return record;
@@ -132,6 +132,12 @@ export interface VerifyLayersOptions {
   revocation?: TrustPassportRevocation | null;
   /** Reject records older than this sequence (replay guard). */
   expectedSequence?: number;
+  /**
+   * Mark the revocation/status source as a trusted registry. An unsigned
+   * revocation record is only authoritative when this is set; otherwise its
+   * status is reported `unknown` (N3-P1-07).
+   */
+  revocationSourceTrusted?: boolean;
   /** Revocation records older than this are reported `stale`. Default 24h. */
   maxStalenessMs?: number;
   /** Injectable clock for deterministic tests. */
@@ -147,18 +153,20 @@ export async function verifyPassportLayers(
   options: VerifyLayersOptions,
 ): Promise<PassportVerificationLayers> {
   const { passport, publicKey, revocation, expectedSequence } = options;
+  const revocationSourceTrusted = options.revocationSourceTrusted === true;
   const maxStalenessMs = options.maxStalenessMs ?? 24 * 60 * 60 * 1000;
   const now = options.now ?? Date.now();
 
   // Issuance authenticity: signature over the immutable issuance only. Expiry
   // and revocation are deliberately NOT folded in (expired != tampered).
-  let issuanceAuthenticity: 'valid' | 'invalid';
-  if (passport.attestation?.signing_method === 'ed25519' && publicKey) {
-    issuanceAuthenticity = (await verifySignatureOnly(passport, publicKey)).valid
-      ? 'valid'
-      : 'invalid';
+  // Absent signing is reported as `not-present`, never as `invalid`, so "no
+  // assertion" is not conflated with "assertion present but wrong" (N3-P1-07).
+  let issuanceAuthenticity: LayerAuthenticity;
+  if (passport.attestation?.signing_method === 'ed25519' && passport.attestation.signature) {
+    issuanceAuthenticity =
+      publicKey && (await verifySignatureOnly(passport, publicKey)).valid ? 'valid' : 'invalid';
   } else {
-    issuanceAuthenticity = 'invalid';
+    issuanceAuthenticity = 'not-present';
   }
 
   if (revocation === null || revocation === undefined) {
@@ -182,13 +190,21 @@ export async function verifyPassportLayers(
       : 'invalid';
   }
 
-  // Bind the record to this issuance when both carry a passport hash.
-  const issuedHash = passport.attestation?.passport_hash;
-  if (
-    revocation.passport_hash !== undefined &&
-    issuedHash !== undefined &&
-    revocation.passport_hash !== issuedHash
-  ) {
+  // Identity binding: the record must revoke *this* passport.
+  if (revocation.passport_id !== passport.identity.passport_id) {
+    revocationAuthenticity = 'invalid';
+  }
+
+  // Canonical issuance-digest binding: recompute the digest from the passport
+  // (attestation is mutable and unsigned) and require the record to match it.
+  const digest = issuanceDigest(passport);
+  const hasDigest = revocation.passport_hash !== undefined;
+  if (hasDigest && revocation.passport_hash !== digest) {
+    revocationAuthenticity = 'invalid';
+  }
+  // A signed status record must carry the canonical issuance digest; otherwise
+  // it is not bound to the issuance and must fail closed (N3-PP-11).
+  if (revocation.signature && !hasDigest) {
     revocationAuthenticity = 'invalid';
   }
 
@@ -197,8 +213,12 @@ export async function verifyPassportLayers(
     revocationAuthenticity = 'invalid';
   }
 
+  // Unsigned status is only authoritative when the caller marks the registry /
+  // status source as trusted; otherwise the status is unknown (N3-P1-07).
   let revocationStatus: RevocationStatus;
   if (revocationAuthenticity === 'invalid') {
+    revocationStatus = 'unknown';
+  } else if (revocationAuthenticity === 'not-present' && !revocationSourceTrusted) {
     revocationStatus = 'unknown';
   } else if (revocation.status === 'revoked') {
     revocationStatus = 'revoked';

@@ -112,4 +112,34 @@ describe('N2-PP — worker passport revocation', () => {
     expect(body.status).toBe('valid');
     expect(body.verification.revocation_status).toBe('active');
   });
+
+  it('N3-P1-07 unsigned worker issuance reports issuance authenticity not-present', async () => {
+    const env = passportEnv();
+    const id = await issuePassport(env);
+    const body = await json<{ verification: { issuance_authenticity: string } }>(
+      await call(env, 'GET', `/passport/${id}/status`),
+    );
+    expect(body.verification.issuance_authenticity).toBe('not-present');
+  });
+
+  it('N3-P1-08 renewal mints a new issuance and leaves the original untouched', async () => {
+    const env = passportEnv();
+    const id = await issuePassport(env);
+    const before = await json<{ validity: { expires_at: string } }>(
+      await call(env, 'GET', `/passport/${id}`),
+    );
+
+    const renewRes = await call(env, 'POST', `/passport/${id}/renew`, { validityDays: 30 });
+    expect(renewRes.status).toBe(200);
+    const renewed = await json<{ identity: { passport_id: string; renewed_from?: string } }>(renewRes);
+    expect(renewed.identity.passport_id).not.toBe(id);
+    expect(renewed.identity.renewed_from).toBe(id);
+
+    // The original issuance is immutable; the new issuance is separately stored.
+    const after = await json<{ validity: { expires_at: string } }>(
+      await call(env, 'GET', `/passport/${id}`),
+    );
+    expect(after.validity.expires_at).toBe(before.validity.expires_at);
+    expect((await call(env, 'GET', `/passport/${renewed.identity.passport_id}`)).status).toBe(200);
+  });
 });
