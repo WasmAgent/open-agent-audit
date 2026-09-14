@@ -1,21 +1,32 @@
 /**
- * aep-record adapter — maps CanonicalEvents back into an AEPRecordInput.
+ * aep-record adapter — maps CanonicalEvents back into a RECONSTRUCTED PROJECTION
+ * of an AEPRecordInput, explicitly labeled as a legacy aep/v0.2 compatibility
+ * projection (OAA-4).
  *
- * This is the inverse of the aep-v0_2 adapter. It accepts a list of
- * CanonicalEvents (all sharing the same run_id) and reconstructs a best-effort
- * AEPRecordInput suitable for storage, replay, or cross-system compliance exports.
+ * This is NOT the original AEP record, and is NOT a validly-signed record.
+ * Reconstruction is lossy and bytewise divergent from the original: signature
+ * verification of the output WILL fail even when the signature bytes carried
+ * over are authentic. The output must never be presented as an authenticated
+ * aep/v0.5 record.
+ *
+ * The only sanctioned path to a current (aep/v0.5) record is:
+ *   1. use this projection to obtain the canonical unsigned content,
+ *   2. pass current semantic validation, and
+ *   3. re-sign through the real current DSSE path in @wasmagent/aep.
+ * No silent generic v0.2 downgrade is offered by this package.
  *
  * Mapping contract (inverse of aep-v0_2):
  *   tool_call events         → actions[]
  *   policy_decision events   → capability_decisions[]
  *   observation (verifier:*) → verifier_results[] (passed: false)
- *   evidence fields          → signature block (first event)
+ *   evidence fields          → signature block (first event; evidence bytes only)
  *   earliest timestamp       → created_at_ms
  *
  * Reconstruction is necessarily lossy: fields not preserved in the canonical
  * format (e.g. repo_commit, budget_ledger, pre/post state digests) are omitted.
- * schema_version defaults to 'aep/v0.2' since the original version is not
- * carried through CanonicalEvent.
+ * schema_version is explicitly 'aep/v0.2' because the original version is not
+ * carried through CanonicalEvent; the output is a legacy compatibility
+ * projection only.
  *
  * No Node.js APIs are used. All code is compatible with Cloudflare Workers /
  * Web Crypto runtimes.
@@ -69,9 +80,10 @@ function validateEvents(events: CanonicalEvent[]): void {
 
 /**
  * Convert an array of CanonicalEvents (all sharing the same run_id) into a
- * reconstructed AEPRecordInput.
+ * reconstructed aep/v0.2 projection. The output is a legacy reconstruction,
+ * not a validly-signed record — see the module doc for the compliance boundary.
  */
-export function fromCanonicalEvents(events: CanonicalEvent[]): AEPRecordInput {
+export function fromCanonicalEventsLegacyV02(events: CanonicalEvent[]): AEPRecordInput {
   validateEvents(events);
 
   const runId = events[0]!.run_id;
@@ -208,6 +220,14 @@ export function fromCanonicalEvents(events: CanonicalEvent[]): AEPRecordInput {
 
   return record;
 }
+
+/**
+ * @deprecated Lossy legacy aep/v0.2 reconstruction. Renamed to
+ * `fromCanonicalEventsLegacyV02`; the old name remains for compatibility but
+ * the output must be treated as a legacy projection only — never as a
+ * validly-signed or current-schemaversion record.
+ */
+export const fromCanonicalEvents = fromCanonicalEventsLegacyV02;
 
 export const id = 'aep-record' as const;
 export const version = '0.1.0' as const;

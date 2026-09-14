@@ -48,7 +48,7 @@
   },
   "dependencies": {
     "@openagentaudit/schema": "0.7.0",
-    "@wasmagent/protocol": "^0.1.9"
+    "@wasmagent/protocol": "^0.1.10"
   },
   "devDependencies": {
     "@types/bun": "^1.3.14",

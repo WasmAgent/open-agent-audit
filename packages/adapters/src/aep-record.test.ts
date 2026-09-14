@@ -4,7 +4,7 @@ import Ajv2020 from 'ajv/dist/2020.js';
 // aep-record schema shipped in @wasmagent/protocol (not the local mirror).
 import aepRecordSchema from '@wasmagent/protocol/schemas/aep/aep-record.schema.json';
 import type { CanonicalEvent } from '@openagentaudit/schema';
-import { fromCanonicalEvents } from './aep-record.js';
+import { fromCanonicalEventsLegacyV02 } from './aep-record.js';
 import { AepV0_2Adapter, type AEPRecordInput } from './aep-v0_2.js';
 
 // ---------------------------------------------------------------------------
@@ -40,17 +40,17 @@ function conforms(record: unknown): boolean {
 // ---------------------------------------------------------------------------
 describe('aep-record adapter', () => {
   test('maps required fields', () => {
-    const result = fromCanonicalEvents([makeEvent({ type: 'tool_call', tool_name: 'bash' })]);
+    const result = fromCanonicalEventsLegacyV02([makeEvent({ type: 'tool_call', tool_name: 'bash' })]);
     expect(result.schema_version).toBeDefined();
     expect(result.run_id).toBe('run-test');
     expect(result.created_at_ms).toBeGreaterThan(0);
   });
 
   test('rejects invalid input', () => {
-    expect(() => fromCanonicalEvents(null as any)).toThrow();
-    expect(() => fromCanonicalEvents([])).toThrow();
+    expect(() => fromCanonicalEventsLegacyV02(null as any)).toThrow();
+    expect(() => fromCanonicalEventsLegacyV02([])).toThrow();
     expect(() =>
-      fromCanonicalEvents([
+      fromCanonicalEventsLegacyV02([
         makeEvent({ type: 'tool_call' }),
         makeEvent({ type: 'tool_call', run_id: 'other-run' }),
       ]),
@@ -63,7 +63,7 @@ describe('aep-record adapter', () => {
 // ---------------------------------------------------------------------------
 describe('aep-record mapping', () => {
   test('maps tool_call events to actions with derived state and taint labels', () => {
-    const result = fromCanonicalEvents([
+    const result = fromCanonicalEventsLegacyV02([
       makeEvent({
         type: 'tool_call',
         tool_name: 'bash',
@@ -80,7 +80,7 @@ describe('aep-record mapping', () => {
   });
 
   test('maps policy_decision events to capability_decisions', () => {
-    const result = fromCanonicalEvents([
+    const result = fromCanonicalEventsLegacyV02([
       makeEvent({
         type: 'policy_decision',
         actor: 'system',
@@ -93,7 +93,7 @@ describe('aep-record mapping', () => {
   });
 
   test('maps failed-verifier observations to verifier_results and carries the signature', () => {
-    const result = fromCanonicalEvents([
+    const result = fromCanonicalEventsLegacyV02([
       makeEvent({
         type: 'tool_call',
         evidence: { signature: 'c2ln', signature_algorithm: 'ed25519', signer_key_id: 'key-1' },
@@ -116,7 +116,7 @@ describe('aep-record mapping', () => {
 // ---------------------------------------------------------------------------
 describe('aep-record conformance (published aep-record schema)', () => {
   test('reconstructed record from canonical events validates', () => {
-    const record = fromCanonicalEvents([
+    const record = fromCanonicalEventsLegacyV02([
       makeEvent({
         type: 'tool_call',
         tool_name: 'bash',
@@ -175,13 +175,13 @@ describe('aep-record conformance (published aep-record schema)', () => {
       signature: { alg: 'ed25519', key_id: 'key-1', sig: 'c2ln' },
     };
     const events = AepV0_2Adapter.toEvents(sample);
-    const reconstructed = fromCanonicalEvents(events);
+    const reconstructed = fromCanonicalEventsLegacyV02(events);
     expect(reconstructed.run_id).toBe('aep-run-42');
     expect(conforms(reconstructed)).toBe(true);
   });
 
   test('negative control: non-conformant record is rejected by the schema', () => {
-    const record = fromCanonicalEvents([makeEvent({ type: 'tool_call' })]) as any;
+    const record = fromCanonicalEventsLegacyV02([makeEvent({ type: 'tool_call' })]) as any;
     record.created_at_ms = 'not-a-number';
     expect(conforms(record)).toBe(false);
   });
