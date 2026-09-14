@@ -46,7 +46,11 @@ describe('N2-PP — passport revocation separates from issuance (N2-P1-01)', () 
     const { passport, publicKey } = await signedPassport();
     expect((await verifySignature(passport, publicKey)).valid).toBe(true);
 
-    const layers = await verifyPassportLayers({ passport, publicKey });
+    const layers = await verifyPassportLayers({
+      passport,
+      publicKey,
+      revocationSourceTrusted: true,
+    });
     expect(layers.issuance_authenticity).toBe('valid');
     expect(layers.revocation_status).toBe('active');
     expect(layers.revocation_authenticity).toBe('not-present');
@@ -130,7 +134,11 @@ describe('N2-PP — passport revocation separates from issuance (N2-P1-01)', () 
     // Full signature check fails on expiry...
     expect((await verifySignature(passport, publicKey)).valid).toBe(false);
     // ...but issuance authenticity (signature only) and revocation stay separate.
-    const layers = await verifyPassportLayers({ passport, publicKey });
+    const layers = await verifyPassportLayers({
+      passport,
+      publicKey,
+      revocationSourceTrusted: true,
+    });
     expect(layers.issuance_authenticity).toBe('valid');
     expect(layers.revocation_status).toBe('active');
   });
@@ -139,7 +147,11 @@ describe('N2-PP — passport revocation separates from issuance (N2-P1-01)', () 
     const { passport, publicKey } = await signedPassport();
     passport.identity.agent_name = 'Tampered';
 
-    const layers = await verifyPassportLayers({ passport, publicKey });
+    const layers = await verifyPassportLayers({
+      passport,
+      publicKey,
+      revocationSourceTrusted: true,
+    });
     expect(layers.issuance_authenticity).toBe('invalid');
     expect(layers.revocation_status).toBe('active');
   });
@@ -236,5 +248,109 @@ describe('N3-PP — canonical issuance binding + authenticity semantics', () => 
     expect((await verifySignature(passport, publicKey)).valid).toBe(true);
 
     await expect(renew({ passport, report: MOCK_REPORT })).rejects.toThrow(/signed/);
+  });
+});
+
+describe('N4-PP — assurance-truth precision (N4-P1-04, N4-P2-01, N4-P2-02)', () => {
+  test('N4-P1-04 missing record without an authoritative lookup is UNKNOWN, not ACTIVE', async () => {
+    const { passport, publicKey } = await signedPassport();
+
+    const noLookup = await verifyPassportLayers({ passport, publicKey });
+    expect(noLookup.revocation_status).toBe('unknown');
+    expect(noLookup.revocation_authenticity).toBe('not-present');
+
+    const lookedUp = await verifyPassportLayers({
+      passport,
+      publicKey,
+      revocationSourceTrusted: true,
+    });
+    expect(lookedUp.revocation_status).toBe('active');
+  });
+
+  test('N4-P2-01 signed but unverifiable is UNVERIFIED, never INVALID', async () => {
+    const { signer, publicKey } = await createTestSigner();
+    const passport = (await issue({ report: MOCK_REPORT, agentId: 'agent-1', signer })) as SignedPassport;
+    const revocation = await createRevocationRecord({ passport, reason: 'x', signer });
+
+    // Verifier lacks the issuer key: cannot check the signature.
+    const noKey = await verifyPassportLayers({ passport, revocation });
+    expect(noKey.issuance_authenticity).toBe('unverified');
+    expect(noKey.revocation_authenticity).toBe('unverified');
+    expect(noKey.revocation_status).toBe('unknown');
+
+    // With a trusted registry the assertion is authoritative despite no local key.
+    const trusted = await verifyPassportLayers({
+      passport,
+      revocation,
+      revocationSourceTrusted: true,
+    });
+    expect(trusted.revocation_authenticity).toBe('unverified');
+    expect(trusted.revocation_status).toBe('revoked');
+
+    // A wrong key is a checked-and-failed signature: INVALID.
+    const wrongKey = await createTestSigner();
+    const failed = await verifyPassportLayers({ passport, revocation, publicKey: wrongKey.publicKey });
+    expect(failed.revocation_authenticity).toBe('invalid');
+    void publicKey;
+  });
+
+  test('N4-P2-02 future effective_at beyond clock skew fails closed', async () => {
+    const { signer, publicKey } = await createTestSigner();
+    const passport = (await issue({ report: MOCK_REPORT, agentId: 'agent-1', signer })) as SignedPassport;
+    const now = Date.now();
+    const future = new Date(now + 60 * 60 * 1000).toISOString();
+    const revocation = await createRevocationRecord({ passport, reason: 'future', signer, effectiveAt: future });
+
+    const layers = await verifyPassportLayers({ passport, publicKey, revocation, now });
+    expect(layers.revocation_authenticity).toBe('valid');
+    expect(layers.revocation_status).toBe('unknown');
+    expect(layers.status_freshness).toBe('unknown');
+
+    // Within tolerated skew the record is treated as effective now.
+    const soon = new Date(now + 1000).toISOString();
+    const withinSkew = await createRevocationRecord({
+      passport,
+      reason: 'skew',
+      signer,
+      effectiveAt: soon,
+    });
+    const skewLayers = await verifyPassportLayers({ passport, publicKey, revocation: withinSkew, now });
+    expect(skewLayers.revocation_status).toBe('revoked');
+    expect(skewLayers.status_freshness).toBe('current');
+  });
+
+  test('N4-P2-03 administrative extension carries the original evidence time', async () => {
+    const { signer } = await createTestSigner();
+    const passport = (await issue({
+      report: MOCK_REPORT,
+      agentId: 'agent-1',
+      signer,
+      validityDays: 30,
+    })) as SignedPassport;
+    const originalEvidence = passport.audit_ref?.generated_at ?? passport.validity.issued_at;
+
+    const extended = (await renew({ passport, validityDays: 30, signer })) as SignedPassport;
+    expect(extended.validity.renewal_basis).toBe('administrative_extension');
+    expect(extended.validity.evidence_as_of).toBe(originalEvidence);
+    // The declared evidence time is the original evidence, never a fresh one.
+    expect(extended.audit_ref?.generated_at).toBe(originalEvidence);
+
+    const reaudited = (await renew({
+      passport,
+      report: MOCK_REPORT,
+      validityDays: 30,
+      signer,
+    })) as SignedPassport;
+    expect(reaudited.validity.renewal_basis).toBe('reaudit');
+    expect(reaudited.validity.evidence_as_of).toBe(reaudited.validity.issued_at);
+
+    // Optional cap fails closed when the original evidence is too old.
+    const stale: SignedPassport = {
+      ...passport,
+      audit_ref: { ...passport.audit_ref, generated_at: new Date(Date.now() - 100 * 864e5).toISOString() },
+    };
+    await expect(
+      renew({ passport: stale, validityDays: 30, signer, maxEvidenceAgeDays: 30 }),
+    ).rejects.toThrow(/administrative extension refused/);
   });
 });

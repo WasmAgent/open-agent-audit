@@ -69,6 +69,19 @@ export interface Validity {
   renewal_triggers?: string[];
   renewed_at?: string;
   renewal_count?: number;
+  /**
+   * Why this issuance exists relative to the previous one. `reaudit` means a
+   * fresh audit report backed the renewal; `administrative_extension` means the
+   * validity window was extended without new audit evidence (N4-P2-03). Never
+   * let the new `issued_at` imply the evidence is equally new.
+   */
+  renewal_basis?: 'administrative_extension' | 'reaudit';
+  /**
+   * Timestamp of the audit evidence this issuance relies on. For an
+   * administrative extension this is the original evidence time, not the
+   * renewal time (N4-P2-03).
+   */
+  evidence_as_of?: string;
 }
 
 export interface Revocation {
@@ -111,6 +124,14 @@ export interface RenewOptions {
    * (N3-P1-08). Without a signer only unsigned passports can be renewed.
    */
   signer?: import('./sign.js').PassportSigner;
+  /**
+   * Opt-in cap on how old the relied-upon audit evidence may be for an
+   * administrative extension. Without a fresh `report`, renewal is recorded as
+   * `administrative_extension` with `evidence_as_of` = the original evidence
+   * time; if that evidence is older than this many days the renewal fails
+   * closed (N4-P2-03). Undefined disables the cap.
+   */
+  maxEvidenceAgeDays?: number;
 }
 
 export interface RevokeOptions {

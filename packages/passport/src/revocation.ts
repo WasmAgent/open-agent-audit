@@ -32,7 +32,14 @@ export interface TrustPassportRevocation {
 }
 
 export type RevocationStatus = 'active' | 'revoked' | 'unknown';
-export type LayerAuthenticity = 'valid' | 'invalid' | 'not-present';
+/**
+ * Signal authenticity. `unverified` means an assertion exists but the verifier
+ * lacks the key/material to check it — it is NOT the same as `invalid`
+ * (an assertion that was checked and failed) and NOT `not-present` (no
+ * assertion at all). Collapsing `unverified` into `invalid` overclaims
+ * certainty (N4-P2-01).
+ */
+export type LayerAuthenticity = 'valid' | 'invalid' | 'not-present' | 'unverified';
 export type StatusFreshness = 'current' | 'stale' | 'unknown';
 
 /** Layered verification result — never collapse to a single boolean. */
@@ -133,13 +140,24 @@ export interface VerifyLayersOptions {
   /** Reject records older than this sequence (replay guard). */
   expectedSequence?: number;
   /**
-   * Mark the revocation/status source as a trusted registry. An unsigned
-   * revocation record is only authoritative when this is set; otherwise its
-   * status is reported `unknown` (N3-P1-07).
+   * Mark the revocation/status source as a trusted registry, meaning an
+   * authoritative lookup was performed and its answer (including "no record")
+   * may be treated as registry state. An unsigned revocation record is only
+   * authoritative when this is set; otherwise its status is `unknown`
+   * (N3-P1-07). This flag also gates the "no record supplied" case: absence is
+   * only `active` when a trusted lookup succeeded, never merely because no
+   * record was handed to the verifier (N4-P1-04).
    */
   revocationSourceTrusted?: boolean;
   /** Revocation records older than this are reported `stale`. Default 24h. */
   maxStalenessMs?: number;
+  /**
+   * Maximum tolerated clock skew for a future `effective_at`. A record whose
+   * `effective_at` is further ahead than this is not yet effective and must not
+   * be reported as current; the status fails closed to `unknown` (N4-P2-02).
+   * Default 5 minutes.
+   */
+  maxClockSkewMs?: number;
   /** Injectable clock for deterministic tests. */
   now?: number;
 }
@@ -155,35 +173,47 @@ export async function verifyPassportLayers(
   const { passport, publicKey, revocation, expectedSequence } = options;
   const revocationSourceTrusted = options.revocationSourceTrusted === true;
   const maxStalenessMs = options.maxStalenessMs ?? 24 * 60 * 60 * 1000;
+  const maxClockSkewMs = options.maxClockSkewMs ?? 5 * 60 * 1000;
   const now = options.now ?? Date.now();
 
   // Issuance authenticity: signature over the immutable issuance only. Expiry
   // and revocation are deliberately NOT folded in (expired != tampered).
   // Absent signing is reported as `not-present`, never as `invalid`, so "no
   // assertion" is not conflated with "assertion present but wrong" (N3-P1-07).
+  // A signature we cannot check (no public key) is `unverified`, not `invalid`
+  // (N4-P2-01).
   let issuanceAuthenticity: LayerAuthenticity;
   if (passport.attestation?.signing_method === 'ed25519' && passport.attestation.signature) {
-    issuanceAuthenticity =
-      publicKey && (await verifySignatureOnly(passport, publicKey)).valid ? 'valid' : 'invalid';
+    if (!publicKey) {
+      issuanceAuthenticity = 'unverified';
+    } else {
+      issuanceAuthenticity = (await verifySignatureOnly(passport, publicKey)).valid
+        ? 'valid'
+        : 'invalid';
+    }
   } else {
     issuanceAuthenticity = 'not-present';
   }
 
   if (revocation === null || revocation === undefined) {
+    // Absence is authoritative registry state ONLY when the caller attests that
+    // an authoritative lookup was performed. "No record supplied" alone must
+    // not become ACTIVE (N4-P1-04).
     return {
       issuance_authenticity: issuanceAuthenticity,
-      revocation_status: 'active',
+      revocation_status: revocationSourceTrusted ? 'active' : 'unknown',
       revocation_authenticity: 'not-present',
       status_freshness: 'unknown',
     };
   }
 
-  // Revocation authenticity.
+  // Revocation authenticity. A signed record we cannot check (no public key) is
+  // `unverified`, not `invalid` (N4-P2-01).
   let revocationAuthenticity: LayerAuthenticity;
   if (!revocation.signature) {
     revocationAuthenticity = 'not-present';
   } else if (!publicKey) {
-    revocationAuthenticity = 'invalid';
+    revocationAuthenticity = 'unverified';
   } else {
     revocationAuthenticity = (await verifyRevocation(revocation, publicKey)).valid
       ? 'valid'
@@ -213,12 +243,16 @@ export async function verifyPassportLayers(
     revocationAuthenticity = 'invalid';
   }
 
-  // Unsigned status is only authoritative when the caller marks the registry /
-  // status source as trusted; otherwise the status is unknown (N3-P1-07).
+  // A record that is not authenticated (no signature, or a signature we cannot
+  // check) is only authoritative when the caller marks the source as trusted;
+  // otherwise the status is unknown (N3-P1-07, N4-P2-01).
+  const unauthenticated =
+    revocationAuthenticity === 'not-present' || revocationAuthenticity === 'unverified';
+
   let revocationStatus: RevocationStatus;
   if (revocationAuthenticity === 'invalid') {
     revocationStatus = 'unknown';
-  } else if (revocationAuthenticity === 'not-present' && !revocationSourceTrusted) {
+  } else if (unauthenticated && !revocationSourceTrusted) {
     revocationStatus = 'unknown';
   } else if (revocation.status === 'revoked') {
     revocationStatus = 'revoked';
@@ -226,12 +260,24 @@ export async function verifyPassportLayers(
     revocationStatus = 'active';
   }
 
-  const age = now - Date.parse(revocation.effective_at);
-  const statusFreshness: StatusFreshness = Number.isNaN(age)
-    ? 'unknown'
-    : age <= maxStalenessMs
-      ? 'current'
-      : 'stale';
+  // Explicit temporal rule (N4-P2-02): a revocation cannot take effect in the
+  // future beyond tolerated clock skew. Such a record is not yet in force and
+  // must fail closed instead of reporting a state (or a negative age that would
+  // masquerade as fresh).
+  const effectiveMs = Date.parse(revocation.effective_at);
+  const futureBeyondSkew = !Number.isNaN(effectiveMs) && effectiveMs > now + maxClockSkewMs;
+  if (futureBeyondSkew) {
+    revocationStatus = 'unknown';
+  }
+
+  let statusFreshness: StatusFreshness;
+  if (futureBeyondSkew || Number.isNaN(effectiveMs)) {
+    statusFreshness = 'unknown';
+  } else if (now - effectiveMs > maxStalenessMs) {
+    statusFreshness = 'stale';
+  } else {
+    statusFreshness = 'current';
+  }
 
   return {
     issuance_authenticity: issuanceAuthenticity,
@@ -241,12 +287,19 @@ export async function verifyPassportLayers(
   };
 }
 
-/** Convenience: the revocation status alone. */
+/**
+ * Convenience: the revocation status alone. Absence is only `active` when the
+ * caller declares an authoritative lookup succeeded (`revocationSourceTrusted`)
+ * — otherwise it is `unknown` (N4-P1-04).
+ */
 export function statusFromRevocation(
   revocation: TrustPassportRevocation | null | undefined,
-  opts: { authenticate?: (record: TrustPassportRevocation) => boolean } = {},
+  opts: {
+    authenticate?: (record: TrustPassportRevocation) => boolean;
+    revocationSourceTrusted?: boolean;
+  } = {},
 ): RevocationStatus {
-  if (!revocation) return 'active';
+  if (!revocation) return opts.revocationSourceTrusted === true ? 'active' : 'unknown';
   if (opts.authenticate && !opts.authenticate(revocation)) return 'unknown';
   return revocation.status === 'revoked' ? 'revoked' : 'active';
 }

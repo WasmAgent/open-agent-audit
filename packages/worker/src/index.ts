@@ -1423,8 +1423,10 @@ async function handlePassportGet(passportId: string, env: WorkerEnv): Promise<Re
 }
 
 /**
- * External revocation records live in the PASSPORTS KV namespace under a
- * separate key so the signed issuance bytes are never mutated (N2-P1-01).
+ * External revocation records are mirrored into the PASSPORTS KV namespace
+ * under a separate key so the signed issuance bytes are never mutated
+ * (N2-P1-01). KV is a cache only; the authoritative registry is D1
+ * (N4-P1-03) — see `readAuthoritativeRevocation`.
  */
 const REVOCATION_PREFIX = 'revocation:';
 
@@ -1432,12 +1434,97 @@ function revocationKey(passportId: string): string {
   return `${REVOCATION_PREFIX}${passportId}`;
 }
 
-async function readRevocation(
+/**
+ * Outcome of consulting the authoritative revocation registry. `unavailable`
+ * is distinct from `absent`: a failed lookup must never be read as "not
+ * revoked" (N4-P1-03).
+ */
+type RevocationLookup =
+  | { state: 'present'; record: TrustPassportRevocation }
+  | { state: 'absent' }
+  | { state: 'unavailable' };
+
+/**
+ * Read the authoritative revocation registry (D1). A row is the serialized
+ * ownership of revocation state; absence of a row is authoritative only when
+ * this query itself succeeded.
+ */
+async function readAuthoritativeRevocation(
+  env: WorkerEnv,
+  passportId: string,
+): Promise<RevocationLookup> {
+  try {
+    const row = await env.DB.prepare(
+      'SELECT record FROM passport_revocations WHERE passport_id = ?',
+    )
+      .bind(passportId)
+      .first<{ record: string }>();
+    if (row === null) return { state: 'absent' };
+    return { state: 'present', record: JSON.parse(row.record) as TrustPassportRevocation };
+  } catch {
+    return { state: 'unavailable' };
+  }
+}
+
+/** Legacy/defensive KV mirror read; never authoritative on its own. */
+async function readMirroredRevocation(
   env: WorkerEnv,
   passportId: string,
 ): Promise<TrustPassportRevocation | null> {
-  const raw = await env.PASSPORTS.get(revocationKey(passportId));
-  return raw === null ? null : (JSON.parse(raw) as TrustPassportRevocation);
+  try {
+    const raw = await env.PASSPORTS.get(revocationKey(passportId));
+    return raw === null ? null : (JSON.parse(raw) as TrustPassportRevocation);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve the revocation decision. The authoritative D1 answer wins. When D1
+ * is unavailable the verdict is `unavailable` (callers fail closed to UNKNOWN).
+ * A legacy KV mirror is consulted only when D1 authoritatively reports absence,
+ * so a stale KV mirror can at worst produce a false REVOKED (safe), never a
+ * false ACTIVE (N4-RV-01).
+ */
+async function resolveRevocation(
+  env: WorkerEnv,
+  passportId: string,
+): Promise<RevocationLookup> {
+  const authoritative = await readAuthoritativeRevocation(env, passportId);
+  if (authoritative.state !== 'absent') return authoritative;
+
+  const mirrored = await readMirroredRevocation(env, passportId);
+  if (mirrored === null) return authoritative;
+
+  // Backfill the authoritative registry so later reads are strongly consistent.
+  await writeAuthoritativeRevocation(env, mirrored).catch(() => undefined);
+  return { state: 'present', record: mirrored };
+}
+
+/**
+ * Atomically record a revocation. The D1 PRIMARY KEY makes this a single
+ * compare-and-set: exactly one concurrent caller can write the row
+ * (N4-P1-03). Returns false when the transition already happened.
+ */
+async function writeAuthoritativeRevocation(
+  env: WorkerEnv,
+  record: TrustPassportRevocation,
+): Promise<boolean> {
+  const result = await env.DB.prepare(
+    `INSERT INTO passport_revocations (passport_id, record, sequence, effective_at, created_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(passport_id) DO NOTHING`,
+  )
+    .bind(
+      record.passport_id,
+      JSON.stringify(record),
+      record.sequence,
+      record.effective_at,
+      new Date().toISOString(),
+    )
+    .run();
+  const changes = (result.meta as { changes?: number }).changes;
+  return changes === undefined ? true : changes > 0;
 }
 
 async function handlePassportRevoke(
@@ -1463,13 +1550,36 @@ async function handlePassportRevoke(
   }
   const passport = JSON.parse(raw) as TrustPassport;
 
-  if ((await readRevocation(env, passportId)) !== null || passport.revocation?.revoked === true) {
+  // Legacy embedded revocation is terminal and cannot be transitioned again.
+  if (passport.revocation?.revoked === true) {
+    return corsError('Passport already revoked', 409, env);
+  }
+
+  const current = await resolveRevocation(env, passportId);
+  if (current.state === 'unavailable') {
+    return corsError('Revocation registry unavailable', 503, env);
+  }
+  if (current.state === 'present') {
     return corsError('Passport already revoked', 409, env);
   }
 
   // Revocation is a separate signed status record; the issuance is immutable.
   const record = await createRevocationRecord({ passport, reason, sequence: 1 });
-  await env.PASSPORTS.put(revocationKey(passportId), JSON.stringify(record));
+
+  let transitioned: boolean;
+  try {
+    transitioned = await writeAuthoritativeRevocation(env, record);
+  } catch {
+    return corsError('Revocation registry unavailable', 503, env);
+  }
+  if (!transitioned) {
+    return corsError('Passport already revoked', 409, env);
+  }
+
+  // Best-effort mirror; the D1 transition above is the source of truth.
+  await env.PASSPORTS.put(revocationKey(passportId), JSON.stringify(record)).catch(
+    () => undefined,
+  );
 
   return corsJson(record, env);
 }
@@ -1481,24 +1591,30 @@ async function handlePassportStatus(passportId: string, env: WorkerEnv): Promise
   }
 
   const passport = JSON.parse(raw) as TrustPassport;
-  const revocation = await readRevocation(env, passportId);
-  // The Worker owns the status registry: an unsigned record stored here is
-  // authoritative, so the registry is explicitly marked trusted (N3-P1-07).
+  const lookup = await resolveRevocation(env, passportId);
+  const authoritative = lookup.state !== 'unavailable';
+  const revocation = lookup.state === 'present' ? lookup.record : null;
+  // The D1 registry is authoritative, so a *successful* lookup is marked
+  // trusted. An unavailable lookup is deliberately NOT trusted, so absence is
+  // reported UNKNOWN instead of ACTIVE (N4-P1-03 / N4-P1-04).
   const verification = await verifyPassportLayers({
     passport,
     revocation,
-    revocationSourceTrusted: true,
+    revocationSourceTrusted: authoritative,
   });
 
   // Summary kept for backward compatibility with the previous `status` field.
+  // An indeterminate revocation status must not be summarised as valid.
   const expiresMs = Date.parse(passport.validity.expires_at);
   const expired = Number.isNaN(expiresMs) || expiresMs <= Date.now();
   const summary =
     verification.revocation_status === 'revoked'
       ? 'revoked'
-      : expired
-        ? 'expired'
-        : 'valid';
+      : verification.revocation_status === 'unknown'
+        ? 'unknown'
+        : expired
+          ? 'expired'
+          : 'valid';
 
   return corsJson(
     {
@@ -1532,8 +1648,15 @@ async function handlePassportRenew(
   const passport = JSON.parse(raw) as TrustPassport;
 
   // Revocation is terminal, whether recorded externally (current format) or
-  // embedded in a legacy passport.
-  if ((await readRevocation(env, passportId)) !== null || passport.revocation?.revoked === true) {
+  // embedded in a legacy passport. An unavailable registry fails closed.
+  if (passport.revocation?.revoked === true) {
+    return corsError('Cannot renew a revoked passport', 409, env);
+  }
+  const lookup = await resolveRevocation(env, passportId);
+  if (lookup.state === 'unavailable') {
+    return corsError('Revocation registry unavailable', 503, env);
+  }
+  if (lookup.state === 'present') {
     return corsError('Cannot renew a revoked passport', 409, env);
   }
 
