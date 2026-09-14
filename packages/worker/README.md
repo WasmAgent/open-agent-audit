@@ -78,7 +78,7 @@ HTTP / Queue message
 | `ARTIFACTS` | R2 | Intermediate engine artifacts |
 | `REPORTS` | R2 | Final audit report bundles |
 | `DB` | D1 | Runs, findings, projects, **approvals**, evidence metadata |
-| `PASSPORTS` | KV | Signed passports and external revocation records |
+| `PASSPORTS` | KV | Immutable passport issuances and external revocation/status records (see "Passport signing truth") |
 | `APPROVALS` | KV | **Deprecated** — approval state now lives in D1 (`approvals` table) |
 | `AUDIT_JOBS` | Queue | Async audit job dispatch |
 | `AUDIT_RUN_COORDINATOR` | DO | Per-run state coordination |
@@ -111,6 +111,31 @@ issue/revoke/renew and `GET /api/v1/dashboard/org-risk-rollup` require the key.
 In multi-tenant mode (`TENANT_API_KEYS`) every tenant surface requires a key. A
 production deployment with no auth material fails closed (`401`, and `/health`
 reports `auth_mode: fail_closed`).
+
+### Passport signing truth
+
+The Worker calls `issue()` and `createRevocationRecord()` **without a signer**.
+The Worker deployment path is therefore:
+
+```text
+immutable issuance (attestation.signing_method: "none")
++ separate external registry status record (unsigned)
+```
+
+Concretely:
+
+- `GET /passport/:id/status` reports `issuance_authenticity: "not-present"` for
+  Worker-issued passports — an *absent* assertion is never reported as an
+  invalid one.
+- The Worker owns the status registry, so it marks that registry as trusted and
+  treats an unsigned revocation record stored there as authoritative. A verifier
+  that does not trust the registry reports the status as `unknown`.
+- Renewal mints a **new** immutable issuance (new `passport_id`,
+  `identity.renewed_from` lineage, fresh attestation) and never mutates the
+  stored issuance in place. A passport already signed with `ed25519` cannot be
+  renewed by the Worker without a configured signer.
+- Do not describe the Worker deployment path as cryptographically signed until
+  production signing/key resolution is actually wired.
 
 ## References
 
