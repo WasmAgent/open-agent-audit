@@ -388,28 +388,44 @@ export async function r2R201(): Promise<FaultArtifact> {
   });
 }
 
-/** R2-R2-02 — canonical report malformed: fail closed, never mint from junk. */
+/** R2-R2-02 — persisted report corrupt (unparseable or non-object): 500 evidence_integrity_error, never a retryable conflict. */
 export async function r2R202(): Promise<FaultArtifact> {
   const env = baseEnv();
   const runId = await ingestRun(env, 'rt-canary-r2-02');
   const reports = env.REPORTS as unknown as { put(key: string, value: string): Promise<void> };
-  await reports.put(`runs/${runId}/report.json`, '{"truncated": ');
 
-  const issued = await issuePassport(env, runId, 'rt-canary-r2-02');
-  const pass = issued.status === 409 && issued.passportId === null;
+  const corruptShapes: Array<{ label: string; content: string }> = [
+    { label: 'unparseable_json', content: '{"truncated": ' },
+    { label: 'json_array', content: '[1, 2]' },
+    { label: 'json_null', content: 'null' },
+  ];
+  const observed: Record<string, { status: number; body: Record<string, unknown> }> = {};
+  for (const shape of corruptShapes) {
+    await reports.put(`runs/${runId}/report.json`, shape.content);
+    const issued = await issuePassport(env, runId, 'rt-canary-r2-02');
+    observed[shape.label] = { status: issued.status, body: issued.body };
+  }
+
+  const allEvidenceIntegrity = Object.values(observed).every(
+    (entry) =>
+      entry.status === 500 && (entry.body as { error?: string }).error === 'evidence_integrity_error',
+  );
   return buildFaultArtifact({
     sourceSha: LOCAL_SOURCE_SHA,
     scenario: 'R2-R2-02',
     dependency: 'r2',
-    checkpoint: 'canonical_report_malformed',
+    checkpoint: 'canonical_report_corrupt',
     kind: 'stale_read',
-    expectedHttp: 409,
-    observed: { issue_status: issued.status, issue_body: issued.body },
-    pass,
+    expectedHttp: 500,
+    observed: {
+      shapes: observed,
+      note: 'persisted corruption is an evidence-integrity 500 — deliberately NOT a 409/503, so it is never read as "retry later"',
+    },
+    pass: allEvidenceIntegrity,
   });
 }
 
-/** R2-R2-03 — R2 read unavailable: no fabricated evidence (fail closed 409). */
+/** R2-R2-03 — R2 read unavailable: structured dependency 503, no fabricated evidence. */
 export async function r2R203(): Promise<FaultArtifact> {
   const env = baseEnv();
   const runId = await ingestRun(env, 'rt-canary-r2-03');
@@ -424,15 +440,27 @@ export async function r2R203(): Promise<FaultArtifact> {
   const kvAfter = await kvKeyCount(env);
 
   env.REPORTS = inner as unknown as WorkerEnv['REPORTS'];
-  const pass = issued.status === 409 && issued.passportId === null && kvAfter === 0;
+  const body = issued.body as { error?: string; dependency?: string; retryable?: boolean };
+  const pass =
+    issued.status === 503 &&
+    body.error === 'dependency_unavailable' &&
+    body.dependency === 'r2' &&
+    body.retryable === true &&
+    issued.passportId === null &&
+    kvAfter === 0;
   return buildFaultArtifact({
     sourceSha: LOCAL_SOURCE_SHA,
     scenario: 'R2-R2-03',
     dependency: 'r2',
     checkpoint: 'get_canonical_report',
     kind: 'unavailable',
-    expectedHttp: 409,
-    observed: { issue_status: issued.status, kv_documents_after: kvAfter },
+    expectedHttp: 503,
+    observed: {
+      issue_status: issued.status,
+      issue_body: issued.body,
+      kv_documents_after: kvAfter,
+      note: 'R2 availability fault surfaces as dependency_unavailable 503 — distinct from the 409 report-missing conflict',
+    },
     pass,
   });
 }
