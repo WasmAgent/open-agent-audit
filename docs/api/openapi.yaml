@@ -9,12 +9,34 @@ info:
     Upload AI agent traces (JSONL or AEP JSON), run the full audit pipeline,
     and retrieve runs, findings, and rendered reports. Deployed at trustavo.com.
 
-    ## Authentication
+    ## Authentication and tenant isolation
 
-    Authentication is optional. When the `API_KEY` environment variable is set in
-    the Worker deployment, `POST /api/v1/runs` requires a `Bearer` token. All other
-    endpoints are publicly accessible. If `API_KEY` is unset the Worker operates in
-    open/demo mode and no token is required.
+    Authentication material is configured one of two ways:
+
+    - **Single-tenant:** set `API_KEY` (a shared secret). The deployment serves
+      exactly one tenant, selected by `TENANT_ID` (default `"default"`).
+      `Authorization: Bearer <API_KEY>` is required for writes and decisions
+      (`POST /api/v1/runs`, approval decisions, passport issue/revoke/renew) and
+      for the cross-project `GET /api/v1/dashboard/org-risk-rollup`.
+    - **Multi-tenant:** set `TENANT_API_KEYS` to a JSON object mapping each API
+      key to a tenant id, e.g. `{"<key>":"acme"}`. Every tenant-bearing read and
+      write requires `Authorization: Bearer <key>`, and the tenant is bound to
+      that key.
+
+    Tenant identity is resolved **only** from the authenticated key. The
+    `X-Tenant-Id` header and any query parameter are ignored for authorization
+    (they are accepted for backward compatibility only) and can never widen a
+    caller's tenant scope.
+
+    `GET /api/v1/runs`, `/api/v1/runs/{runId}`, `/findings`, `/report`, and the
+    dashboard trend endpoints are deliberately public in single-tenant mode so
+    the same-origin SPA can render them; they are always scoped to the
+    deployment tenant. They become key-protected automatically in multi-tenant
+    mode.
+
+    If no auth material is configured, the Worker runs in open/demo mode
+    **only outside production**. With `OAA_ENV=production` and no `API_KEY` or
+    `TENANT_API_KEYS`, every tenant-bearing surface fails closed with `401`.
 
   contact:
     url: https://trustavo.com
@@ -233,7 +255,7 @@ components:
           description: Unique identifier for this audit run.
         tenant_id:
           type: string
-          description: Tenant identifier. Defaults to "default" if not supplied via x-tenant-id.
+          description: Tenant the run belongs to. Resolved from the authenticated key (single-tenant default is `TENANT_ID`, i.e. `"default"`).
         status:
           type: string
           enum: [completed, failed, pending]
@@ -638,7 +660,8 @@ paths:
       summary: List audit runs
       description: |
         Returns the 50 most recent audit runs ordered by creation time (newest first).
-        No authentication required.
+        Always scoped to the caller's tenant. Public in single-tenant mode; requires
+        a Bearer key in multi-tenant mode.
       tags:
         - Runs
       security: []
@@ -692,8 +715,11 @@ paths:
           schema:
             type: string
           description: |
-            Tenant identifier for multi-tenant deployments. Defaults to `"default"`
-            if omitted. The tenant is created automatically if it does not exist.
+            **Deprecated / ignored for authorization.** Tenant identity is
+            resolved from the `Authorization` bearer key, not this header. In
+            single-tenant mode the value is ignored entirely; in multi-tenant
+            mode the key selects the tenant. Retained only so existing clients
+            do not fail CORS preflight.
         - in: header
           name: x-source-file
           required: false
