@@ -693,7 +693,7 @@ async function cmdPassportRenew(flags: Map<string, string | true>): Promise<void
 
   let renewed;
   try {
-    renewed = renew({ passport, report, validityDays });
+    renewed = await renew({ passport, report, validityDays });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     process.stderr.write(`Error: ${msg}\n`);

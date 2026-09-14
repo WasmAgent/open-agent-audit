@@ -18,6 +18,8 @@ export interface PassportIdentity {
   agent_name?: string;
   issuer: string;
   issuance_context?: 'self-issued' | 'trustavo';
+  /** Prior issuance this passport was re-issued from (renewal lineage). */
+  renewed_from?: string;
 }
 
 export interface AgentBomRef {
@@ -99,10 +101,16 @@ export interface IssueOptions {
 
 export interface RenewOptions {
   passport: TrustPassport;
-  report: unknown;
+  report?: unknown;
   agentbom?: unknown;
   posture?: unknown;
   validityDays?: number;
+  /**
+   * Optional signer. Renewal always mints a fresh issuance; when the source
+   * passport is signed a signer is required so the new issuance is signed too
+   * (N3-P1-08). Without a signer only unsigned passports can be renewed.
+   */
+  signer?: import('./sign.js').PassportSigner;
 }
 
 export interface RevokeOptions {

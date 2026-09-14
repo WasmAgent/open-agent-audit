@@ -1,4 +1,5 @@
 import * as ed from '@noble/ed25519';
+import { createHash } from 'node:crypto';
 import type { TrustPassport } from './types.js';
 
 export interface PassportSigner {
@@ -40,6 +41,25 @@ export function canonicalize(obj: unknown): string {
 }
 
 /**
+ * The canonical, immutable issuance payload: the passport with its attestation
+ * stripped. `signPassport` signs exactly these bytes, so this is the payload a
+ * revocation record must bind to (N3-P1-06).
+ */
+export function issuancePayload(passport: TrustPassport): string {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { attestation, ...rest } = passport;
+  return canonicalize(rest);
+}
+
+/**
+ * sha256 of the canonical issuance payload. Recomputed by a verifier from the
+ * passport alone — it never trusts the mutable `attestation.passport_hash`.
+ */
+export function issuanceDigest(passport: TrustPassport): string {
+  return createHash('sha256').update(issuancePayload(passport)).digest('hex');
+}
+
+/**
  * signPassport — sign a passport document with Ed25519.
  *
  * Strips any existing attestation.signature, canonicalizes the remaining fields,
@@ -49,9 +69,8 @@ export async function signPassport(
   passport: TrustPassport,
   signer: PassportSigner,
 ): Promise<SignedPassport> {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { attestation, ...rest } = passport;
-  const canonical = canonicalize(rest);
+  const { attestation } = passport;
+  const canonical = issuancePayload(passport);
   const bytes = new TextEncoder().encode(canonical);
   const sig = await signer.sign(bytes);
   return {
@@ -68,6 +87,10 @@ export async function signPassport(
 
 /**
  * verifySignature — verify the Ed25519 signature on a signed passport.
+ *
+ * Also returns invalid when the passport has expired. Use
+ * {@link verifySignatureOnly} when you need to separate issuance authenticity
+ * from validity/expiry (e.g. layered revocation verification).
  */
 export async function verifySignature(
   passport: TrustPassport,
@@ -90,10 +113,30 @@ export async function verifySignature(
     }
   }
 
+  return verifySignatureOnly(passport, publicKey);
+}
+
+/**
+ * verifySignatureOnly — verify the Ed25519 signature over the immutable
+ * issuance payload, **ignoring expiry and revocation**. This isolates signature
+ * authenticity so a caller can report "authentic issuance, subsequently
+ * revoked" instead of collapsing everything to one boolean (N2-P1-01).
+ */
+export async function verifySignatureOnly(
+  passport: TrustPassport,
+  publicKey: Uint8Array,
+): Promise<VerifyResult> {
+  const att = passport.attestation;
+  if (!att || att.signing_method !== 'ed25519') {
+    return { valid: false, error: 'Passport is not signed with ed25519' };
+  }
+
+  if (!att.signature) {
+    return { valid: false, error: 'Missing signature in attestation' };
+  }
+
   // Strip attestation, canonicalize
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { attestation, ...rest } = passport;
-  const canonical = canonicalize(rest);
+  const canonical = issuancePayload(passport);
   const bytes = new TextEncoder().encode(canonical);
 
   try {

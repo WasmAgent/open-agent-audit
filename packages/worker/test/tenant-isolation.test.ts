@@ -188,4 +188,46 @@ describe('N2-TI — tenant isolation', () => {
     expect((await get(env, '/api/v1/runs')).status).toBe(401);
     expect((await get(env, '/api/v1/dashboard/org-risk-rollup')).status).toBe(401);
   });
+
+  it('N3-TI-10..14 multi-tenant short link requires a key and binds to the key tenant', async () => {
+    const env = createEnv({
+      OAA_ENV: 'production',
+      TENANT_API_KEYS: JSON.stringify({ 'key-a': 'tenant-a', 'key-b': 'tenant-b' }),
+    });
+    seedTwoTenants(env);
+    await env.REPORTS.put('runs/run-a/report.html', 'tenant-a report');
+    await env.REPORTS.put('runs/run-b/report.html', 'tenant-b secret report');
+
+    // N3-TI-12 unauthenticated multi-tenant short link is refused.
+    expect((await get(env, '/r/run-a')).status).toBe(401);
+
+    // N3-TI-10 tenant A may read its own short link.
+    const own = await get(env, '/r/run-a', { Authorization: 'Bearer key-a' });
+    expect(own.status).toBe(200);
+    expect(await own.text()).toContain('tenant-a report');
+
+    // N3-TI-11 tenant A cannot read tenant B's short link.
+    expect((await get(env, '/r/run-b', { Authorization: 'Bearer key-a' })).status).toBe(404);
+    expect((await get(env, '/r/run-a', { Authorization: 'Bearer key-b' })).status).toBe(404);
+
+    // N3-TI-14 a forged tenant header cannot widen the short-link scope.
+    expect(
+      (
+        await get(env, '/r/run-b', {
+          Authorization: 'Bearer key-a',
+          'X-Tenant-Id': 'tenant-b',
+        })
+      ).status,
+    ).toBe(404);
+  });
+
+  it('N3-TI-13 single-tenant public short link stays public', async () => {
+    const env = createEnv({ TENANT_ID: 'tenant-a', OAA_ENV: 'production', API_KEY: 'secret' });
+    seedTwoTenants(env);
+    await env.REPORTS.put('runs/run-a/report.html', 'single-tenant report');
+
+    const res = await get(env, '/r/run-a');
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('single-tenant report');
+  });
 });
