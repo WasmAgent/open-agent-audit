@@ -1,0 +1,92 @@
+name: Diag — D1 REST probe
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Probe D1 REST access with the deploy token
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_D1_DATABASE_ID: ${{ secrets.CF_D1_DATABASE_ID }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const token = process.env.CLOUDFLARE_API_TOKEN ?? '';
+          const clean = (s) => s.replace(/[\s\r\n]+/g, '');
+          const mask = (s) => (s.length > 12 ? `${s.slice(0, 4)}…${s.slice(-4)}(len ${s.length})` : `<len ${s.length}>`);
+          const rawAcct = process.env.CLOUDFLARE_ACCOUNT_ID ?? '';
+          const rawDb = process.env.CF_D1_DATABASE_ID ?? '';
+          const acct = clean(rawAcct);
+          const db = clean(rawDb);
+          console.log(`account id : ${mask(acct)} | raw_len=${rawAcct.length} whitespace_cleaned=${acct !== rawAcct}`);
+          console.log(`database id: ${mask(db)} | raw_len=${rawDb.length} whitespace_cleaned=${db !== rawDb}`);
+
+          const api = (path, init = {}) =>
+            fetch(`https://api.cloudflare.com/client/v4${path}`, {
+              ...init,
+              headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', ...(init.headers ?? {}) },
+            }).then(async (r) => ({ status: r.status, body: await r.text() }));
+
+          const show = (label, res) => {
+            let summary;
+            try {
+              const parsed = JSON.parse(res.body);
+              summary = JSON.stringify({
+                success: parsed.success,
+                errors: parsed.errors,
+                // never print account names or db names; ids masked below if present
+                result_keys: Array.isArray(parsed.result) ? `array(${parsed.result.length})` : typeof parsed.result,
+              });
+            } catch {
+              summary = res.body.slice(0, 200);
+            }
+            console.log(`${label}: HTTP ${res.status} ${summary}`);
+          };
+
+          // 1) token itself is valid & active
+          show('1) GET /user/tokens/verify', await api('/user/tokens/verify'));
+
+          // 2) which accounts the token can see — is the configured account among them?
+          const accounts = await api('/accounts?per_page=50');
+          let accountMatch = 'unknown';
+          try {
+            const parsed = JSON.parse(accounts.body);
+            const ids = (parsed.result ?? []).map((a) => a.id);
+            accountMatch = ids.includes(acct) ? 'YES' : `NO (visible: ${ids.map(mask).join(', ') || 'none'})`;
+          } catch { /* non-JSON */ }
+          show('2) GET /accounts', accounts);
+          console.log(`2b) configured account visible to token: ${accountMatch}`);
+
+          // 3) D1 database info endpoint (read)
+          show('3) GET /accounts/{acct}/d1/database/{db}', await api(`/accounts/${acct}/d1/database/${db}`));
+
+          // 4) the exact failing call: D1 query endpoint
+          const q = await api(`/accounts/${acct}/d1/database/${db}/query`, {
+            method: 'POST',
+            body: JSON.stringify({ sql: 'SELECT 1 AS one' }),
+          });
+          show('4) POST /accounts/{acct}/d1/database/{db}/query', q);
+          try {
+            const parsed = JSON.parse(q.body);
+            const rows = parsed.result?.[0]?.results;
+            console.log(`4b) query rows: ${JSON.stringify(rows)}`);
+          } catch { /* ignore */ }
+
+          // 5) if the raw (un-cleaned) account id differs, retry with it —
+          //    a stray newline/space in the secret would produce exactly 7403.
+          if (acct !== rawAcct || db !== rawDb) {
+            show('5) POST query with RAW (un-cleaned) secret values', await api(`/accounts/${rawAcct}/d1/database/${rawDb}/query`, {
+              method: 'POST',
+              body: JSON.stringify({ sql: 'SELECT 1 AS one' }),
+            }));
+          } else {
+            console.log('5) raw values identical to cleaned — no whitespace issue in secrets');
+          }
+          NODE
