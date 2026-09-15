@@ -50,8 +50,15 @@ jobs:
             console.log(`${label}: HTTP ${res.status} ${summary}`);
           };
 
-          // 1) token itself is valid & active
-          show('1) GET /user/tokens/verify', await api('/user/tokens/verify'));
+          // 1) token itself is valid & active — log its ID (masked) so the
+          //    operator can match it against the dashboard edit-page URL.
+          const verify = await api('/user/tokens/verify');
+          show('1) GET /user/tokens/verify', verify);
+          try {
+            const parsed = JSON.parse(verify.body);
+            const tokenId = parsed.result?.id ?? '<none>';
+            console.log(`1b) token id: ${tokenId.length > 12 ? `${tokenId.slice(0, 4)}…${tokenId.slice(-4)}(len ${tokenId.length})` : tokenId} — compare with the dash.cloudflare.com/.../api-tokens/<id> URL of the token you edited`);
+          } catch { /* non-JSON */ }
 
           // 2) which accounts the token can see — is the configured account among them?
           const accounts = await api('/accounts?per_page=50');
