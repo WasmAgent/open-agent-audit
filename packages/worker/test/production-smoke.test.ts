@@ -85,7 +85,7 @@ describe('R1 — synthetic trace', () => {
 describe('R1 — verdict aggregation', () => {
   it('all-pass operations yield all-pass verdicts', () => {
     const ops = [op('R1-DEP-01', true), op('R1-RO-01', true), op('R1-TX-01', true), op('R1-D1-01', true)];
-    expect(buildSmokeVerdicts(ops, true)).toEqual({
+    expect(buildSmokeVerdicts(ops, { enabled: true })).toEqual({
       deployment_identity: 'pass',
       read_only_smoke: 'pass',
       synthetic_transaction: 'pass',
@@ -96,19 +96,19 @@ describe('R1 — verdict aggregation', () => {
 
   it('a failing operation fails its phase without failing the others', () => {
     const ops = [op('R1-DEP-01', true), op('R1-RO-01', true), op('R1-RO-02', false), op('R1-TX-01', true)];
-    const verdicts = buildSmokeVerdicts(ops, false);
+    const verdicts = buildSmokeVerdicts(ops, { enabled: false });
     expect(verdicts.read_only_smoke).toBe('fail');
     expect(verdicts.synthetic_transaction).toBe('pass');
     expect(verdicts.d1_state_verification).toBe('not_run');
   });
 
   it('d1 verdict is not_run when no D1 database is provided', () => {
-    const verdicts = buildSmokeVerdicts([op('R1-DEP-01', true), op('R1-RO-01', true), op('R1-TX-01', true)], false);
+    const verdicts = buildSmokeVerdicts([op('R1-DEP-01', true), op('R1-RO-01', true), op('R1-TX-01', true)], { enabled: false });
     expect(verdicts.d1_state_verification).toBe('not_run');
   });
 
   it('an empty operation list fails closed', () => {
-    const verdicts = buildSmokeVerdicts([], true);
+    const verdicts = buildSmokeVerdicts([], { enabled: true });
     expect(verdicts.read_only_smoke).toBe('fail');
     expect(verdicts.synthetic_transaction).toBe('fail');
     expect(verdicts.d1_state_verification).toBe('fail');
@@ -135,5 +135,28 @@ describe('R1 — credential redaction', () => {
     };
     expect(containsSecret(base, ['supersecret'])).toBe(false);
     expect(containsSecret({ ...base, synthetic: { ...base.synthetic, run_id: 'has supersecret inside' } }, ['supersecret'])).toBe(true);
+  });
+});
+
+describe('R1 — D1 transport unauthorized classification', () => {
+  it('unauthorized D1 transport downgrades the verdict to not_run without failing the phase ops', () => {
+    const ops = [
+      op('R1-DEP-01', true),
+      op('R1-RO-01', true),
+      op('R1-TX-01', true),
+      op('R1-D1-01', false), // direct query could not run
+      op('R1-D1-02', false),
+      op('R1-D1-TRANSPORT', true), // transport gap correctly detected & recorded
+    ];
+    const verdicts = buildSmokeVerdicts(ops, { enabled: true, unauthorized: true });
+    expect(verdicts.d1_state_verification).toBe('not_run');
+    expect(verdicts.read_only_smoke).toBe('pass');
+    expect(verdicts.synthetic_transaction).toBe('pass');
+  });
+
+  it('a genuine state failure (rows missing, transport fine) still fails', () => {
+    const ops = [op('R1-DEP-01', true), op('R1-RO-01', true), op('R1-TX-01', true), op('R1-D1-01', false), op('R1-D1-02', false)];
+    const verdicts = buildSmokeVerdicts(ops, { enabled: true, unauthorized: false });
+    expect(verdicts.d1_state_verification).toBe('fail');
   });
 });

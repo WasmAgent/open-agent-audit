@@ -135,7 +135,7 @@ export function operationsPass(operations: SmokeOperation[]): boolean {
 
 export function buildSmokeVerdicts(
   operations: SmokeOperation[],
-  d1Enabled: boolean,
+  d1: { enabled: boolean; unauthorized?: boolean },
 ): SmokeVerdicts {
   // A phase passes only when it actually ran (non-empty) and every recorded
   // operation passed — an absent phase must fail closed, never pass vacuously.
@@ -144,11 +144,17 @@ export function buildSmokeVerdicts(
     return phase.length > 0 && phase.every((op) => op.pass);
   };
 
+  // A transport-level authorization failure (deploy token without D1 API
+  // scope) is an infrastructure gap: direct-SQL evidence is not_run (never a
+  // silent pass, never a false fail), and the authoritative app-surface
+  // transitions (TX-07b/08/09) remain the D1 evidence of record.
+  const d1NotRun = !d1.enabled || d1.unauthorized === true;
+
   return {
     deployment_identity: byId('R1-DEP') ? 'pass' : 'fail',
     read_only_smoke: byId('R1-RO') ? 'pass' : 'fail',
     synthetic_transaction: byId('R1-TX') ? 'pass' : 'fail',
-    d1_state_verification: d1Enabled ? (byId('R1-D1') ? 'pass' : 'fail') : 'not_run',
+    d1_state_verification: d1NotRun ? 'not_run' : byId('R1-D1') ? 'pass' : 'fail',
   };
 }
 
