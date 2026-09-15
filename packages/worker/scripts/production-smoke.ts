@@ -40,14 +40,15 @@ interface CliArgs {
   expectRepository: string;
   expectTenant: string;
   d1Database: string | null;
+  d1DatabaseId: string | null;
   d1Bin: string;
   out: string;
 }
 
 const USAGE = `Usage: OAA_SMOKE_API_KEY=... bun production-smoke.ts \\
   --base-url https://trustavo.com --expect-sha <sha> --expect-repository <owner/repo> \\
-  [--expect-tenant default] [--d1-database oaa-meta] [--d1-bin ./node_modules/.bin/wrangler] \\
-  --out runtime-smoke.json`;
+  [--expect-tenant default] [--d1-database oaa-meta] [--d1-database-id <uuid>] \\
+  [--d1-bin ./node_modules/.bin/wrangler] --out runtime-smoke.json`;
 
 function parseArgs(argv: string[]): CliArgs | null {
   const args: Record<string, string> = {};
@@ -71,6 +72,7 @@ function parseArgs(argv: string[]): CliArgs | null {
     expectRepository: args['expect-repository'],
     expectTenant: args['expect-tenant'] ?? process.env.OAA_SMOKE_TENANT ?? 'default',
     d1Database: args['d1-database'] ?? null,
+    d1DatabaseId: args['d1-database-id'] ?? null,
     d1Bin: args['d1-bin'] ?? './node_modules/.bin/wrangler',
     out: args.out,
   };
@@ -144,19 +146,73 @@ interface D1Row {
   results: Array<Record<string, unknown>>;
 }
 
-/** Query the remote D1 database through the local/CI wrangler binary. */
-function d1Query(bin: string, database: string, sql: string): D1Row[] | null {
+interface D1QueryContext {
+  /** D1 REST path (CI): account id + database UUID + CLOUDFLARE_API_TOKEN. */
+  databaseId: string | null;
+  /** wrangler fallback path (local OAuth): database name + binary. */
+  bin: string;
+  database: string;
+}
+
+/**
+ * Query the remote D1 database. Prefers the D1 REST API (works in CI with the
+ * deploy API token, and surfaces the real error body on failure); falls back
+ * to the wrangler binary for local OAuth runs.
+ */
+async function d1Query(context: D1QueryContext, sql: string): Promise<D1Row[] | null> {
+  if (context.databaseId !== null) {
+    const accountId = process.env.CLOUDFLARE_ACCOUNT_ID ?? '';
+    const token = process.env.CLOUDFLARE_API_TOKEN ?? '';
+    if (accountId === '' || token === '') {
+      console.log('D1 REST query skipped: CLOUDFLARE_ACCOUNT_ID / CLOUDFLARE_API_TOKEN missing');
+      return null;
+    }
+    try {
+      const response = await fetch(
+        `https://api.cloudflare.com/client/v4/accounts/${accountId}/d1/database/${context.databaseId}/query`,
+        {
+          method: 'POST',
+          headers: {
+            authorization: `Bearer ${token}`,
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({ sql }),
+          signal: AbortSignal.timeout(30_000),
+        },
+      );
+      const payload = (await response.json()) as {
+        success?: boolean;
+        errors?: Array<{ code: number; message: string }>;
+        result?: D1Row[];
+      };
+      if (!response.ok || payload.success !== true) {
+        console.log(
+          `D1 REST query failed: HTTP ${response.status} errors=${JSON.stringify(payload.errors ?? [])}`,
+        );
+        return null;
+      }
+      return payload.result ?? [];
+    } catch (error) {
+      console.log(`D1 REST query failed: ${String(error)}`);
+      return null;
+    }
+  }
+
   try {
-    const output = execFileSync(bin, ['d1', 'execute', database, '--remote', '--json', '--command', sql], {
-      encoding: 'utf8',
-      timeout: 60_000,
-    });
+    const output = execFileSync(
+      context.bin,
+      ['d1', 'execute', context.database, '--remote', '--json', '--command', sql],
+      { encoding: 'utf8', timeout: 60_000 },
+    );
     const start = output.indexOf('[');
     const end = output.lastIndexOf(']');
     if (start === -1 || end === -1) return null;
     return JSON.parse(output.slice(start, end + 1)) as D1Row[];
   } catch (error) {
-    console.log(`D1 query failed: ${String(error)}`);
+    // execFileSync errors carry the provider stderr — log it so a failing
+    // verification is diagnosable instead of silently becoming "missing".
+    const stderr = (error as { stderr?: Buffer }).stderr?.toString() ?? '';
+    console.log(`D1 query failed: ${String(error)}${stderr !== '' ? `\nstderr: ${stderr}` : ''}`);
     return null;
   }
 }
@@ -291,12 +347,17 @@ async function main(): Promise<number> {
       await call(args.baseUrl, smoke, 'R1-TX-09', 'POST', `/passport/${passportId}/revoke`, 409, { key: 'valid', body: '{"reason":"rt-canary double revoke"}' });
 
       // --- D1-visible state transitions (R1-D1) ---
-      if (args.d1Database !== null) {
-        const issuance = d1Query(args.d1Bin, args.d1Database, `SELECT tenant_id FROM passport_issuances WHERE passport_id = '${passportId}'`);
+      if (args.d1Database !== null || args.d1DatabaseId !== null) {
+        const d1Context = {
+          databaseId: args.d1DatabaseId,
+          bin: args.d1Bin,
+          database: args.d1Database ?? '',
+        };
+        const issuance = await d1Query(d1Context, `SELECT tenant_id FROM passport_issuances WHERE passport_id = '${passportId}'`);
         const ownerTenant = issuance?.[0]?.results?.[0]?.tenant_id;
         smoke.record('R1-D1-01', '-', 'd1:passport_issuances', `tenant=${args.expectTenant}`, `tenant=${String(ownerTenant)}`, ownerTenant === args.expectTenant);
 
-        const revocation = d1Query(args.d1Bin, args.d1Database, `SELECT record FROM passport_revocations WHERE passport_id = '${passportId}'`);
+        const revocation = await d1Query(d1Context, `SELECT record FROM passport_revocations WHERE passport_id = '${passportId}'`);
         const revocationRow = revocation?.[0]?.results?.[0]?.record;
         let revocationOk = false;
         if (typeof revocationRow === 'string') {
@@ -313,7 +374,7 @@ async function main(): Promise<number> {
     }
   }
 
-  const d1Enabled = args.d1Database !== null;
+  const d1Enabled = args.d1Database !== null || args.d1DatabaseId !== null;
   const verdicts = buildSmokeVerdicts(smoke.operations, d1Enabled);
   const ok = Object.values(verdicts).every((verdict) => verdict === 'pass');
 
