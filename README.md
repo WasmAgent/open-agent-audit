@@ -58,7 +58,8 @@ const bundle = await renderReport(events, findings, score);
 
 ## Trust Passport
 
-`@openagentaudit/passport` issues signed audit certificates for AI agents.
+`@openagentaudit/passport` issues audit passports / trust artifacts for AI
+agents and supports cryptographic issuance when a signer is configured.
 A Trust Passport summarises evidence quality, open risks, framework coverage,
 and a validity window — giving procurement teams and auditors a single
 machine-verifiable trust signal.

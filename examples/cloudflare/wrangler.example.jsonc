@@ -43,7 +43,12 @@
     {
       "binding": "DB",
       "database_name": "oaa-meta",
-      "database_id": "REPLACE_ME_D1_ID"
+      "database_id": "REPLACE_ME_D1_ID",
+      // D1 schema migrations live with the worker package. Deploy applies
+      // them with `wrangler d1 migrations apply oaa-meta --remote` BEFORE the
+      // worker goes live (issue #310 — request-time bootstrap is a fallback,
+      // never the migration system).
+      "migrations_dir": "packages/worker/migrations"
     }
   ],
 
