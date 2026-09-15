@@ -43,6 +43,7 @@ import {
 import type { TrustPassport, TrustPassportRevocation } from '@openagentaudit/passport';
 import { validateEvents } from '@openagentaudit/schema';
 import type { CanonicalEvent, Finding, RiskScore } from '@openagentaudit/schema';
+import { classifyD1Error, dependencyUnavailableBody } from './dependency-errors.js';
 import { buildIdentity } from './deployment-identity.js';
 
 // ---------------------------------------------------------------------------
@@ -3302,8 +3303,38 @@ async function handleScheduled(
 // Worker export
 // ---------------------------------------------------------------------------
 
+/**
+ * Single normalization boundary for expected D1 availability failures
+ * (runtime finding R-G-01): a classified provider error becomes a structured
+ * 503 instead of a raw Cloudflare error page. Auth failures are returned
+ * responses, never exceptions, so they can never be masked as 503. Anything
+ * unclassified is rethrown and keeps the existing 500 behavior — SQL defects
+ * stay visible instead of hiding behind "unavailable".
+ */
+async function handleFetchWithDependencyNormalization(
+  request: Request,
+  env: WorkerEnv,
+): Promise<Response> {
+  try {
+    return await handleFetch(request, env);
+  } catch (error) {
+    const failure = classifyD1Error(error);
+    if (failure === null) throw error;
+    // Internal log: dependency + kind + path only — no secrets, no SQL, no
+    // provider error bodies (docs/runtime-assurance.md logging rules).
+    console.error(
+      `[d1] dependency unavailable kind=${failure.kind} path=${new URL(request.url).pathname}`,
+    );
+    const body = dependencyUnavailableBody(failure);
+    const response = corsJson(body, env, 503);
+    const headers = new Headers(response.headers);
+    headers.set('Retry-After', '60');
+    return new Response(response.body, { status: 503, headers });
+  }
+}
+
 export default {
-  fetch: handleFetch,
+  fetch: handleFetchWithDependencyNormalization,
   queue: handleQueue,
   scheduled: handleScheduled,
 };
