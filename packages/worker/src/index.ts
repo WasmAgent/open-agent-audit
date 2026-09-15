@@ -43,6 +43,7 @@ import {
 import type { TrustPassport, TrustPassportRevocation } from '@openagentaudit/passport';
 import { validateEvents } from '@openagentaudit/schema';
 import type { CanonicalEvent, Finding, RiskScore } from '@openagentaudit/schema';
+import { classifyD1Error, dependencyUnavailableBody } from './dependency-errors.js';
 import { buildIdentity } from './deployment-identity.js';
 
 // ---------------------------------------------------------------------------
@@ -1399,15 +1400,25 @@ async function handlePublicReportLink(
 /**
  * Canonical, server-owned audit evidence for an owned run.
  *
+ * States map to distinct HTTP semantics (runtime error taxonomy — do not fold
+ * availability faults into business conflicts, or vice versa):
+ *
  * - `not_found`: unknown run, or a run owned by another tenant. The caller must
  *   receive 404 without learning which (N5-P1-01 / N5-EV-01..02).
- * - `unavailable`: the run is owned but its canonical report is missing or
- *   unreadable. Issuance must fail closed rather than mint from partial bytes.
+ * - `report_missing`: the run is owned but its canonical report object is not
+ *   present (not yet produced, or pruned). Business-state conflict → 409.
+ * - `storage_unavailable`: the R2 read itself failed (timeout/outage).
+ *   Dependency availability fault → structured 503, retryable.
+ * - `corrupt`: the persisted report exists but is not a valid report object.
+ *   Evidence integrity error → 500. Retrying is NOT expected to help, so this
+ *   must never be presented as a transient conflict.
  */
 type CanonicalEvidence =
   | { state: 'ok'; report: Record<string, unknown> }
   | { state: 'not_found' }
-  | { state: 'unavailable' };
+  | { state: 'report_missing' }
+  | { state: 'storage_unavailable' }
+  | { state: 'corrupt' };
 
 /**
  * Load the canonical, server-owned audit evidence for a run owned by
@@ -1430,17 +1441,24 @@ async function loadCanonicalRunReport(
     .first<{ run_id: string }>();
   if (owned === null) return { state: 'not_found' };
 
-  const object = await env.REPORTS.get(`runs/${runId}/report.json`);
-  if (object === null) return { state: 'unavailable' };
+  // A storage outage on the canonical report must fail issuance closed
+  // (R2-R2-03): never fabricate evidence from a partially readable artifact.
+  let object: Awaited<ReturnType<WorkerEnv['REPORTS']['get']>> | null;
+  try {
+    object = await env.REPORTS.get(`runs/${runId}/report.json`);
+  } catch {
+    return { state: 'storage_unavailable' };
+  }
+  if (object === null) return { state: 'report_missing' };
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(await object.text()) as unknown;
   } catch {
-    return { state: 'unavailable' };
+    return { state: 'corrupt' };
   }
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    return { state: 'unavailable' };
+    return { state: 'corrupt' };
   }
   return { state: 'ok', report: parsed as Record<string, unknown> };
 }
@@ -1488,8 +1506,27 @@ async function handlePassportIssue(
       // Unknown or foreign run: 404 avoids cross-tenant enumeration.
       return corsError('Audit run not found', 404, env);
     }
-    if (canonical.state === 'unavailable') {
+    if (canonical.state === 'report_missing') {
+      // Business-state conflict: the owned run has no canonical report (yet).
       return corsError('Canonical audit report unavailable for this run', 409, env);
+    }
+    if (canonical.state === 'storage_unavailable') {
+      // Dependency availability fault — structured 503, distinct from the 409
+      // conflict above so an R2 outage is never mistaken for "retry the
+      // business operation later".
+      const response = corsJson(
+        { error: 'dependency_unavailable', dependency: 'r2', retryable: true },
+        env,
+        503,
+      );
+      const headers = new Headers(response.headers);
+      headers.set('Retry-After', '60');
+      return new Response(response.body, { status: 503, headers });
+    }
+    if (canonical.state === 'corrupt') {
+      // Persisted evidence failed integrity/structure checks — a 500-class
+      // defect, deliberately NOT presented as a retryable conflict.
+      return corsJson({ error: 'evidence_integrity_error' }, env, 500);
     }
     issuanceReport = canonical.report;
     issuanceContext = 'trustavo';
@@ -3302,8 +3339,38 @@ async function handleScheduled(
 // Worker export
 // ---------------------------------------------------------------------------
 
+/**
+ * Single normalization boundary for expected D1 availability failures
+ * (runtime finding R-G-01): a classified provider error becomes a structured
+ * 503 instead of a raw Cloudflare error page. Auth failures are returned
+ * responses, never exceptions, so they can never be masked as 503. Anything
+ * unclassified is rethrown and keeps the existing 500 behavior — SQL defects
+ * stay visible instead of hiding behind "unavailable".
+ */
+async function handleFetchWithDependencyNormalization(
+  request: Request,
+  env: WorkerEnv,
+): Promise<Response> {
+  try {
+    return await handleFetch(request, env);
+  } catch (error) {
+    const failure = classifyD1Error(error);
+    if (failure === null) throw error;
+    // Internal log: dependency + kind + path only — no secrets, no SQL, no
+    // provider error bodies (docs/runtime-assurance.md logging rules).
+    console.error(
+      `[d1] dependency unavailable kind=${failure.kind} path=${new URL(request.url).pathname}`,
+    );
+    const body = dependencyUnavailableBody(failure);
+    const response = corsJson(body, env, 503);
+    const headers = new Headers(response.headers);
+    headers.set('Retry-After', '60');
+    return new Response(response.body, { status: 503, headers });
+  }
+}
+
 export default {
-  fetch: handleFetch,
+  fetch: handleFetchWithDependencyNormalization,
   queue: handleQueue,
   scheduled: handleScheduled,
 };
