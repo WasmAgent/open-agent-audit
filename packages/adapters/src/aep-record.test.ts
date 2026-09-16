@@ -47,7 +47,9 @@ describe('aep-record adapter', () => {
   });
 
   test('rejects invalid input', () => {
-    expect(() => fromCanonicalEventsLegacyV02('aep/v0.2', null as any)).toThrow();
+    expect(() =>
+      fromCanonicalEventsLegacyV02('aep/v0.2', null as unknown as Parameters<typeof fromCanonicalEventsLegacyV02>[1]),
+    ).toThrow();
     expect(() => fromCanonicalEventsLegacyV02('aep/v0.2', [])).toThrow();
     expect(() =>
       fromCanonicalEventsLegacyV02('aep/v0.2', [
@@ -71,7 +73,8 @@ describe('aep-record mapping', () => {
       }),
     ]);
     expect(result.actions).toHaveLength(1);
-    const action = result.actions![0]!;
+    const action = result.actions?.at(0);
+    expect(action).toBeDefined();
     expect(action.tool_name).toBe('bash');
     expect(action.state_changing).toBe(true);
     expect(action.timestamp_ms).toBe(1_700_000_000_000);
@@ -181,7 +184,9 @@ describe('aep-record conformance (published aep-record schema)', () => {
   });
 
   test('negative control: non-conformant record is rejected by the schema', () => {
-    const record = fromCanonicalEventsLegacyV02('aep/v0.2', [makeEvent({ type: 'tool_call' })]) as any;
+    const record = fromCanonicalEventsLegacyV02('aep/v0.2', [
+      makeEvent({ type: 'tool_call' }),
+    ]) as Record<string, unknown>;
     record.created_at_ms = 'not-a-number';
     expect(conforms(record)).toBe(false);
   });

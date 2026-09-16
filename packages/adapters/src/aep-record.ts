@@ -53,11 +53,14 @@ function isoToMs(iso: string): number {
 // Validation
 // ---------------------------------------------------------------------------
 
-function validateEvents(events: CanonicalEvent[]): void {
-  if (events.length === 0) {
+function validateEvents(events: CanonicalEvent[]): CanonicalEvent {
+  // Returns the first event (validated non-empty) so callers never need a
+  // non-null assertion on indexed access.
+  const first = events.at(0);
+  if (first === undefined) {
     throw new Error('aep-record adapter: events array must not be empty');
   }
-  const runId = events[0]!.run_id;
+  const runId = first.run_id;
   for (const ev of events) {
     if (ev.run_id !== runId) {
       throw new Error(
@@ -72,6 +75,7 @@ function validateEvents(events: CanonicalEvent[]): void {
       );
     }
   }
+  return first;
 }
 
 // ---------------------------------------------------------------------------
@@ -105,14 +109,14 @@ export function fromCanonicalEventsLegacyV02(
         'output must be reconstructed and re-signed through the DSSE path.',
     );
   }
-  validateEvents(events);
+  const firstEvent = validateEvents(events);
 
-  const runId = events[0]!.run_id;
-  const agentId = events[0]!.agent_id;
-  const modelId = events[0]!.model_id;
+  const runId = firstEvent.run_id;
+  const agentId = firstEvent.agent_id;
+  const modelId = firstEvent.model_id;
 
   // -- Signature block from first event's evidence ------------------------
-  const firstEvidence = events[0]!.evidence;
+  const firstEvidence = firstEvent.evidence;
   const signature: AEPRecordInput['signature'] = {
     alg: 'ed25519',
     key_id: firstEvidence?.signer_key_id ?? '',
@@ -190,36 +194,36 @@ export function fromCanonicalEventsLegacyV02(
 
   // -- Map policy_decision events → capability_decisions[] ---------------
   const capabilityDecisions: CapabilityDecisionInput[] = events
-    .filter((e) => e.type === 'policy_decision')
-    .map((e): CapabilityDecisionInput => {
+    .flatMap((e): CapabilityDecisionInput[] => {
+      const policy = e.policy;
+      if (e.type !== 'policy_decision' || policy === undefined) return [];
       const decision =
-        e.policy!.decision === 'deny'
+        policy.decision === 'deny'
           ? ('deny' as const)
-          : e.policy!.decision === 'ask_user'
+          : policy.decision === 'ask_user'
             ? ('ask_user' as const)
             : ('allow' as const);
-      const reasonCode = e.policy!.reason !== '' ? e.policy!.reason : undefined;
-      return {
-        capability: '',
-        subject: agentId,
-        resource: '',
-        decision,
-        ...(reasonCode !== undefined ? { reason_code: reasonCode } : {}),
-      };
+      const reasonCode = policy.reason !== '' ? policy.reason : undefined;
+      return [
+        {
+          capability: '',
+          subject: agentId,
+          resource: '',
+          decision,
+          ...(reasonCode !== undefined ? { reason_code: reasonCode } : {}),
+        },
+      ];
     });
 
   // -- Map observation (verifier:*) events → verifier_results[] ----------
-  const verifierResults: VerifierResultInput[] = events
-    .filter(
-      (e) =>
-        e.type === 'observation' &&
-        typeof e.observation?.source === 'string' &&
-        e.observation.source.startsWith('verifier:'),
-    )
-    .map((e): VerifierResultInput => ({
-      verifier_id: e.observation!.source!.slice('verifier:'.length),
-      passed: false,
-    }));
+  const verifierResults: VerifierResultInput[] = events.flatMap(
+    (e): VerifierResultInput[] => {
+      if (e.type !== 'observation' || e.observation === undefined) return [];
+      const source = e.observation.source;
+      if (typeof source !== 'string' || !source.startsWith('verifier:')) return [];
+      return [{ verifier_id: source.slice('verifier:'.length), passed: false }];
+    },
+  );
 
   // -- Assemble AEPRecordInput --------------------------------------------
   const record: AEPRecordInput = {

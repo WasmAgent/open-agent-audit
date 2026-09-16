@@ -1606,10 +1606,15 @@ async function handlePassportGet(passportId: string, env: WorkerEnv): Promise<Re
  */
 type D1DiagnosticTable = 'passport_issuances' | 'passport_revocations';
 
-function classifyD1Error(err: unknown): string {
+// classifyD1Error is imported from ./dependency-errors.js (shared with the
+// queue-consumer diagnostic path). It classifies provider availability
+// failures only; missing tables and SQL defects are application/schema issues
+// and keep their own classes so defects stay visible (D1-OBS-01).
+
+function d1ErrorClass(err: unknown): string {
   if (isMissingTableError(err)) return 'missing-table';
-  if (err instanceof Error && /EXEC_FAILED|exec/i.test(err.message)) return 'schema-bootstrap';
-  return 'query-error';
+  const failure = classifyD1Error(err);
+  return failure === null ? 'query-error' : failure.kind;
 }
 
 function logD1Diagnostic(
@@ -1623,7 +1628,7 @@ function logD1Diagnostic(
       severity: 'error',
       operation,
       dependency: 'd1',
-      error_class: classifyD1Error(err),
+      error_class: d1ErrorClass(err),
       table,
       detail: message.slice(0, 160),
     }),
