@@ -75,7 +75,7 @@
     },
     "packages/passport": {
       "name": "@openagentaudit/passport",
-      "version": "0.6.2",
+      "version": "0.7.0",
       "dependencies": {
         "@noble/ed25519": "^3.1.0",
         "@noble/hashes": "^2.2.0",
@@ -99,7 +99,7 @@
       "dependencies": {
         "@openagentaudit/adapters": "0.7.0",
         "@openagentaudit/core": "0.8.0",
-        "@openagentaudit/passport": "0.6.2",
+        "@openagentaudit/passport": "0.7.0",
         "@openagentaudit/schema": "0.7.0",
       },
       "devDependencies": {
