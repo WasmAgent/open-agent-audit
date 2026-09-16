@@ -1,5 +1,67 @@
 # @openagentaudit/passport
 
+## 0.7.0
+
+### Minor Changes
+
+- d68f327: Harden passport revocation binding, authenticity semantics and renewal (third-round audit).
+
+  - Revocation records bind to the **canonical issuance digest** recomputed from
+    the passport (attestation excluded), and require
+    `revocation.passport_id === passport.identity.passport_id`; a signed status
+    record without the digest fails closed (N3-P1-06).
+  - `issuance_authenticity` and `revocation_authenticity` now return
+    `valid | invalid | not-present`, so an unsigned passport is `not-present`, not
+    conflated with a cryptographically invalid one (N3-P1-07).
+  - An unsigned revocation is only authoritative when the caller marks the status
+    source trusted; the Worker registry does so explicitly (N3-P1-07).
+  - Worker renewal mints a new immutable issuance (new id, `renewed_from`
+    lineage, fresh attestation) instead of mutating the signed passport in place;
+    a signed passport cannot be renewed without a signer (N3-P1-08).
+  - The multi-tenant `GET /r/:reportId` short link now requires a valid principal
+    and verifies run ownership before serving the R2 report (N3-P0-01).
+
+- fe61840: Bind Trust Passport issuance and write authority to the authenticated tenant
+  (fifth-round audit — N5-P0-01 / N5-P1-01).
+
+  - Passport writes (`POST /passport/issue`, `/:id/revoke`, `/:id/renew`) now
+    resolve the full principal and require the caller's tenant to own the
+    Passport (`passport_issuances.tenant_id == principal.tenantId`). A foreign
+    Passport is answered `404`; an unowned legacy Passport fails closed in
+    multi-tenant mode.
+  - New authoritative D1 ownership registry `passport_issuances` (migration
+    `0007`), self-bootstrapped on demand like the revocation registry. KV is no
+    longer consulted for Passport authority. If the owner row cannot be written,
+    issuance/renewal is rolled back and fails closed.
+  - Production issuance accepts `{"runId": "run-…"}` and builds the Passport from
+    the canonical persisted `runs/<runId>/report.json` owned by the tenant, so
+    caller-supplied report bytes can no longer fabricate evidence provenance.
+    A direct `report` remains available only for dev/demo and is marked
+    `issuance_context: "self-issued"`.
+  - `issue()` now resolves the Evidence Admission Score from either the top-level
+    `evidence_admission_score` (direct API) or the persisted report bundle's
+    nested `risk_score.evidence_admission_score`, so server-audited issuance
+    derives the same evidence quality as direct issuance.
+  - Renewal preserves the owner tenant on the new issuance
+    (`old owner == renewed owner`).
+  - Worker README storage truth updated: D1 owns Passport ownership + revocation;
+    KV holds immutable documents and a best-effort revocation mirror.
+
+- 1a540ba: Add external, signed passport revocation records so revocation no longer mutates
+  the signed issuance (which invalidated its signature and made verifiers report
+  "tampered" instead of "authentic, revoked").
+
+  - `createRevocationRecord` / `verifyRevocation` build and verify a separate
+    `TrustPassportRevocation` status object.
+  - `verifyPassportLayers` returns independent layers:
+    `issuance_authenticity`, `revocation_status`, `revocation_authenticity`,
+    `status_freshness` — never a single collapsed boolean.
+  - `verifySignatureOnly` verifies the issuance signature while deliberately
+    ignoring expiry, so expired != tampered.
+  - `revoke()` is deprecated for legacy embedded-revocation parsing only; the
+    Worker now stores revocation externally and leaves the passport bytes
+    untouched.
+
 ## 0.6.2
 
 ### Patch Changes
