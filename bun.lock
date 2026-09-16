@@ -33,10 +33,10 @@
         "openagentaudit": "./src/main.ts",
       },
       "dependencies": {
-        "@openagentaudit/adapters": "0.2.3",
-        "@openagentaudit/core": "0.2.2",
-        "@openagentaudit/passport": "0.1.0",
-        "@openagentaudit/schema": "0.2.0",
+        "@openagentaudit/adapters": "0.7.0",
+        "@openagentaudit/core": "0.8.0",
+        "@openagentaudit/passport": "0.6.2",
+        "@openagentaudit/schema": "0.7.0",
       },
       "devDependencies": {
         "@types/bun": "^1.3.14",
@@ -1084,6 +1084,8 @@
     "@manypkg/get-packages/@changesets/types": ["@changesets/types@4.1.0", "", {}, "sha512-LDQvVDv5Kb50ny2s25Fhm3d9QSZimsoUGBsUioj6MC3qbMUCuC8GPIvk/M6IvXx3lYhAs0lwWUQLb+VIEUCECw=="],
 
     "@manypkg/get-packages/fs-extra": ["fs-extra@8.1.0", "", { "dependencies": { "graceful-fs": "^4.2.0", "jsonfile": "^4.0.0", "universalify": "^0.1.0" } }, "sha512-yhlQgA6mnOJUKOsRUFsgJdQCvkKhcz8tlZG5HBQfReYZy46OwLcY+Zia0mtdHsOo9y/hP+CxMN0TU9QxoOtG4g=="],
+
+    "@openagentaudit/cli/@openagentaudit/passport": ["@openagentaudit/passport@0.6.2", "", { "dependencies": { "@noble/ed25519": "^3.1.0", "@noble/hashes": "^2.2.0", "@openagentaudit/core": "0.8.0", "@openagentaudit/schema": "0.7.0" } }, "sha512-Tu+mFJdslOyPKGQ7uYQTq4UrrynI6aViKCEoZ/t246/HEMYbvT0GpFFNPVuZCwE/GaUGupo488/IEWRe1ss4eA=="],
 
     "@poppinss/dumper/supports-color": ["supports-color@10.2.2", "", {}, "sha512-SS+jx45GF1QjgEXQx4NJZV9ImqmO2NPz5FNsIHrsDjh2YsHnawpan7SNQ1o8NuhrbHZy9AZhIoCUiCeaW/C80g=="],
 
