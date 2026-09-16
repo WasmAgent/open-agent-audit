@@ -126,6 +126,31 @@ jobs:
             echo "DEPLOYED_BUN_VERSION=$(bun --version)"
           } >> "$GITHUB_ENV"
 
+      # Issue #310 — request handler != database migration system. Apply the
+      # D1 migrations and verify the authoritative tables BEFORE the worker
+      # goes live, so a missing table fails this deploy instead of the first
+      # production issuance. The runtime schema bootstrap remains only as an
+      # explicit, single-statement, fully-logged fallback (dev/test).
+      - name: Apply D1 migrations + verify authoritative schema
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          ./node_modules/.bin/wrangler d1 migrations apply oaa-meta --remote 2>&1 | tee d1-migrations.log
+          SCHEMA_TABLES=$(./node_modules/.bin/wrangler d1 execute oaa-meta --remote             --command "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('passport_issuances','passport_revocations')"             --json)
+          echo "$SCHEMA_TABLES" | python3 -c '
+          import json, sys
+          data = json.load(sys.stdin)
+          tables = {row["name"] for row in data[0]["results"]}
+          required = {"passport_issuances", "passport_revocations"}
+          missing = required - tables
+          if missing:
+              print(f"::error::D1 schema verification failed - missing authoritative tables: {sorted(missing)}")
+              sys.exit(1)
+          print(f"D1 schema verified: present = {sorted(tables)}")
+          '
+
       - name: Deploy to Cloudflare Workers
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

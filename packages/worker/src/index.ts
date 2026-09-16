@@ -787,6 +787,8 @@ async function handleGetRiskTrends(
   const bucketExpr = bucketExpression(bucket);
   const since = new Date(Date.now() - days * 86_400_000).toISOString();
 
+  // D1-Q-02: repeated identical dashboard reads within the TTL avoid D1.
+  const series = await withDashboardCache(`risk-trends|${tenantId}|${days}|${bucket}`, async () => {
   const result = await env.DB.prepare(
     `SELECT ${bucketExpr} AS bucket_start,
             AVG(risk_score) AS avg_risk_score,
@@ -801,13 +803,14 @@ async function handleGetRiskTrends(
     .bind(tenantId, since)
     .all<RiskTrendPoint>();
 
-  const series = result.results.map((row) => ({
+  return result.results.map((row) => ({
     bucket_start: row.bucket_start,
     avg_risk_score: row.avg_risk_score === null ? null : round2(row.avg_risk_score),
     min_risk_score: row.min_risk_score,
     max_risk_score: row.max_risk_score,
     run_count: row.run_count,
   }));
+  });
 
   return corsJson({ bucket, days, since, series }, env);
 }
@@ -843,7 +846,10 @@ async function handleGetFindingTrends(
   const bucketExpr = bucketExpression(bucket);
   const since = new Date(Date.now() - days * 86_400_000).toISOString();
 
-  const result = await env.DB.prepare(
+  // D1-Q-02: TTL-cached, tenant-scoped (D1-Q-03). Backed by the covering
+  // index idx_findings_tenant_created_severity (migration 0008, D1-Q-01).
+  const result = await withDashboardCache(`finding-trends|${tenantId}|${days}|${bucket}`, async () =>
+    env.DB.prepare(
     `SELECT ${bucketExpr} AS bucket_start,
             severity,
             COUNT(*) AS count
@@ -853,7 +859,7 @@ async function handleGetFindingTrends(
      ORDER BY bucket_start ASC`,
   )
     .bind(tenantId, since)
-    .all<FindingTrendRow>();
+    .all<FindingTrendRow>());
 
   const orderedBuckets: string[] = [];
   const points = new Map<string, FindingTrendPoint>();
@@ -1568,7 +1574,11 @@ async function handlePassportIssue(
       issuanceDigest: passport.attestation.passport_hash ?? issuanceDigest(passport),
       reportId: passport.audit_ref?.report_id ?? null,
     });
-  } catch {
+  } catch (err) {
+    // Issue #310: the underlying D1 error used to vanish here, leaving a
+    // production 503 with no diagnosable cause. Emit the structured
+    // diagnostic, keep the rollback, keep the client response generic.
+    logD1Diagnostic('passport-issuance.ownership-write', 'passport_issuances', err);
     await env.PASSPORTS.delete(passport.identity.passport_id).catch(() => undefined);
     return corsError('Passport ownership registry unavailable', 503, env);
   }
@@ -1582,6 +1592,74 @@ async function handlePassportGet(passportId: string, env: WorkerEnv): Promise<Re
     return corsError('Passport not found', 404, env);
   }
   return corsJson(JSON.parse(raw), env);
+}
+
+/**
+ * Structured D1 diagnostic (issue #310 — no silent bootstrap failures).
+ *
+ * Every swallowed D1 failure must emit exactly one of these lines before the
+ * generic client error is returned: operation, dependency, classified error
+ * class, and table. Deliberately NOT logged: SQL text, credentials, tokens,
+ * passport payloads, tenant secrets. `detail` is a truncated engine message
+ * (D1 messages name the failure kind, e.g. "no such table: …") — never the
+ * full statement.
+ */
+type D1DiagnosticTable = 'passport_issuances' | 'passport_revocations';
+
+// classifyD1Error is imported from ./dependency-errors.js (shared with the
+// queue-consumer diagnostic path). It classifies provider availability
+// failures only; missing tables and SQL defects are application/schema issues
+// and keep their own classes so defects stay visible (D1-OBS-01).
+
+function d1ErrorClass(err: unknown): string {
+  if (isMissingTableError(err)) return 'missing-table';
+  const failure = classifyD1Error(err);
+  return failure === null ? 'query-error' : failure.kind;
+}
+
+function logD1Diagnostic(
+  operation: string,
+  table: D1DiagnosticTable,
+  err: unknown,
+): void {
+  const message = err instanceof Error ? err.message : String(err);
+  console.error(
+    JSON.stringify({
+      severity: 'error',
+      operation,
+      dependency: 'd1',
+      error_class: d1ErrorClass(err),
+      table,
+      detail: message.slice(0, 160),
+    }),
+  );
+}
+
+/**
+ * Short-lived, tenant-scoped cache for read-heavy dashboard aggregates
+ * (issue #310 — D1 free-tier read-cost reduction). Authorization surfaces
+ * (Passport ownership, revocation status) are NEVER cached: every auth
+ * decision consults D1 authoritatively and fails closed (D1-Q-04).
+ */
+const DASHBOARD_CACHE_TTL_MS = 45_000;
+const DASHBOARD_CACHE_MAX_ENTRIES = 256;
+const dashboardCache = new Map<string, { expiresAt: number; payload: unknown }>();
+
+function withDashboardCache<T>(key: string, compute: () => Promise<T>): Promise<T> {
+  const now = Date.now();
+  const hit = dashboardCache.get(key);
+  if (hit !== undefined && hit.expiresAt > now) {
+    return Promise.resolve(hit.payload as T);
+  }
+  return compute().then((payload) => {
+    dashboardCache.set(key, { expiresAt: now + DASHBOARD_CACHE_TTL_MS, payload });
+    if (dashboardCache.size > DASHBOARD_CACHE_MAX_ENTRIES) {
+      for (const [k, v] of dashboardCache) {
+        if (v.expiresAt <= now) dashboardCache.delete(k);
+      }
+    }
+    return payload;
+  });
 }
 
 /**
@@ -1614,6 +1692,10 @@ type RevocationLookup =
  * missing, so it is not executed on the steady-state request path.
  */
 async function ensureRevocationSchema(env: WorkerEnv): Promise<void> {
+  // One statement per exec(): the production incident in issue #310 showed
+  // multi-statement DB.exec can fail without applying anything, and the
+  // caller-side silent catch left no trace. Single statements make each DDL
+  // application observable and individually retryable.
   await env.DB.exec(
     `CREATE TABLE IF NOT EXISTS passport_revocations (
        passport_id  TEXT PRIMARY KEY,
@@ -1621,9 +1703,11 @@ async function ensureRevocationSchema(env: WorkerEnv): Promise<void> {
        sequence     INTEGER NOT NULL DEFAULT 1,
        effective_at TEXT NOT NULL,
        created_at   TEXT NOT NULL
-     );
-     CREATE INDEX IF NOT EXISTS idx_passport_revocations_effective_at
-       ON passport_revocations (effective_at);`,
+     )`,
+  );
+  await env.DB.exec(
+    `CREATE INDEX IF NOT EXISTS idx_passport_revocations_effective_at
+       ON passport_revocations (effective_at)`,
   );
 }
 
@@ -1661,7 +1745,8 @@ async function readAuthoritativeRevocation(
     try {
       await ensureRevocationSchema(env);
       return await queryAuthoritativeRevocation(env, passportId);
-    } catch {
+    } catch (err) {
+      logD1Diagnostic('revocation.bootstrap-read', 'passport_revocations', err);
       return { state: 'unavailable' };
     }
   }
@@ -1698,7 +1783,9 @@ async function resolveRevocation(
   if (mirrored === null) return authoritative;
 
   // Backfill the authoritative registry so later reads are strongly consistent.
-  await writeAuthoritativeRevocation(env, mirrored).catch(() => undefined);
+  await writeAuthoritativeRevocation(env, mirrored).catch((err) =>
+    logD1Diagnostic('revocation.kv-backfill', 'passport_revocations', err),
+  );
   return { state: 'present', record: mirrored };
 }
 
@@ -1758,6 +1845,7 @@ type OwnershipLookup =
  * when a query reports the table missing.
  */
 async function ensurePassportOwnershipSchema(env: WorkerEnv): Promise<void> {
+  // Single statements — see ensureRevocationSchema (issue #310).
   await env.DB.exec(
     `CREATE TABLE IF NOT EXISTS passport_issuances (
        passport_id      TEXT PRIMARY KEY,
@@ -1765,9 +1853,11 @@ async function ensurePassportOwnershipSchema(env: WorkerEnv): Promise<void> {
        issuance_digest  TEXT NOT NULL,
        report_id        TEXT,
        created_at       TEXT NOT NULL
-     );
-     CREATE INDEX IF NOT EXISTS idx_passport_issuances_tenant
-       ON passport_issuances (tenant_id);`,
+     )`,
+  );
+  await env.DB.exec(
+    `CREATE INDEX IF NOT EXISTS idx_passport_issuances_tenant
+       ON passport_issuances (tenant_id)`,
   );
 }
 
@@ -1801,7 +1891,8 @@ async function readPassportOwner(
     try {
       await ensurePassportOwnershipSchema(env);
       return await queryPassportOwner(env, passportId);
-    } catch {
+    } catch (err) {
+      logD1Diagnostic('passport-ownership.bootstrap-read', 'passport_issuances', err);
       return { state: 'unavailable' };
     }
   }
