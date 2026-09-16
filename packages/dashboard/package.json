@@ -1,7 +1,7 @@
 {
   "name": "@openagentaudit/dashboard",
   "version": "0.1.0",
-  "description": "OpenAgentAudit dashboard — React + Tailwind SPA served via Cloudflare Workers Static Assets",
+  "description": "OpenAgentAudit dashboard \u2014 React + Tailwind SPA served via Cloudflare Workers Static Assets",
   "license": "Apache-2.0",
   "private": true,
   "type": "module",
@@ -31,5 +31,10 @@
   },
   "wasmagent": {
     "stability": "alpha"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/WasmAgent/open-agent-audit.git",
+    "directory": "packages/dashboard"
   }
 }

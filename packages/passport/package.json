@@ -1,6 +1,6 @@
 {
   "name": "@openagentaudit/passport",
-  "version": "0.7.0",
+  "version": "0.6.2",
   "description": "Trust Passport: signed audit certificates for AI agents",
   "license": "Apache-2.0",
   "type": "module",
@@ -34,5 +34,10 @@
   },
   "devDependencies": {
     "@types/bun": "^1.3.14"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/WasmAgent/open-agent-audit.git",
+    "directory": "packages/passport"
   }
 }
