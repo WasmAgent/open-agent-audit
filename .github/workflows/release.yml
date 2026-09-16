@@ -102,6 +102,12 @@ jobs:
           path: package-digests.jsonl
           retention-days: 90
 
+      # P0-B publish preflight: the firewall that the real Passport 0.7.0
+      # incident bought. Publish must refuse to continue if release
+      # metadata/provenance/pins/frozen-install are not coherent.
+      - name: Release-integrity publish preflight (RI-01..RI-04)
+        run: node scripts/check-release-integrity.mjs --frozen-install
+
       - name: Create Release Pull Request or Publish
         uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d
         with:
