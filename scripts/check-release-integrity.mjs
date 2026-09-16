@@ -97,7 +97,7 @@ export function ri02Violations(baseManifests, headManifests) {
     if (versionLt(head.version, base.version)) {
       violations.push(
         `RI-02 ${file}: version DOWNgraded vs base (${base.version} -> ${head.version}). ` +
-          `Rollbacks revert the original bump commit; they never re-land stale metadata.`,
+          'Rollbacks revert the original bump commit; they never re-land stale metadata.',
       );
     }
   }
@@ -126,7 +126,7 @@ export function ri03Violations(manifests) {
         if (actual !== rangeStr) {
           violations.push(
             `RI-03 ${file}: exact pin ${dep}@${rangeStr} != workspace version ${actual} — ` +
-              `stale exact pins are release-integrity regressions`,
+              'stale exact pins are release-integrity regressions',
           );
         }
       }
@@ -275,13 +275,19 @@ if (args.includes("--self-test")) {
     console.log(`${r4.ok ? "PASS" : "FAIL"} RI-04 frozen install: ${r4.detail}`);
     if (!r4.ok) violations.push("RI-04");
   } else {
-    ri01Violations(head).forEach((v) => violations.push(v));
+    ri01Violations(head).forEach((v) => {
+      violations.push(v);
+    });
 
     if (base !== undefined) {
       const baseM = collectManifests(base);
-      ri02Violations(baseM, head).forEach((v) => violations.push(v));
+      ri02Violations(baseM, head).forEach((v) => {
+      violations.push(v);
+    });
     }
-    ri03Violations(head).forEach((v) => violations.push(v));
+    ri03Violations(head).forEach((v) => {
+      violations.push(v);
+    });
 
     const r4 = (() => {
       const res = spawnSync("bun", ["install", "--frozen-lockfile"], { encoding: "utf8" });
@@ -301,7 +307,9 @@ if (args.includes("--self-test")) {
     if (branch.startsWith("changeset-release/")) {
       try {
         const mainManifests = collectManifests("origin/main");
-        ri02Violations(mainManifests, head).forEach((v) => violations.push(v));
+        ri02Violations(mainManifests, head).forEach((v) => {
+      violations.push(v);
+    });
         console.log("PASS RI-05 release-head coherence checked vs origin/main");
       } catch (error) {
         console.log(`WARN RI-05 main comparison skipped: ${String(error).slice(0, 120)}`);
